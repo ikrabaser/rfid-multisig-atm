@@ -191,7 +191,7 @@ void personelKarar(const String &talepId, const String &uid) {
     return;
   }
 
-  ekran(S("A:Onayla B:Reddet"), S("*:Iptal"));
+  ekran(S("A:Onayla B:Red"), S("*:Iptal"));
   char t = 0;
   unsigned long bas = millis();
   while (millis() - bas < 10000UL) {
@@ -279,7 +279,7 @@ void onayBekle(const String &talepId, const String &tutar) {
         return;
       }
       satirYaz(0, S("Onay ") + verilen + "/" + gereken + " " + kalan + "sn");
-      satirYaz(1, ust ? S("Ust yetkili lazim") : S("Yetkili kart oku"));
+      satirYaz(1, ust ? S("Ust rol gerekli") : S("Yetkili kart oku"));
     }
     if (kartOku(uid)) {
       personelKarar(talepId, uid);
