@@ -31,6 +31,10 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Kasa dairesi açma**: 3 onay + müdür, sonra röle | `kasa_acma_baslat`, firmware | yetkili kartı, "A:Kasa ac" |
 | **PIN trafiği için HTTPS** + düz HTTP koruması | `https_sunucu.py`, köprü | aşağıda "HTTPS" |
 | **HMAC'li hash zinciri** denetim kaydı | `hashlog.py` | `python manage.py log_dogrula` |
+| **Çoklu terminal** + "imkânsız seyahat" kuralı | `Terminal`, `anomali.py` | admin panelinden terminal ekle |
+| **Kuruş desteği** (klavyede `C` tuşu ondalık noktası) | firmware, `_tutar_coz` | `100.50` yaz |
+| **Çevrimdışı günlük kuyruğu** (store-and-forward) | köprü, `terminal.py` | sunucuyu kapatıp terminali dene |
+| **Bildirimler** (e-posta + SMS simülasyonu) | `bildirim.py` | talep açılınca yetkililere gider |
 
 ## Klasör yapısı
 
@@ -43,6 +47,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
 | `backend/banka/anomali.py` | Log üzerinde anomali kuralları |
 | `backend/banka/hashlog.py` | Hash zinciri ekleme ve doğrulama |
+| `backend/banka/terminal.py` | Terminal doğrulama, çevrimdışı günlüğün yüklenmesi |
+| `backend/banka/bildirim.py` | E-posta ve SMS (simülasyon) bildirimleri |
+| `backend/banka/baglam.py` | İsteğin terminalini log katmanına taşıyan bağlam |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
 | `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
 | `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
@@ -71,12 +78,15 @@ admin panelinden (`/admin/`) gir.
 > `makemigrations`, `migrate`, `seed_demo` komutlarını tekrar çalıştır. Eski bakiyelerin açılış kaydı olmadığı için
 > mutabakat fark gösterirdi.
 
+> Mevcut veritabanın varsa silmene gerek yok: `makemigrations` yeni bir migration (`0003_...`) üretir, `migrate` uygular,
+> `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar.
+
 İkinci terminalde köprü:
 
 ```bat
 cd bridge
 pip install -r requirements.txt
-python serial_bridge.py --port COM3
+python serial_bridge.py --port COM3 --terminal ATM-01
 ```
 
 Bir kartın UID'sini öğrenmek için kartı terminale okut; köprü satırı `KART|c518cc4f -> TIP` diye yazdırır.
@@ -241,9 +251,12 @@ python manage.py anomali_tara --saat 24        :: yüksek ciddiyette bulgu varsa
 | `bloke_kart_denemesi` | orta | Bloke kimlikle ısrarlı deneme |
 | `hizli_talep` | orta | Aynı hesapta 10 dk içinde 3+ onay talebi |
 | `gece_yetkili_islemi` | orta / yüksek | 00:00–05:00 arasında onay ya da kasa açma |
+| `imkansiz_seyahat` | yüksek | Aynı kart/yetkili, kısa sürede birbirine uzak iki terminalde (varsayılan eşik 150 km/sa) |
+| `farkli_terminal_kisa_surede` | orta | Terminal konumu bilinmiyorsa: aynı kimlik 2 dk içinde iki terminalde |
+| `uzun_cevrimdisi` | orta | Terminal 30 dk'dan uzun çevrimdışı kaldı (terminalin kendi beyanı) |
 
-Kurallar hash zincirli logdaki olaylara bakar, bulgular panelin üstünde görünür. Tek terminal olduğu için "imkânsız
-seyahat" gibi kurallar yok; birden çok terminal eklenirse log olaylarına terminal kimliği konup eklenebilir.
+Kurallar hash zincirli logdaki olaylara bakar, bulgular panelin üstünde görünür. Kimlik başına son görüldüğü terminal tutulur; terminal koordinatları varsa haversine mesafesi ve hız hesaplanır.
+`python manage.py anomali_tara --bildir` yüksek ciddiyetteki bulguları müdür yardımcısı ve üstüne bildirir.
 
 ## HTTPS (PIN trafiği)
 
@@ -285,6 +298,74 @@ ONAY|1|b0b0b005|5555|E            <- UYGULANDI
 KASAAC|b0b0b001|1111              <- BEKLE|2|3   (kasa dairesi açma talebi)
 ONAY|2|b0b0b002|2222|E            ... Burak, Cem, Elif onaylar; Ayşe kendi talebini onaylayamaz
 ```
+
+## Terminaller ve imkânsız seyahat
+
+Her köprü kendini `--terminal ATM-01` ile tanıtır (`X-Terminal-Id` başlığı). Terminaller admin panelinde tanımlıdır
+(kod, ad, enlem, boylam); tanımsız ya da kapatılmış terminal `403` alır, başlık yoksa `ATM-01` varsayılır.
+Terminal kodu **her denetim kaydına** ve `Islem.terminal` alanına yazılır (hash zincirine de girer).
+
+`seed_demo` iki terminal ekler: `ATM-01` (Ankara) ve `ATM-02` (İstanbul), aralarında yaklaşık 350 km var.
+Aynı kartı iki terminalde birkaç saniye arayla kullanırsan `imkansiz_seyahat` alarmı çıkar. Birbirine 1 km'den yakın
+terminaller aynı şube sayılır. Kasa açma talebini başlatan terminalin röle kilidi açılır, çünkü yalnızca talebi başlatan
+terminal onu sorgular.
+
+## Kuruş
+
+Klavyede tutar girerken `C` tuşu ondalık noktasıdır (en fazla 2 hane): `1 0 0 C 5` → `100.5` → `100,50 TL`.
+Sunucu nokta ve virgülü kabul eder, 3. ondalık haneyi **reddeder** (sessizce yuvarlamaz) ve `1,000.50` gibi
+belirsiz binlik ayraçlarını da reddeder. Defter kuruşla dengeli kalır.
+
+## Çevrimdışı davranış
+
+Terminal sunucuya ulaşamazsa **para işlemi yapılmaz** ("Sunucu kapali"). Bu bilinçli bir sınırdır: PIN doğrulayıcıları
+ve bakiyeler yalnızca sunucuda durur. Terminale koymak, "PIN'i Arduino'da hash'lemiyoruz" kararıyla çelişirdi ve
+çevrimdışı bir çekimi kimse denetleyemezdi.
+
+Bunun yerine köprü **store-and-forward günlük** tutar (`bridge/cevrimdisi_kuyruk.jsonl`):
+
+```mermaid
+sequenceDiagram
+    participant A as Arduino
+    participant K as Köprü
+    participant S as Django
+    A->>K: KART veya ISLEM
+    K-x S: istek (sunucu kapalı)
+    K-->>A: HATA, Sunucu kapali
+    K->>K: günlüğe yaz: çevrimdışı başladı, istek (PIN, token, tutar yok)
+    Note over K,S: sunucu geri gelir
+    A->>K: KART
+    K->>S: istek
+    S-->>K: cevap
+    K->>S: günlüğü yükle (benzersiz kimlikli satırlar)
+    S->>S: yeni satırları kaydet ve hash zincirine ekle
+```
+
+- Köprü sunucuya bağlanamayınca 5 sn boyunca hiç denemeden "kapalı" der (devre kesici), Arduino beklemez.
+- Günlüğe yalnızca olay türü, komut adı ve kart UID'si yazılır. **PIN, token ve tutar yazılmaz.**
+- Her satırın benzersiz kimliği vardır; yükleme cevabı kaybolup yeniden gönderilse bile sunucuda bir kez kaydedilir.
+- Satırdaki zaman **terminalin beyanıdır**: 7 günden eskiyse ya da gelecekteyse `zaman_guvenilir=false` olarak işaretlenir.
+- Cevap gecikirse (bağlantı var, yanıt yok) terminal çevrimdışı sayılmaz: istek uygulanmış olabilir, Arduino aynı
+  idempotency anahtarıyla tekrar dener.
+- Dosya 1000 satırı geçmez (en eskiler atılır).
+
+Çevrimdışıyken bile işlem yapılabilen bir "stand-in" mod (önceden yetkilendirilmiş küçük limit) bilinçli olarak yok; bkz. sıradaki fikirler.
+
+## Bildirimler
+
+| Olay | Kime | Kanal |
+|---|---|---|
+| Onay talebi açıldı (çekme/havale ya da kasa açma) | Aktif yetkililer, **talebi başlatan hariç** | e-posta + SMS |
+| Kasa dairesi açıldı | Müdür yardımcısı ve üstü | e-posta + SMS |
+| Yüksek ciddiyetli anomali (`anomali_tara --bildir`) | Müdür yardımcısı ve üstü, aynı bulgu 6 saatte bir | e-posta + SMS |
+
+- E-posta Django'nun e-posta altyapısıyla gider; varsayılan olarak **konsola yazar**. Gerçek SMTP için
+  `DJANGO_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend` ve `EMAIL_HOST` gibi ayarları ver.
+- **SMS gerçek değildir**: kayıt `SMS (simülasyon)` olarak tutulur ve loga yazılır; gerçek bir sağlayıcı bağlı değil.
+- Yetkililerin e-posta ve telefonu admin panelinde (`Personel`) girilir. Demo adresleri `.example` uzantılıdır, gerçek değildir.
+- Bildirim hatası **işlemi bozmaz**: hata `Bildirim` tablosuna `BASARISIZ` olarak yazılır. Bildirimler işlem
+  commit edildikten sonra gönderilir. Panelde "Son bildirimler" bölümü var.
+- Bloke ya da pasif yetkililere bildirim gitmez.
 
 ## Hash zinciri
 
@@ -331,7 +412,8 @@ Tam liste `atm_terminal.ino` dosyasının başındaki yorumda. Özet:
 | `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur` |
 | `ONAY\|talepId\|uid\|pin\|E/H` | `ONAY\|verilen\|gereken\|durum` |
 
-Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter).
+Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter). `HATA|Sunucu...` ile başlayan hatalarda terminal `ISLEM`i
+aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içerebilir (`100.50`).
 
 ## Bilinen sınırlar
 
@@ -345,7 +427,8 @@ Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter).
 
 ## Sıradaki fikirler
 
-1. Log olaylarına terminal kimliği ekleyip birden çok terminalle "imkânsız seyahat" kuralı.
+1. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
 2. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
-3. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
-4. Terminalde çevrimdışı kuyruk ve kuruş desteği.
+3. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir; çevrimdışı çekim bu limitle sınırlı olur.
+4. Gerçek bir SMS sağlayıcısı ve onay talebine bildirimden yanıt verme.
+5. GitHub Actions ile her push'ta `python manage.py test`.
