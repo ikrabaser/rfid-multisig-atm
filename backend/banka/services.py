@@ -1,23 +1,27 @@
-"""Is mantigi: PIN, oturum, islem, politika, onay akisi.
+"""Is mantigi: PIN, oturum, islem, politika, onay akisi, defter, kasa acma.
 
-Kural: Veritabanini degistiren her sey islem_*/onay_* fonksiyonlarindan gecer ve
-denetim loguna (hash zinciri) yazilir. Hata (IslemHatasi) firlatilmadan ONCE
-yazilan loglar kaybolmasin diye hatalar atomic bloklarin DISINDA firlatilir.
+Kural: Veritabanini degistiren her sey bu modulden gecer ve denetim loguna (hash zinciri)
+yazilir. Hata (IslemHatasi) firlatilmadan ONCE yazilan loglar kaybolmasin diye hatalar
+atomic bloklarin DISINDA firlatilir.
 """
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
-from django.db.models import Q
+from django.db import IntegrityError, transaction
+from django.db.models import Q, Sum
 from django.utils import timezone
 
+from . import ledger
 from .hashlog import kayit_ekle
-from .models import (Hesap, Islem, Kart, Onay, OnayTalebi, Personel, Politika, Rol,
-                     uid_duzelt)
+from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
+                     Rol, uid_duzelt)
 
 TOKEN_TUZU = "banka.musteri-oturumu"
+MUSTERI_ISLEMLERI = {"CEKME", "YATIRMA", "HAVALE"}
+ANAHTAR_DESENI = re.compile(r"[A-Za-z0-9_-]{1,40}")
 
 
 class IslemHatasi(Exception):
@@ -130,6 +134,22 @@ def _tutar_coz(tutar):
     return t
 
 
+def _anahtar_coz(anahtar):
+    if anahtar in (None, ""):
+        return None
+    anahtar = str(anahtar).strip()
+    if not ANAHTAR_DESENI.fullmatch(anahtar):
+        raise IslemHatasi("Geçersiz işlem anahtarı", "anahtar")
+    return anahtar
+
+
+def _kasa_hesabi():
+    kasa = Hesap.objects.filter(tur=Hesap.Tur.KASA).first()
+    if kasa is None:
+        raise IslemHatasi("Kasa hesabı tanımlı değil", "kasa")
+    return kasa
+
+
 def mesai_disi_mi(an=None):
     yerel = timezone.localtime(an or simdi())
     if yerel.weekday() >= 5:
@@ -167,40 +187,117 @@ def gerekli_onay(tutar, an=None):
     return gereken, en_az
 
 
-def islem_baslat(token, tur, tutar, hedef_hesap_no=None):
+def gunluk_toplam(hesap, an=None):
+    """Bugun (yerel saat) bu hesaptan cikan ya da cikmak uzere bekleyen cekme/havale toplami."""
+    yerel = timezone.localtime(an or simdi())
+    gun_basi = yerel.replace(hour=0, minute=0, second=0, microsecond=0)
+    toplam = Islem.objects.filter(
+        hesap=hesap,
+        tur__in=[Islem.Tur.CEKME, Islem.Tur.HAVALE],
+        durum__in=[Islem.Durum.UYGULANDI, Islem.Durum.ONAY_BEKLIYOR],
+        olusturma__gte=gun_basi,
+    ).aggregate(t=Sum("tutar"))["t"]
+    return toplam or Decimal("0.00")
+
+
+def _islem_sonucu(islem, tekrar=False):
+    """Mevcut bir islemin durumunu, islem_baslat cevabi bicimine cevirir."""
+    if islem.durum == Islem.Durum.ONAY_BEKLIYOR:
+        talep_durumu(islem.talep.id)  # suresi dolduysa burada kapanir
+        islem.refresh_from_db()
+    if islem.durum in (Islem.Durum.UYGULANDI, Islem.Durum.BASARISIZ):
+        hesap = Hesap.objects.get(id=islem.hesap_id)
+        return {"durum": "uygulandi", "islem_id": islem.id, "bakiye": para(hesap.bakiye),
+                "basarili": islem.durum == Islem.Durum.UYGULANDI, "tekrar": tekrar}
+    if islem.durum == Islem.Durum.ONAY_BEKLIYOR:
+        return {"durum": "onay_bekliyor", "talep_id": islem.talep.id, "islem_id": islem.id,
+                "gereken": islem.talep.gereken_onay, "tekrar": tekrar}
+    if islem.durum == Islem.Durum.REDDEDILDI:
+        raise IslemHatasi("İşlem reddedildi", "reddedildi")
+    if islem.durum == Islem.Durum.SURESI_DOLDU:
+        raise IslemHatasi("Onay süresi doldu", "sure")
+    raise IslemHatasi("İşlem durumu belirsiz", "durum")
+
+
+def _tekrar_istegi(islem, tur, tutar, hedef_hesap_no):
+    """Ayni idempotency anahtariyla gelen istek: ayni islemse eski sonucu dondur."""
+    ayni_hedef = (
+        (islem.hedef_hesap.hesap_no if islem.hedef_hesap_id else "")
+        == (hedef_hesap_no or "").strip()
+    )
+    if islem.tur != tur or islem.tutar != tutar or not ayni_hedef:
+        kayit_ekle("anahtar_cakismasi", {"islem_id": islem.id, "anahtar": islem.anahtar})
+        raise IslemHatasi("Aynı anahtar farklı işlemle kullanılamaz", "anahtar")
+    kayit_ekle("tekrar_istek", {"islem_id": islem.id, "anahtar": islem.anahtar})
+    return _islem_sonucu(islem, tekrar=True)
+
+
+def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
+    """Musteri islemi baslatir.
+
+    anahtar (idempotency): ayni (hesap, anahtar) ciftiyle gelen tekrar istek yeni islem
+    olusturmaz, ilk islemin sonucunu dondurur. Ag kopup istek iki kez gelse bile para
+    iki kez cekilmez.
+    """
     kart = _token_coz(token)
     hesap = kart.hesap
     tur = (tur or "").upper()
-    if tur not in Islem.Tur.values:
+    if tur not in MUSTERI_ISLEMLERI:
         raise IslemHatasi("Geçersiz işlem türü", "tur")
     tutar = _tutar_coz(tutar)
+    anahtar = _anahtar_coz(anahtar)
+
+    if anahtar:
+        onceki = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
+        if onceki:
+            return _tekrar_istegi(onceki, tur, tutar, hedef_hesap_no)
 
     hedef = None
     if tur == Islem.Tur.HAVALE:
-        hedef = Hesap.objects.filter(hesap_no=(hedef_hesap_no or "").strip()).first()
+        hedef = Hesap.objects.filter(hesap_no=(hedef_hesap_no or "").strip(), tur=Hesap.Tur.MUSTERI).first()
         if hedef is None:
             raise IslemHatasi("Hedef hesap bulunamadı", "hedef")
         if hedef.id == hesap.id:
             raise IslemHatasi("Kendi hesabınıza havale olmaz", "hedef")
 
+    gereken, en_az = 0, int(Rol.GOREVLI)
     if tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE):
         hesap.refresh_from_db()
         if hesap.bakiye < tutar:
             kayit_ekle("islem_reddi_bakiye", {"hesap_no": hesap.hesap_no, "tur": tur, "tutar": para(tutar)})
             raise IslemHatasi("Yetersiz bakiye", "bakiye")
+        if tur == Islem.Tur.CEKME and _kasa_hesabi().bakiye < tutar:
+            kayit_ekle("islem_reddi_nakit", {"hesap_no": hesap.hesap_no, "tutar": para(tutar)})
+            raise IslemHatasi("ATM'de yeterli nakit yok", "nakit")
+        kullanilan = gunluk_toplam(hesap)
+        if kullanilan + tutar > hesap.gunluk_limit:
+            kalan = max(Decimal("0.00"), hesap.gunluk_limit - kullanilan)
+            kayit_ekle("islem_reddi_limit", {"hesap_no": hesap.hesap_no, "tutar": para(tutar),
+                                             "kalan_limit": para(kalan)})
+            raise IslemHatasi("Günlük limit aşıldı", "limit", kalan_limit=para(kalan))
         gereken, en_az = gerekli_onay(tutar)
-    else:
-        gereken, en_az = 0, int(Rol.GOREVLI)
+    elif tur == Islem.Tur.YATIRMA:
+        _kasa_hesabi()
 
     with transaction.atomic():
-        islem = Islem.objects.create(
-            hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar, baslatan_uid=kart.uid
-        )
+        try:
+            with transaction.atomic():
+                islem = Islem.objects.create(
+                    hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar,
+                    baslatan_uid=kart.uid, anahtar=anahtar,
+                )
+        except IntegrityError:
+            # Ayni anahtarla es zamanli ikinci istek: ilk islemin sonucunu ver
+            onceki = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
+            if onceki is None:
+                raise
+            return _tekrar_istegi(onceki, tur, tutar, hedef_hesap_no)
+
         if gereken == 0:
             _uygula(islem)
             hesap.refresh_from_db()
             return {"durum": "uygulandi", "islem_id": islem.id, "bakiye": para(hesap.bakiye),
-                    "basarili": islem.durum == Islem.Durum.UYGULANDI}
+                    "basarili": islem.durum == Islem.Durum.UYGULANDI, "tekrar": False}
 
         talep = OnayTalebi.objects.create(
             islem=islem,
@@ -214,40 +311,111 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None):
             "talep_id": talep.id, "islem_id": islem.id, "tur": tur, "tutar": para(tutar),
             "hesap_no": hesap.hesap_no, "gereken_onay": gereken, "en_az_rol": en_az,
         })
-    return {"durum": "onay_bekliyor", "talep_id": talep.id, "islem_id": islem.id, "gereken": gereken}
+    return {"durum": "onay_bekliyor", "talep_id": talep.id, "islem_id": islem.id,
+            "gereken": gereken, "tekrar": False}
 
 
 def _uygula(islem):
-    """Bakiyeleri degistirir. transaction.atomic() ICINDE cagrilmali."""
-    idler = sorted({i for i in (islem.hesap_id, islem.hedef_hesap_id) if i})
+    """Defter hareketlerini yazar, bakiyeleri gunceller. transaction.atomic() ICINDE cagrilmali."""
+    if islem.tur == Islem.Tur.KASA_ACMA:
+        islem.durum = Islem.Durum.UYGULANDI
+        islem.tamamlanma = simdi()
+        islem.save(update_fields=["durum", "tamamlanma"])
+        kayit_ekle("kasa_acildi", {"islem_id": islem.id, "baslatan_uid": islem.baslatan_uid})
+        return True
+
+    kasa_id = None
+    if islem.tur in (Islem.Tur.CEKME, Islem.Tur.YATIRMA):
+        kasa = Hesap.objects.filter(tur=Hesap.Tur.KASA).first()
+        kasa_id = kasa.id if kasa else None
+
+    idler = sorted({i for i in (islem.hesap_id, islem.hedef_hesap_id, kasa_id) if i})
     kilitli = {h.id: h for h in Hesap.objects.select_for_update().filter(id__in=idler).order_by("id")}
     kaynak = kilitli[islem.hesap_id]
+    tutar = islem.tutar
+    Y = HesapHareketi.Yon
 
-    if islem.tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE):
-        if kaynak.bakiye < islem.tutar:
-            islem.durum = Islem.Durum.BASARISIZ
-            islem.tamamlanma = simdi()
-            islem.save(update_fields=["durum", "tamamlanma"])
-            kayit_ekle("islem_basarisiz", {"islem_id": islem.id, "sebep": "yetersiz bakiye"})
-            return False
-        kaynak.bakiye -= islem.tutar
-        if islem.tur == Islem.Tur.HAVALE:
-            hedef = kilitli[islem.hedef_hesap_id]
-            hedef.bakiye += islem.tutar
-            hedef.save(update_fields=["bakiye"])
-    else:
-        kaynak.bakiye += islem.tutar
+    basarisizlik = None
+    if islem.tur == Islem.Tur.CEKME:
+        if kasa_id is None:
+            basarisizlik = "kasa hesabı yok"
+        elif kaynak.bakiye < tutar:
+            basarisizlik = "yetersiz bakiye"
+        elif kilitli[kasa_id].bakiye < tutar:
+            basarisizlik = "kasada nakit yok"
+    elif islem.tur == Islem.Tur.YATIRMA:
+        if kasa_id is None:
+            basarisizlik = "kasa hesabı yok"
+    elif islem.tur == Islem.Tur.HAVALE:
+        if kaynak.bakiye < tutar:
+            basarisizlik = "yetersiz bakiye"
+
+    if basarisizlik:
+        islem.durum = Islem.Durum.BASARISIZ
+        islem.tamamlanma = simdi()
+        islem.save(update_fields=["durum", "tamamlanma"])
+        kayit_ekle("islem_basarisiz", {"islem_id": islem.id, "sebep": basarisizlik})
+        return False
+
+    if islem.tur == Islem.Tur.CEKME:
+        kasa = kilitli[kasa_id]
+        ledger.hareket_ekle(islem, kaynak, Y.BORC, tutar)
+        ledger.hareket_ekle(islem, kasa, Y.ALACAK, tutar)
+        kasa.save(update_fields=["bakiye"])
+    elif islem.tur == Islem.Tur.YATIRMA:
+        kasa = kilitli[kasa_id]
+        ledger.hareket_ekle(islem, kasa, Y.BORC, tutar)
+        ledger.hareket_ekle(islem, kaynak, Y.ALACAK, tutar)
+        kasa.save(update_fields=["bakiye"])
+    else:  # HAVALE
+        hedef = kilitli[islem.hedef_hesap_id]
+        ledger.hareket_ekle(islem, kaynak, Y.BORC, tutar)
+        ledger.hareket_ekle(islem, hedef, Y.ALACAK, tutar)
+        hedef.save(update_fields=["bakiye"])
     kaynak.save(update_fields=["bakiye"])
 
     islem.durum = Islem.Durum.UYGULANDI
     islem.tamamlanma = simdi()
     islem.save(update_fields=["durum", "tamamlanma"])
     kayit_ekle("islem_uygulandi", {
-        "islem_id": islem.id, "tur": islem.tur, "tutar": para(islem.tutar),
+        "islem_id": islem.id, "tur": islem.tur, "tutar": para(tutar),
         "hesap_no": kaynak.hesap_no, "yeni_bakiye": para(kaynak.bakiye),
         "hedef_hesap_id": islem.hedef_hesap_id,
     })
     return True
+
+
+# ------------------------------------------------------------------ kasa dairesi
+
+def kasa_acma_baslat(uid, pin):
+    """Yetkili, kasa dairesini acmak icin onay talebi baslatir.
+
+    Kural ayarlardan gelir (KASA_ACMA_GEREKEN_ONAY, KASA_ACMA_EN_AZ_ROL). Talebi baslatan
+    kendi talebini onaylayamaz; bu yuzden onaylayabilecek yeterli baska yetkili de olmali.
+    """
+    personel = personel_dogrula(uid, pin)
+    kasa = _kasa_hesabi()
+    gereken = int(settings.KASA_ACMA_GEREKEN_ONAY)
+    en_az = int(settings.KASA_ACMA_EN_AZ_ROL)
+    adaylar = Personel.objects.filter(aktif=True, bloke=False).exclude(id=personel.id)
+    if gereken > adaylar.count() or not adaylar.filter(rol__gte=en_az).exists():
+        kayit_ekle("kasa_acma_reddi", {"personel_id": personel.id, "sebep": "yeterli onaylayici yok"})
+        raise IslemHatasi("Yeterli yetkili yok", "yetkili_yok")
+
+    with transaction.atomic():
+        islem = Islem.objects.create(
+            hesap=kasa, tur=Islem.Tur.KASA_ACMA, tutar=Decimal("0.00"),
+            baslatan_uid=personel.kart_uid, durum=Islem.Durum.ONAY_BEKLIYOR,
+        )
+        talep = OnayTalebi.objects.create(
+            islem=islem, gereken_onay=gereken, en_az_rol=en_az,
+            son_tarih=simdi() + timedelta(seconds=settings.ONAY_PENCERESI_SN),
+        )
+        kayit_ekle("kasa_acma_talebi", {
+            "talep_id": talep.id, "islem_id": islem.id, "baslatan_personel_id": personel.id,
+            "gereken_onay": gereken, "en_az_rol": en_az,
+        })
+    return {"durum": "onay_bekliyor", "talep_id": talep.id, "islem_id": islem.id, "gereken": gereken}
 
 
 # ------------------------------------------------------------------ onay akisi

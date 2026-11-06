@@ -29,6 +29,18 @@
     <div class="kotu">ZİNCİR BOZUK: {{ zincir.bozuk_sira }}. kayıtta. {{ zincir.sebep }}</div>
   {% endif %}
 
+  <h2>Anomali uyarıları (son 24 saat)</h2>
+  {% if anomaliler %}
+    <table>
+      <tr><th>Ciddiyet</th><th>Kural</th><th>Açıklama</th></tr>
+      {% for a in anomaliler %}
+        <tr><td>{{ a.ciddiyet }}</td><td>{{ a.kural }}</td><td>{{ a.aciklama }}</td></tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="ok">Anomali bulunamadı.</div>
+  {% endif %}
+
   <h2>Bekleyen onaylar</h2>
   <table>
     <tr><th>Talep</th><th>Tür</th><th>Tutar</th><th>Hesap</th><th>Gereken</th><th>En az rol</th><th>Son tarih</th></tr>
@@ -64,11 +76,22 @@
     {% endfor %}
   </table>
 
+  <h2>Defter hareketleri (çift taraflı)</h2>
+  <table>
+    <tr><th>İşlem</th><th>Hesap</th><th>Yön</th><th>Tutar</th><th>Bakiye sonrası</th></tr>
+    {% for h in hareketler %}
+      <tr><td>#{{ h.islem_id }}</td><td>{{ h.hesap.hesap_no }}</td><td>{{ h.get_yon_display }}</td>
+          <td>{{ h.tutar }}</td><td>{{ h.bakiye_sonrasi }}</td></tr>
+    {% empty %}
+      <tr><td colspan="5">Henüz hareket yok.</td></tr>
+    {% endfor %}
+  </table>
+
   <h2>Hesaplar</h2>
   <table>
-    <tr><th>Hesap no</th><th>Müşteri</th><th>Bakiye</th></tr>
+    <tr><th>Hesap no</th><th>Tür</th><th>Müşteri</th><th>Bakiye</th><th>Günlük limit</th></tr>
     {% for h in hesaplar %}
-      <tr><td>{{ h.hesap_no }}</td><td>{{ h.musteri.ad }}</td><td>{{ h.bakiye }}</td></tr>
+      <tr><td>{{ h.hesap_no }}</td><td>{{ h.get_tur_display }}</td><td>{{ h.musteri.ad }}</td><td>{{ h.bakiye }}</td><td>{{ h.gunluk_limit }}</td></tr>
     {% endfor %}
   </table>
 

@@ -22,6 +22,8 @@ def kopru_endpoint(fn):
     @require_http_methods(["POST"])
     @wraps(fn)
     def sarmal(request, *args, **kwargs):
+        if settings.API_SADECE_HTTPS and not request.is_secure():
+            return _hata("HTTPS gerekli", "https", 403)
         anahtar = request.headers.get("X-Kopru-Anahtari", "")
         if not hmac.compare_digest(anahtar, settings.KOPRU_API_ANAHTARI):
             return _hata("Yetkisiz", "yetkisiz", 401)
@@ -57,7 +59,12 @@ def bakiye(g):
 
 @kopru_endpoint
 def islem(g):
-    return services.islem_baslat(g.get("token"), g.get("tur"), g.get("tutar"), g.get("hedef"))
+    return services.islem_baslat(g.get("token"), g.get("tur"), g.get("tutar"), g.get("hedef"), g.get("anahtar"))
+
+
+@kopru_endpoint
+def kasa_ac(g):
+    return services.kasa_acma_baslat(g.get("uid"), g.get("pin"))
 
 
 @kopru_endpoint

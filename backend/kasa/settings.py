@@ -88,3 +88,14 @@ OTURUM_SURESI_SN = 120     # musteri oturum token'i omru
 MESAI_DISI_KURALI = _env_bool("MESAI_DISI_KURALI", True)
 MESAI_BASLANGIC = 9
 MESAI_BITIS = 18
+
+# Kasa dairesi acma: kac yetkili ve en az hangi rol (3 = Mudur). Talebi baslatan sayilmaz.
+KASA_ACMA_GEREKEN_ONAY = 3
+KASA_ACMA_EN_AZ_ROL = 3
+
+# HTTPS: DJANGO_HTTPS=1 ise API yalnizca HTTPS kabul eder (PIN trafigi duz HTTP ile gitmesin)
+# ve oturum/CSRF cerezleri yalnizca HTTPS ile gonderilir. Gelistirme icin: https_sunucu.py
+API_SADECE_HTTPS = _env_bool("DJANGO_HTTPS", False)
+if API_SADECE_HTTPS:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

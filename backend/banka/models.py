@@ -50,9 +50,21 @@ class Musteri(models.Model):
 
 
 class Hesap(models.Model):
+    """Hesap bakiyesi `bakiye` alaninda onbellek olarak durur; gercek kaynak defter
+    hareketleridir (HesapHareketi). Fark olursa gun_sonu_mutabakat komutu yakalar."""
+
+    class Tur(models.TextChoices):
+        MUSTERI = "MUSTERI", "Müşteri hesabı"
+        KASA = "KASA", "Banka nakit kasası"
+
     musteri = models.ForeignKey(Musteri, on_delete=models.PROTECT, related_name="hesaplar")
     hesap_no = models.CharField("Hesap no", max_length=6, unique=True)
+    tur = models.CharField(max_length=8, choices=Tur.choices, default=Tur.MUSTERI)
+    acilis_bakiyesi = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     bakiye = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    gunluk_limit = models.DecimalField(
+        "Günlük çekme/havale limiti", max_digits=14, decimal_places=2, default=Decimal("1000000.00")
+    )
 
     class Meta:
         verbose_name = "Hesap"
@@ -128,6 +140,7 @@ class Islem(models.Model):
         CEKME = "CEKME", "Para çekme"
         YATIRMA = "YATIRMA", "Para yatırma"
         HAVALE = "HAVALE", "Havale"
+        KASA_ACMA = "KASA_ACMA", "Kasa dairesi açma"
 
     class Durum(models.TextChoices):
         HAZIR = "HAZIR", "Hazır"
@@ -145,6 +158,9 @@ class Islem(models.Model):
     tutar = models.DecimalField(max_digits=14, decimal_places=2)
     durum = models.CharField(max_length=15, choices=Durum.choices, default=Durum.HAZIR)
     baslatan_uid = models.CharField(max_length=20)
+    anahtar = models.CharField(
+        "Idempotency anahtarı", max_length=40, null=True, blank=True
+    )
     olusturma = models.DateTimeField(auto_now_add=True)
     tamamlanma = models.DateTimeField(null=True, blank=True)
 
@@ -152,9 +168,55 @@ class Islem(models.Model):
         verbose_name = "İşlem"
         verbose_name_plural = "İşlemler"
         ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["hesap", "anahtar"],
+                condition=models.Q(anahtar__isnull=False),
+                name="islem_anahtari_tekil",
+            ),
+        ]
 
     def __str__(self):
         return f"#{self.id} {self.tur} {self.tutar} [{self.durum}]"
+
+
+class HesapHareketi(models.Model):
+    """Çift taraflı defter satırı. Her işlemde borç toplamı = alacak toplamı.
+
+    Müşteri hesabı (yükümlülük): alacak bakiyeyi artırır, borç azaltır.
+    Kasa hesabı (varlık)       : borç bakiyeyi artırır, alacak azaltır.
+    Eklenir, değiştirilmez, silinmez.
+    """
+
+    class Yon(models.TextChoices):
+        BORC = "BORC", "Borç"
+        ALACAK = "ALACAK", "Alacak"
+
+    islem = models.ForeignKey(Islem, on_delete=models.PROTECT, related_name="hareketler")
+    hesap = models.ForeignKey(Hesap, on_delete=models.PROTECT, related_name="hareketler")
+    yon = models.CharField(max_length=6, choices=Yon.choices)
+    tutar = models.DecimalField(max_digits=14, decimal_places=2)
+    bakiye_sonrasi = models.DecimalField(max_digits=14, decimal_places=2)
+    zaman = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Defter hareketi"
+        verbose_name_plural = "Defter hareketleri"
+        ordering = ["-id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(tutar__gt=0), name="hareket_tutari_pozitif"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValidationError("Defter hareketleri değiştirilemez.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Defter hareketleri silinemez.")
+
+    def __str__(self):
+        return f"işlem #{self.islem_id} {self.hesap.hesap_no} {self.yon} {self.tutar}"
 
 
 class OnayTalebi(models.Model):

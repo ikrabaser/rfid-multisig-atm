@@ -1,9 +1,9 @@
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render
 
-from . import services
+from . import anomali, services
 from .hashlog import zinciri_dogrula
-from .models import Hesap, Islem, LogKaydi, OnayTalebi
+from .models import Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi
 
 
 @staff_member_required
@@ -17,5 +17,7 @@ def panel(request):
         "islemler": Islem.objects.select_related("hesap", "hedef_hesap")[:15],
         "hesaplar": Hesap.objects.select_related("musteri"),
         "loglar": LogKaydi.objects.order_by("-sira")[:15],
+        "hareketler": HesapHareketi.objects.select_related("hesap")[:12],
+        "anomaliler": anomali.tara(),
     }
     return render(request, "banka/panel.html", baglam)

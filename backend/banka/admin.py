@@ -1,8 +1,8 @@
 from django import forms
 from django.contrib import admin
 
-from .models import (Hesap, Islem, Kart, LogKaydi, Musteri, Onay, OnayTalebi, Personel,
-                     Politika)
+from .models import (Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, Onay, OnayTalebi,
+                     Personel, Politika)
 
 
 class PinFormu(forms.ModelForm):
@@ -57,7 +57,8 @@ class PolitikaAdmin(admin.ModelAdmin):
 
 @admin.register(Hesap)
 class HesapAdmin(admin.ModelAdmin):
-    list_display = ("hesap_no", "musteri", "bakiye")
+    list_display = ("hesap_no", "musteri", "tur", "bakiye", "gunluk_limit")
+    list_filter = ("tur",)
 
 
 admin.site.register(Musteri)
@@ -94,3 +95,9 @@ class OnayAdmin(SadeceOkunur):
 class LogKaydiAdmin(SadeceOkunur):
     list_display = ("sira", "zaman", "olay_turu", "hash")
     search_fields = ("olay_turu", "veri")
+
+
+@admin.register(HesapHareketi)
+class HesapHareketiAdmin(SadeceOkunur):
+    list_display = ("id", "islem", "hesap", "yon", "tutar", "bakiye_sonrasi", "zaman")
+    list_filter = ("yon",)

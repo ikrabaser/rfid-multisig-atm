@@ -19,6 +19,8 @@ PERSONEL = [
     ("Deniz (müdür yrd.)", "b0b0b004", Rol.MUDUR_YRD, "4444"),
     ("Elif (müdür)", "b0b0b005", Rol.MUDUR, "5555"),
 ]
+KASA_HESAP_NO = "900000"
+KASA_NAKIT = "10000000.00"
 POLITIKALAR = [
     # alt, ust, onay, en az rol, aciklama
     ("0", "5000", 0, Rol.GOREVLI, "Küçük işlem: onaysız"),
@@ -33,11 +35,21 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **opts):
+        if not Hesap.objects.filter(tur=Hesap.Tur.KASA).exists():
+            banka = Musteri.objects.create(ad="Banka Nakit Kasası")
+            Hesap.objects.create(
+                musteri=banka, hesap_no=KASA_HESAP_NO, tur=Hesap.Tur.KASA,
+                acilis_bakiyesi=Decimal(KASA_NAKIT), bakiye=Decimal(KASA_NAKIT),
+            )
+            self.stdout.write(f"Nakit kasa hesabı: {KASA_HESAP_NO}  bakiye {KASA_NAKIT}")
+
         for ad, hesap_no, bakiye, uid, pin in MUSTERILER:
             if Kart.objects.filter(uid=uid).exists() or Hesap.objects.filter(hesap_no=hesap_no).exists():
                 continue
             musteri = Musteri.objects.create(ad=ad)
-            hesap = Hesap.objects.create(musteri=musteri, hesap_no=hesap_no, bakiye=Decimal(bakiye))
+            hesap = Hesap.objects.create(
+                musteri=musteri, hesap_no=hesap_no, acilis_bakiyesi=Decimal(bakiye), bakiye=Decimal(bakiye)
+            )
             kart = Kart(uid=uid, hesap=hesap)
             kart.pin_ayarla(pin)
             kart.save()

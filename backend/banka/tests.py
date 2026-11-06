@@ -9,9 +9,9 @@ from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from . import services
-from .hashlog import zinciri_dogrula
-from .models import Hesap, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol
+from . import anomali, ledger, services
+from .hashlog import kayit_ekle, zinciri_dogrula
+from .models import Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol
 from .services import IslemHatasi
 
 # seed_demo verisi: Ali 100001 (a0a0a001/1234), Zeynep 100002 (a0a0a002/4321)
@@ -306,3 +306,347 @@ class PanelTesti(TestCase):
     def test_panel_giris_ister(self):
         r = Client().get("/")
         self.assertEqual(r.status_code, 302)
+
+
+# ====================================================================== yeni ozellikler
+
+class Yardimci:
+    """seed_demo verisi ve kisa yollar."""
+
+    def hazirla(self):
+        call_command("seed_demo", stdout=io.StringIO())
+        self.ali = Hesap.objects.get(hesap_no="100001")
+        self.zeynep = Hesap.objects.get(hesap_no="100002")
+        self.kasa = Hesap.objects.get(tur="KASA")
+
+    def giris(self, uid="a0a0a001", pin="1234"):
+        return services.musteri_giris(uid, pin)["token"]
+
+    def yenile(self, hesap):
+        hesap.refresh_from_db()
+        return hesap.bakiye
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class DefterTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def test_cekme_cift_tarafli_hareket(self):
+        s = services.islem_baslat(self.giris(), "CEKME", "1000")
+        satirlar = {(h.hesap.hesap_no, h.yon): h.tutar for h in HesapHareketi.objects.filter(islem_id=s["islem_id"])}
+        self.assertEqual(satirlar, {("100001", "BORC"): Decimal("1000.00"), ("900000", "ALACAK"): Decimal("1000.00")})
+        self.assertEqual(self.yenile(self.ali), Decimal("999000.00"))
+        self.assertEqual(self.yenile(self.kasa), Decimal("9999000.00"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_yatirma_hareketi(self):
+        s = services.islem_baslat(self.giris(), "YATIRMA", "2500.50")
+        satirlar = {(h.hesap.hesap_no, h.yon) for h in HesapHareketi.objects.filter(islem_id=s["islem_id"])}
+        self.assertEqual(satirlar, {("900000", "BORC"), ("100001", "ALACAK")})
+        self.assertEqual(self.yenile(self.kasa), Decimal("10002500.50"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_havale_hareketi(self):
+        s = services.islem_baslat(self.giris(), "HAVALE", "3000", "100002")
+        satirlar = {(h.hesap.hesap_no, h.yon) for h in HesapHareketi.objects.filter(islem_id=s["islem_id"])}
+        self.assertEqual(satirlar, {("100001", "BORC"), ("100002", "ALACAK")})
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_onay_gelmeden_hareket_yok(self):
+        s = services.islem_baslat(self.giris(), "CEKME", "10000")
+        self.assertEqual(HesapHareketi.objects.count(), 0)
+        services.onay_karar(s["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(HesapHareketi.objects.filter(islem_id=s["islem_id"]).count(), 2)
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_defter_bakiye_farkini_yakalar(self):
+        services.islem_baslat(self.giris(), "CEKME", "1000")
+        Hesap.objects.filter(hesap_no="100001").update(bakiye=Decimal("5.00"))
+        r = ledger.mutabakat()
+        self.assertFalse(r["saglam"])
+        self.assertEqual([f["hesap_no"] for f in r["bakiye_farklari"]], ["100001"])
+
+    def test_hareketsiz_islemi_yakalar(self):
+        s = services.islem_baslat(self.giris(), "CEKME", "1000")
+        HesapHareketi.objects.filter(islem_id=s["islem_id"]).delete()  # queryset silmesi modeli atlar
+        r = ledger.mutabakat()
+        self.assertFalse(r["saglam"])
+        self.assertIn(s["islem_id"], r["hareketsiz_islemler"])
+
+    def test_mutabakat_komutu(self):
+        services.islem_baslat(self.giris(), "CEKME", "1000")
+        cikti = io.StringIO()
+        call_command("gun_sonu_mutabakat", stdout=cikti)
+        self.assertIn("Mutabakat tamam", cikti.getvalue())
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="mutabakat").exists())
+        self.assertTrue(zinciri_dogrula()["saglam"])
+        Hesap.objects.filter(hesap_no="100002").update(bakiye=Decimal("1.00"))
+        with self.assertRaises(SystemExit):
+            call_command("gun_sonu_mutabakat", stdout=io.StringIO(), stderr=io.StringIO())
+
+    def test_hareket_degistirilemez(self):
+        services.islem_baslat(self.giris(), "CEKME", "1000")
+        h = HesapHareketi.objects.first()
+        with self.assertRaises(ValidationError):
+            h.save()
+        with self.assertRaises(ValidationError):
+            h.delete()
+
+    def test_kasada_nakit_yetersiz(self):
+        Hesap.objects.filter(tur="KASA").update(bakiye=Decimal("500.00"))
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(self.giris(), "CEKME", "1000")
+        self.assertEqual(e.exception.kod, "nakit")
+
+    def test_havale_kasa_hesabina_olmaz(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(self.giris(), "HAVALE", "10", "900000")
+        self.assertEqual(e.exception.kod, "hedef")
+
+    def test_gunluk_limit_uygulanmis_islemleri_sayar(self):
+        Hesap.objects.filter(hesap_no="100001").update(gunluk_limit=Decimal("5000.00"))
+        token = self.giris()
+        services.islem_baslat(token, "CEKME", "3000")
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(token, "CEKME", "3000")
+        self.assertEqual(e.exception.kod, "limit")
+        self.assertEqual(e.exception.ekstra["kalan_limit"], "2000.00")
+        services.islem_baslat(token, "CEKME", "2000")  # tam kalan kadar serbest
+
+    def test_gunluk_limit_bekleyen_talepleri_de_sayar(self):
+        Hesap.objects.filter(hesap_no="100001").update(gunluk_limit=Decimal("100000.00"))
+        token = self.giris()
+        services.islem_baslat(token, "CEKME", "60000")  # onay bekliyor
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(token, "CEKME", "50000")
+        self.assertEqual(e.exception.kod, "limit")
+
+    def test_yatirma_gunluk_limite_takilmaz(self):
+        Hesap.objects.filter(hesap_no="100001").update(gunluk_limit=Decimal("100.00"))
+        services.islem_baslat(self.giris(), "YATIRMA", "5000")
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class IdempotencyTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def test_ayni_anahtar_tek_islem(self):
+        token = self.giris()
+        r1 = services.islem_baslat(token, "CEKME", "1000", anahtar="abc123")
+        r2 = services.islem_baslat(token, "CEKME", "1000", anahtar="abc123")
+        self.assertFalse(r1["tekrar"])
+        self.assertTrue(r2["tekrar"])
+        self.assertEqual(r1["islem_id"], r2["islem_id"])
+        self.assertEqual(Islem.objects.filter(anahtar="abc123").count(), 1)
+        self.assertEqual(self.yenile(self.ali), Decimal("999000.00"))  # bir kez dustu
+        self.assertEqual(HesapHareketi.objects.count(), 2)
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="tekrar_istek").exists())
+
+    def test_ayni_anahtar_farkli_islemle_kullanilamaz(self):
+        token = self.giris()
+        services.islem_baslat(token, "CEKME", "1000", anahtar="abc123")
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(token, "CEKME", "2000", anahtar="abc123")
+        self.assertEqual(e.exception.kod, "anahtar")
+        self.assertEqual(self.yenile(self.ali), Decimal("999000.00"))
+
+    def test_bekleyen_talep_tekrari_ayni_talebi_dondurur(self):
+        token = self.giris()
+        r1 = services.islem_baslat(token, "CEKME", "10000", anahtar="k-1")
+        r2 = services.islem_baslat(token, "CEKME", "10000", anahtar="k-1")
+        self.assertEqual(r1["talep_id"], r2["talep_id"])
+        self.assertTrue(r2["tekrar"])
+        self.assertEqual(OnayTalebi.objects.count(), 1)
+
+    def test_onaylanmis_islemin_tekrari_sonucu_dondurur(self):
+        token = self.giris()
+        r1 = services.islem_baslat(token, "CEKME", "10000", anahtar="k-2")
+        services.onay_karar(r1["talep_id"], "b0b0b001", "1111", "ONAY")
+        r2 = services.islem_baslat(token, "CEKME", "10000", anahtar="k-2")
+        self.assertEqual(r2["durum"], "uygulandi")
+        self.assertTrue(r2["basarili"])
+        self.assertEqual(self.yenile(self.ali), Decimal("990000.00"))
+
+    def test_gecersiz_anahtar(self):
+        with self.assertRaises(IslemHatasi):
+            services.islem_baslat(self.giris(), "CEKME", "10", anahtar="bozuk anahtar!")
+
+    def test_farkli_hesaplar_ayni_anahtari_kullanabilir(self):
+        services.islem_baslat(self.giris(), "YATIRMA", "10", anahtar="ortak")
+        services.islem_baslat(self.giris("a0a0a002", "4321"), "YATIRMA", "10", anahtar="ortak")
+        self.assertEqual(Islem.objects.filter(anahtar="ortak").count(), 2)
+
+    def test_anahtarsiz_islemler_tekrar_edilebilir(self):
+        token = self.giris()
+        services.islem_baslat(token, "CEKME", "100")
+        services.islem_baslat(token, "CEKME", "100")
+        self.assertEqual(self.yenile(self.ali), Decimal("999800.00"))
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class KasaAcmaTestleri(Yardimci, TestCase):
+    AYSE = ("b0b0b001", "1111")
+    BURAK = ("b0b0b002", "2222")
+    CEM = ("b0b0b003", "3333")
+    DENIZ = ("b0b0b004", "4444")
+    ELIF = ("b0b0b005", "5555")
+
+    def setUp(self):
+        self.hazirla()
+
+    def test_uc_onay_ve_mudur_sarti(self):
+        t = services.kasa_acma_baslat(*self.AYSE)
+        self.assertEqual(t["gereken"], 3)
+        for kisi in (self.BURAK, self.CEM):
+            services.onay_karar(t["talep_id"], kisi[0], kisi[1], "ONAY")
+        sonuc = services.onay_karar(t["talep_id"], *self.DENIZ, "ONAY")  # 3 onay, mudur yok
+        self.assertEqual(sonuc["durum"], "BEKLIYOR")
+        self.assertTrue(sonuc["ust_yetkili_gerekli"])
+        sonuc = services.onay_karar(t["talep_id"], *self.ELIF, "ONAY")
+        self.assertEqual(sonuc["durum"], "UYGULANDI")
+        self.assertEqual(sonuc["tur"], "KASA_ACMA")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="kasa_acildi").exists())
+        self.assertEqual(HesapHareketi.objects.count(), 0)  # para hareketi yok
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_baslatan_kendi_talebini_onaylayamaz(self):
+        t = services.kasa_acma_baslat(*self.AYSE)
+        with self.assertRaises(IslemHatasi) as e:
+            services.onay_karar(t["talep_id"], *self.AYSE, "ONAY")
+        self.assertEqual(e.exception.kod, "kendi_islemi")
+
+    def test_baslatan_tek_mudurse_baslatamaz(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.kasa_acma_baslat(*self.ELIF)  # baska mudur yok: talep sonsuza kadar takilirdi
+        self.assertEqual(e.exception.kod, "yetkili_yok")
+
+    def test_musteri_baslatamaz(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.kasa_acma_baslat("a0a0a001", "1234")
+        self.assertEqual(e.exception.kod, "yetkisiz")
+
+    def test_musteri_islem_turu_olarak_kasa_acma_gonderemez(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(self.giris(), "KASA_ACMA", "1")
+        self.assertEqual(e.exception.kod, "tur")
+
+    def test_sure_dolarsa_kasa_acilmaz(self):
+        t = services.kasa_acma_baslat(*self.AYSE)
+        OnayTalebi.objects.filter(id=t["talep_id"]).update(
+            son_tarih=timezone.now() - datetime.timedelta(seconds=1))
+        sonuc = services.onay_karar(t["talep_id"], *self.BURAK, "ONAY")
+        self.assertEqual(sonuc["durum"], "SURESI_DOLDU")
+        self.assertFalse(LogKaydi.objects.filter(olay_turu="kasa_acildi").exists())
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class AnomaliTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def kurallar(self, **kw):
+        return {b["kural"] for b in anomali.tara(**kw)}
+
+    def yanlis_pin(self, uid, n):
+        for _ in range(n):
+            with self.assertRaises(IslemHatasi):
+                services.musteri_giris(uid, "0000")
+
+    def test_normal_kullanimda_bulgu_yok(self):
+        token = self.giris()
+        services.islem_baslat(token, "CEKME", "1000")
+        services.islem_baslat(token, "YATIRMA", "500")
+        self.assertEqual(anomali.tara(), [])
+
+    def test_pin_yagmuru(self):
+        self.yanlis_pin("a0a0a001", 3)
+        self.assertIn("pin_yagmuru", self.kurallar())
+
+    def test_iki_yanlis_pin_alarm_vermez(self):
+        self.yanlis_pin("a0a0a001", 2)
+        self.assertNotIn("pin_yagmuru", self.kurallar())
+
+    def test_dagitik_pin(self):
+        self.yanlis_pin("a0a0a001", 2)
+        self.yanlis_pin("a0a0a002", 2)
+        with self.assertRaises(IslemHatasi):
+            services.personel_dogrula("b0b0b001", "0000")
+        self.assertIn("dagitik_pin", self.kurallar())
+
+    def test_bilinmeyen_kart_tekrar(self):
+        for _ in range(3):
+            services.kart_tipi("ffffffff")
+        self.assertIn("bilinmeyen_kart_tekrar", self.kurallar())
+
+    def test_bloke_kart_israri(self):
+        self.yanlis_pin("a0a0a001", 3)  # bloke oldu
+        for _ in range(2):
+            with self.assertRaises(IslemHatasi):
+                services.musteri_giris("a0a0a001", "1234")
+        self.assertIn("bloke_kart_denemesi", self.kurallar())
+
+    def test_hizli_talep(self):
+        token = self.giris()
+        for _ in range(3):
+            services.islem_baslat(token, "CEKME", "10000")
+        self.assertIn("hizli_talep", self.kurallar())
+
+    def test_gece_yetkili_islemi(self):
+        istanbul = ZoneInfo("Europe/Istanbul")
+        gece = datetime.datetime(2026, 11, 4, 3, 0, tzinfo=istanbul)
+        gunduz = datetime.datetime(2026, 11, 4, 12, 0, tzinfo=istanbul)
+        k = kayit_ekle("onay_verildi", {"talep_id": 1, "personel_id": 1})
+        LogKaydi.objects.filter(id=k.id).update(zaman=gece)
+        self.assertIn("gece_yetkili_islemi", self.kurallar(saat=24, an=gunduz))
+        LogKaydi.objects.filter(id=k.id).update(zaman=gunduz - datetime.timedelta(minutes=5))
+        self.assertNotIn("gece_yetkili_islemi", self.kurallar(saat=24, an=gunduz))
+
+    def test_komut_yuksek_bulguda_hata_kodu_verir(self):
+        cikti = io.StringIO()
+        call_command("anomali_tara", stdout=cikti)
+        self.assertIn("anomali bulunamadı", cikti.getvalue())
+        self.yanlis_pin("a0a0a001", 3)
+        with self.assertRaises(SystemExit):
+            call_command("anomali_tara", stdout=io.StringIO())
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class YeniApiTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.c = Client()
+        self.baslik = {"X-Kopru-Anahtari": "gelistirme-kopru-anahtari"}
+
+    def post(self, yol, veri, **ek):
+        return self.c.post(yol, data=json.dumps(veri), content_type="application/json",
+                           headers=self.baslik, **ek)
+
+    def test_idempotency_http_uzerinden(self):
+        token = self.post("/api/giris/", {"uid": "a0a0a001", "pin": "1234"}).json()["token"]
+        veri = {"token": token, "tur": "CEKME", "tutar": "1000", "anahtar": "http-1"}
+        r1 = self.post("/api/islem/", veri).json()
+        r2 = self.post("/api/islem/", veri).json()
+        self.assertEqual(r1["islem_id"], r2["islem_id"])
+        self.assertTrue(r2["tekrar"])
+        self.assertEqual(Islem.objects.filter(anahtar="http-1").count(), 1)
+
+    def test_kasa_ac_ucu(self):
+        r = self.post("/api/kasa-ac/", {"uid": "b0b0b001", "pin": "1111"}).json()
+        self.assertTrue(r["ok"])
+        self.assertEqual((r["durum"], r["gereken"]), ("onay_bekliyor", 3))
+        t = self.post("/api/talep/", {"talep_id": r["talep_id"]}).json()
+        self.assertEqual(t["tur"], "KASA_ACMA")
+        kotu = self.post("/api/kasa-ac/", {"uid": "a0a0a001", "pin": "1234"})
+        self.assertEqual(kotu.status_code, 400)
+        self.assertEqual(kotu.json()["kod"], "yetkisiz")
+
+    def test_https_zorunlu_ise_duz_http_reddedilir(self):
+        with override_settings(API_SADECE_HTTPS=True):
+            r = self.post("/api/kart/", {"uid": "a0a0a001"})
+            self.assertEqual(r.status_code, 403)
+            self.assertEqual(r.json()["kod"], "https")
+            ok = self.post("/api/kart/", {"uid": "a0a0a001"}, secure=True)
+            self.assertEqual(ok.status_code, 200)
+            self.assertEqual(ok.json()["tip"], "MUSTERI")
