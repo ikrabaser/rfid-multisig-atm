@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from . import services
+from . import baglam, services, terminal as terminal_modulu
 from .hashlog import zinciri_dogrula
 from .services import IslemHatasi
 
@@ -34,7 +34,12 @@ def kopru_endpoint(fn):
         except ValueError:
             return _hata("Geçersiz JSON", "json")
         try:
-            sonuc = fn(govde, *args, **kwargs)
+            terminal = terminal_modulu.terminal_coz(request.headers.get("X-Terminal-Id"))
+        except IslemHatasi as e:
+            return _hata(e.mesaj, e.kod, 403)
+        try:
+            with baglam.terminal_baglami(terminal.kod):
+                sonuc = fn(govde, *args, **kwargs)
         except IslemHatasi as e:
             return _hata(e.mesaj, e.kod, **e.ekstra)
         return JsonResponse({"ok": True, **sonuc})
@@ -85,3 +90,8 @@ def bekleyen(g):
 @kopru_endpoint
 def log_dogrula(g):
     return zinciri_dogrula()
+
+
+@kopru_endpoint
+def terminal_gunlugu(g):
+    return terminal_modulu.gunluk_yukle(g.get("girdiler"), baglam.terminal())

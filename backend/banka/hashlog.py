@@ -16,6 +16,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from . import baglam
+
 GENESIS = "0" * 64
 
 
@@ -38,6 +40,10 @@ def kayit_ekle(olay_turu, veri):
         sira = 1 if son is None else son.sira + 1
         onceki = GENESIS if son is None else son.hash
         zaman = timezone.now().astimezone(datetime.timezone.utc)
+        veri = dict(veri)
+        terminal = baglam.terminal()
+        if terminal and "terminal" not in veri:
+            veri["terminal"] = terminal  # hangi terminalden geldiği zincire de girer
         veri_json = kanonik_json(veri)
         return LogKaydi.objects.create(
             sira=sira,

@@ -1,17 +1,21 @@
 import datetime
 import io
 import json
+import uuid
 from decimal import Decimal
+from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from . import anomali, ledger, services
+from . import anomali, baglam, bildirim, ledger, services
 from .hashlog import kayit_ekle, zinciri_dogrula
-from .models import Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol,
+                     Terminal, TerminalGunlukKaydi)
 from .services import IslemHatasi
 
 # seed_demo verisi: Ali 100001 (a0a0a001/1234), Zeynep 100002 (a0a0a002/4321)
@@ -650,3 +654,300 @@ class YeniApiTestleri(Yardimci, TestCase):
             ok = self.post("/api/kart/", {"uid": "a0a0a001"}, secure=True)
             self.assertEqual(ok.status_code, 200)
             self.assertEqual(ok.json()["tip"], "MUSTERI")
+
+
+# ====================================================================== terminal, kurus, cevrimdisi gunluk, bildirim
+
+class ApiYardimci(Yardimci):
+    def api_hazirla(self):
+        self.hazirla()
+        self.c = Client()
+        self.baslik = {"X-Kopru-Anahtari": "gelistirme-kopru-anahtari"}
+
+    def api(self, yol, veri, terminal=None, anahtar=True):
+        baslik = dict(self.baslik) if anahtar else {}
+        if terminal:
+            baslik["X-Terminal-Id"] = terminal
+        return self.c.post(yol, data=json.dumps(veri), content_type="application/json", headers=baslik)
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class TerminalTestleri(ApiYardimci, TestCase):
+    def setUp(self):
+        self.api_hazirla()
+
+    def kurallar(self):
+        return {b["kural"] for b in anomali.tara()}
+
+    def test_bilinmeyen_terminal_reddedilir(self):
+        r = self.api("/api/kart/", {"uid": "a0a0a001"}, terminal="ATM-99")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()["kod"], "terminal")
+
+    def test_kapali_terminal_reddedilir(self):
+        Terminal.objects.filter(kod="ATM-02").update(aktif=False)
+        self.assertEqual(self.api("/api/kart/", {"uid": "a0a0a001"}, terminal="ATM-02").status_code, 403)
+
+    def test_baslik_yoksa_varsayilan_terminal(self):
+        self.assertEqual(self.api("/api/kart/", {"uid": "a0a0a001"}).status_code, 200)
+
+    def test_terminal_log_ve_islemde_kayitli(self):
+        g = self.api("/api/giris/", {"uid": "a0a0a001", "pin": "1234"}, terminal="ATM-02").json()
+        giris = LogKaydi.objects.filter(olay_turu="giris").first()
+        self.assertEqual(json.loads(giris.veri)["terminal"], "ATM-02")
+        r = self.api("/api/islem/", {"token": g["token"], "tur": "YATIRMA", "tutar": "10"}, terminal="ATM-02").json()
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).terminal, "ATM-02")
+        self.assertTrue(zinciri_dogrula()["saglam"])  # terminal alani da hash'e girdi
+
+    def test_imkansiz_seyahat(self):
+        with baglam.terminal_baglami("ATM-01"):
+            services.musteri_giris("a0a0a001", "1234")
+        with baglam.terminal_baglami("ATM-02"):  # Ankara -> Istanbul, birkac saniye sonra
+            services.musteri_giris("a0a0a001", "1234")
+        self.assertIn("imkansiz_seyahat", self.kurallar())
+
+    def test_ayni_terminalde_tekrar_giris_sorun_degil(self):
+        for _ in range(2):
+            with baglam.terminal_baglami("ATM-01"):
+                services.musteri_giris("a0a0a001", "1234")
+        self.assertFalse(self.kurallar() & {"imkansiz_seyahat", "farkli_terminal_kisa_surede"})
+
+    def test_yakin_terminaller_alarm_vermez(self):
+        Terminal.objects.filter(kod="ATM-02").update(enlem=39.9340, boylam=32.8600)  # ayni sube gibi
+        with baglam.terminal_baglami("ATM-01"):
+            services.musteri_giris("a0a0a001", "1234")
+        with baglam.terminal_baglami("ATM-02"):
+            services.musteri_giris("a0a0a001", "1234")
+        self.assertFalse(self.kurallar() & {"imkansiz_seyahat", "farkli_terminal_kisa_surede"})
+
+    def test_konum_bilinmiyorsa_kisa_surede_farkli_terminal(self):
+        Terminal.objects.filter(kod="ATM-02").update(enlem=None, boylam=None)
+        with baglam.terminal_baglami("ATM-01"):
+            services.musteri_giris("a0a0a001", "1234")
+        with baglam.terminal_baglami("ATM-02"):
+            services.musteri_giris("a0a0a001", "1234")
+        kurallar = self.kurallar()
+        self.assertIn("farkli_terminal_kisa_surede", kurallar)
+        self.assertNotIn("imkansiz_seyahat", kurallar)
+
+    def test_farkli_kimlikler_farkli_terminallerde_sorun_degil(self):
+        with baglam.terminal_baglami("ATM-01"):
+            services.musteri_giris("a0a0a001", "1234")
+        with baglam.terminal_baglami("ATM-02"):
+            services.musteri_giris("a0a0a002", "4321")
+        self.assertNotIn("imkansiz_seyahat", self.kurallar())
+
+    def test_yetkili_icin_imkansiz_seyahat(self):
+        token = self.giris()
+        t1 = services.islem_baslat(token, "CEKME", "10000")["talep_id"]
+        t2 = services.islem_baslat(token, "CEKME", "10000")["talep_id"]
+        with baglam.terminal_baglami("ATM-01"):
+            services.onay_karar(t1, "b0b0b001", "1111", "ONAY")
+        with baglam.terminal_baglami("ATM-02"):
+            services.onay_karar(t2, "b0b0b001", "1111", "ONAY")
+        self.assertIn("imkansiz_seyahat", self.kurallar())
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class KurusTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def test_kurus_tutari(self):
+        services.islem_baslat(self.giris(), "CEKME", "100.50")
+        self.assertEqual(self.yenile(self.ali), Decimal("999899.50"))
+        self.assertEqual(self.yenile(self.kasa), Decimal("9999899.50"))
+
+    def test_virgul_ondalik_ayraci(self):
+        services.islem_baslat(self.giris(), "YATIRMA", "100,5")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000100.50"))
+
+    def test_tek_hane_kurus(self):
+        services.islem_baslat(self.giris(), "CEKME", "5.5")
+        self.assertEqual(self.yenile(self.ali), Decimal("999994.50"))
+
+    def test_uc_ondalik_hane_reddedilir(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(self.giris(), "CEKME", "10.123")
+        self.assertEqual(e.exception.kod, "tutar")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+
+    def test_belirsiz_binlik_ayraci_reddedilir(self):
+        with self.assertRaises(IslemHatasi):
+            services.islem_baslat(self.giris(), "CEKME", "1,000.50")
+
+    def test_kurusla_defter_dengeli_kalir(self):
+        token = self.giris()
+        services.islem_baslat(token, "YATIRMA", "0.01")
+        services.islem_baslat(token, "CEKME", "0.01")
+        services.islem_baslat(token, "HAVALE", "12.34", "100002")
+        self.assertTrue(ledger.mutabakat()["saglam"])
+        self.assertEqual(self.yenile(self.zeynep), Decimal("250012.34"))
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class CevrimdisiGunlukTestleri(ApiYardimci, TestCase):
+    def setUp(self):
+        self.api_hazirla()
+
+    def girdi(self, olay="cevrimdisi_istek", veri=None, zaman=None, kimlik=None):
+        return {
+            "id": kimlik or uuid.uuid4().hex,
+            "zaman": (zaman or datetime.datetime.now(datetime.timezone.utc)).isoformat(),
+            "olay": olay,
+            "veri": veri if veri is not None else {"komut": "KART", "uid": "a0a0a001"},
+        }
+
+    def yukle(self, girdiler, terminal="ATM-02"):
+        return self.api("/api/terminal-gunlugu/", {"girdiler": girdiler}, terminal=terminal)
+
+    def test_kabul_edilir_ve_zincire_girer(self):
+        r = self.yukle([self.girdi(), self.girdi("cevrimdisi_basladi", {})]).json()
+        self.assertEqual((r["kabul"], r["tekrar"], r["red"]), (2, 0, 0))
+        self.assertEqual(TerminalGunlukKaydi.objects.filter(terminal="ATM-02").count(), 2)
+        log = LogKaydi.objects.filter(olay_turu="terminal_gunlugu").first()
+        veri = json.loads(log.veri)
+        self.assertEqual(veri["terminal"], "ATM-02")
+        self.assertIn("terminal_zamani", veri)
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_ayni_kayit_ikinci_kez_eklenmez(self):
+        g = [self.girdi()]
+        self.assertEqual(self.yukle(g).json()["kabul"], 1)
+        r = self.yukle(g).json()
+        self.assertEqual((r["kabul"], r["tekrar"]), (0, 1))
+        self.assertEqual(TerminalGunlukKaydi.objects.count(), 1)
+        self.assertEqual(LogKaydi.objects.filter(olay_turu="terminal_gunlugu").count(), 1)
+
+    def test_gecersiz_girdiler_reddedilir(self):
+        kotu = [
+            self.girdi(kimlik="kisa"),
+            self.girdi(olay="para_cek"),
+            {**self.girdi(), "zaman": "bozuk"},
+            {**self.girdi(), "veri": "metin"},
+            "bir sey",
+        ]
+        r = self.yukle(kotu).json()
+        self.assertEqual((r["kabul"], r["red"]), (0, 5))
+        self.assertEqual(TerminalGunlukKaydi.objects.count(), 0)
+
+    def test_eski_ve_gelecek_zaman_guvenilir_degil(self):
+        simdi = datetime.datetime.now(datetime.timezone.utc)
+        self.yukle([self.girdi(zaman=simdi - datetime.timedelta(days=30)),
+                    self.girdi(zaman=simdi + datetime.timedelta(days=1)),
+                    self.girdi(zaman=simdi)])
+        self.assertEqual(TerminalGunlukKaydi.objects.filter(guvenilir_zaman=False).count(), 2)
+        self.assertEqual(TerminalGunlukKaydi.objects.filter(guvenilir_zaman=True).count(), 1)
+        guvenilmez = [json.loads(l.veri)["zaman_guvenilir"] for l in LogKaydi.objects.filter(olay_turu="terminal_gunlugu")]
+        self.assertEqual(sorted(guvenilmez), [False, False, True])
+
+    def test_cok_fazla_girdi_reddedilir(self):
+        r = self.yukle([self.girdi() for _ in range(201)])
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["kod"], "gunluk")
+
+    def test_girdiler_liste_degilse_reddedilir(self):
+        r = self.api("/api/terminal-gunlugu/", {"girdiler": "x"}, terminal="ATM-02")
+        self.assertEqual(r.status_code, 400)
+
+    def test_anahtar_ister(self):
+        r = self.api("/api/terminal-gunlugu/", {"girdiler": []}, terminal="ATM-02", anahtar=False)
+        self.assertEqual(r.status_code, 401)
+
+    def test_uzun_cevrimdisi_kurali(self):
+        self.yukle([self.girdi("cevrimdisi_bitti", {"sure_sn": 60})])
+        self.assertNotIn("uzun_cevrimdisi", {b["kural"] for b in anomali.tara()})
+        self.yukle([self.girdi("cevrimdisi_bitti", {"sure_sn": 3600})])
+        self.assertIn("uzun_cevrimdisi", {b["kural"] for b in anomali.tara()})
+
+    def test_gunluk_para_islemi_yetkilendirmez(self):
+        self.yukle([self.girdi("cevrimdisi_istek", {"komut": "ISLEM"})])
+        self.assertEqual(Islem.objects.count(), 0)
+        self.assertEqual(HesapHareketi.objects.count(), 0)
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class BildirimTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def konulu(self, konu):
+        return [m for m in mail.outbox if m.subject == konu]
+
+    def test_talep_acilinca_tum_yetkililere_bildirilir(self):
+        services.islem_baslat(self.giris(), "CEKME", "10000")
+        self.assertEqual(len(mail.outbox), 5)
+        self.assertTrue(mail.outbox[0].subject.startswith("Onay bekleyen işlem"))
+        self.assertIn("10.000,00 TL", mail.outbox[0].body)
+        self.assertIn("100001", mail.outbox[0].body)
+        self.assertEqual(Bildirim.objects.filter(kanal="EPOSTA", durum="GONDERILDI").count(), 5)
+        self.assertEqual(Bildirim.objects.filter(kanal="SMS", durum="SIMULASYON").count(), 5)
+
+    def test_tutar_bicimi(self):
+        self.assertEqual(bildirim.tl(Decimal("60000")), "60.000,00 TL")
+        self.assertEqual(bildirim.tl("100.5"), "100,50 TL")
+        self.assertEqual(bildirim.tl("1234567.89"), "1.234.567,89 TL")
+
+    def test_onaysiz_islemde_bildirim_yok(self):
+        services.islem_baslat(self.giris(), "CEKME", "1000")
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(Bildirim.objects.count(), 0)
+
+    def test_kasa_acma_talebinde_baslatan_haric(self):
+        services.kasa_acma_baslat("b0b0b001", "1111")
+        self.assertEqual(len(mail.outbox), 4)
+        self.assertNotIn("ayse@banka.example", [a for m in mail.outbox for a in m.to])
+        self.assertTrue(mail.outbox[0].subject.startswith("Kasa dairesi açma talebi"))
+
+    def test_kasa_acilinca_mudur_yrd_ve_ustune_bilgi(self):
+        t = services.kasa_acma_baslat("b0b0b001", "1111")
+        for uid, pin in (("b0b0b002", "2222"), ("b0b0b003", "3333"), ("b0b0b004", "4444"), ("b0b0b005", "5555")):
+            services.onay_karar(t["talep_id"], uid, pin, "ONAY")
+        acilis = self.konulu("Kasa dairesi açıldı")
+        self.assertEqual(sorted(a for m in acilis for a in m.to),
+                         ["cem@banka.example", "deniz@banka.example", "elif@banka.example"])
+
+    def test_eposta_hatasi_islemi_bozmaz(self):
+        with mock.patch("banka.bildirim.send_mail", side_effect=Exception("smtp yok")):
+            s = services.islem_baslat(self.giris(), "CEKME", "10000")
+        self.assertEqual(s["durum"], "onay_bekliyor")
+        self.assertEqual(OnayTalebi.objects.filter(id=s["talep_id"], durum="BEKLIYOR").count(), 1)
+        self.assertEqual(Bildirim.objects.filter(durum="BASARISIZ").count(), 5)
+        self.assertEqual(Bildirim.objects.filter(kanal="SMS").count(), 5)
+        self.assertIn("smtp yok", Bildirim.objects.filter(durum="BASARISIZ").first().hata)
+
+    def test_sadece_telefonu_olan_yetkiliye_sms_gider(self):
+        Personel.objects.filter(kart_uid="b0b0b002").update(eposta="")
+        services.islem_baslat(self.giris(), "CEKME", "10000")
+        self.assertEqual(len(mail.outbox), 4)
+        self.assertEqual(Bildirim.objects.filter(kanal="SMS").count(), 5)
+
+    def test_bloke_ve_pasif_yetkiliye_gitmez(self):
+        Personel.objects.filter(kart_uid="b0b0b004").update(bloke=True)
+        Personel.objects.filter(kart_uid="b0b0b005").update(aktif=False)
+        services.islem_baslat(self.giris(), "CEKME", "10000")
+        self.assertEqual(len(mail.outbox), 3)
+
+    def yanlis_pin(self, uid, n):
+        for _ in range(n):
+            with self.assertRaises(IslemHatasi):
+                services.musteri_giris(uid, "0000")
+
+    def test_anomali_bildirimi_tekrarlanmaz(self):
+        self.yanlis_pin("a0a0a001", 3)
+        for _ in range(2):
+            with self.assertRaises(SystemExit):  # yuksek bulgu: cikis kodu 1
+                call_command("anomali_tara", "--bildir", stdout=io.StringIO())
+        bildirimler = self.konulu("Anomali: pin_yagmuru")
+        self.assertEqual(sorted(a for m in bildirimler for a in m.to),
+                         ["cem@banka.example", "deniz@banka.example", "elif@banka.example"])
+        self.assertEqual(LogKaydi.objects.filter(olay_turu="anomali_bildirimi").count(), 1)
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_dusuk_ve_orta_ciddiyet_bildirilmez(self):
+        for _ in range(3):
+            services.kart_tipi("ffffffff")  # bilinmeyen_kart_tekrar: orta
+        bulgular = anomali.tara()
+        self.assertIn("bilinmeyen_kart_tekrar", {b["kural"] for b in bulgular})
+        self.assertEqual(bildirim.anomali_bildir(bulgular), 0)
+        self.assertEqual(len(mail.outbox), 0)

@@ -12,4 +12,5 @@ urlpatterns = [
     path("talep/", api.talep),
     path("bekleyen/", api.bekleyen),
     path("log/dogrula/", api.log_dogrula),
+    path("terminal-gunlugu/", api.terminal_gunlugu),
 ]

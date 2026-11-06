@@ -1,8 +1,8 @@
 from django import forms
 from django.contrib import admin
 
-from .models import (Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, Onay, OnayTalebi,
-                     Personel, Politika)
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, Onay,
+                     OnayTalebi, Personel, Politika, Terminal, TerminalGunlukKaydi)
 
 
 class PinFormu(forms.ModelForm):
@@ -46,7 +46,7 @@ class KartAdmin(PinliAdmin):
 
 @admin.register(Personel)
 class PersonelAdmin(PinliAdmin):
-    list_display = ("ad", "kart_uid", "rol", "aktif", "bloke")
+    list_display = ("ad", "kart_uid", "rol", "eposta", "aktif", "bloke")
     list_filter = ("rol", "aktif", "bloke")
 
 
@@ -101,3 +101,20 @@ class LogKaydiAdmin(SadeceOkunur):
 class HesapHareketiAdmin(SadeceOkunur):
     list_display = ("id", "islem", "hesap", "yon", "tutar", "bakiye_sonrasi", "zaman")
     list_filter = ("yon",)
+
+
+@admin.register(Terminal)
+class TerminalAdmin(admin.ModelAdmin):
+    list_display = ("kod", "ad", "enlem", "boylam", "aktif")
+
+
+@admin.register(TerminalGunlukKaydi)
+class TerminalGunlukKaydiAdmin(SadeceOkunur):
+    list_display = ("terminal", "olay", "terminal_zamani", "guvenilir_zaman", "yuklenme")
+    list_filter = ("terminal", "olay")
+
+
+@admin.register(Bildirim)
+class BildirimAdmin(SadeceOkunur):
+    list_display = ("olusturma", "kanal", "durum", "alici", "konu")
+    list_filter = ("kanal", "durum", "olay")

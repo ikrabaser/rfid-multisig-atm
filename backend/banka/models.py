@@ -98,6 +98,8 @@ class Personel(PinliKimlik):
     kart_uid = models.CharField("Kart UID", max_length=20, unique=True)
     rol = models.PositiveSmallIntegerField(choices=Rol.choices, default=Rol.GOREVLI)
     aktif = models.BooleanField(default=True)
+    eposta = models.EmailField(blank=True)
+    telefon = models.CharField(max_length=20, blank=True)
 
     class Meta:
         verbose_name = "Personel (yetkili)"
@@ -161,6 +163,7 @@ class Islem(models.Model):
     anahtar = models.CharField(
         "Idempotency anahtarı", max_length=40, null=True, blank=True
     )
+    terminal = models.CharField("İşlemin başladığı terminal", max_length=20, blank=True, default="")
     olusturma = models.DateTimeField(auto_now_add=True)
     tamamlanma = models.DateTimeField(null=True, blank=True)
 
@@ -290,3 +293,77 @@ class LogKaydi(models.Model):
 
     def __str__(self):
         return f"#{self.sira} {self.olay_turu}"
+
+
+class Terminal(models.Model):
+    """Kayıtlı terminal (ATM). Köprü her istekte X-Terminal-Id başlığıyla kim olduğunu söyler."""
+
+    kod = models.CharField(max_length=20, unique=True)
+    ad = models.CharField(max_length=60)
+    enlem = models.FloatField(null=True, blank=True)
+    boylam = models.FloatField(null=True, blank=True)
+    aktif = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Terminal"
+        verbose_name_plural = "Terminaller"
+        ordering = ["kod"]
+
+    def __str__(self):
+        return f"{self.kod} ({self.ad})"
+
+
+class TerminalGunlukKaydi(models.Model):
+    """Terminalin çevrimdışıyken biriktirip sonradan yüklediği günlük satırı (store-and-forward).
+
+    `terminal_zamani` terminalin KENDİ beyanıdır, sunucu zamanı değildir; güvenilir
+    sayılmaz. Para işlemi yetkilendirmek için asla kullanılmaz, yalnızca denetim içindir.
+    """
+
+    kayit_id = models.CharField(max_length=32, unique=True)
+    terminal = models.CharField(max_length=20)
+    terminal_zamani = models.DateTimeField()
+    olay = models.CharField(max_length=40)
+    veri = models.TextField(blank=True)
+    guvenilir_zaman = models.BooleanField(default=True)
+    yuklenme = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Terminal günlüğü"
+        verbose_name_plural = "Terminal günlükleri"
+        ordering = ["-id"]
+
+    def __str__(self):
+        return f"{self.terminal} {self.olay} {self.terminal_zamani:%d.%m %H:%M:%S}"
+
+
+class Bildirim(models.Model):
+    """Yetkililere gönderilen (ya da simüle edilen) e-posta/SMS kaydı."""
+
+    class Kanal(models.TextChoices):
+        EPOSTA = "EPOSTA", "E-posta"
+        SMS = "SMS", "SMS (simülasyon)"
+
+    class Durum(models.TextChoices):
+        GONDERILDI = "GONDERILDI", "Gönderildi"
+        SIMULASYON = "SIMULASYON", "Simüle edildi"
+        BASARISIZ = "BASARISIZ", "Başarısız"
+
+    kanal = models.CharField(max_length=8, choices=Kanal.choices)
+    durum = models.CharField(max_length=12, choices=Durum.choices)
+    alici = models.CharField(max_length=80)
+    adres = models.CharField(max_length=120)
+    konu = models.CharField(max_length=120)
+    metin = models.TextField()
+    olay = models.CharField(max_length=40)
+    talep_id = models.PositiveIntegerField(null=True, blank=True)
+    hata = models.CharField(max_length=200, blank=True)
+    olusturma = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Bildirim"
+        verbose_name_plural = "Bildirimler"
+        ordering = ["-id"]
+
+    def __str__(self):
+        return f"{self.kanal} → {self.alici}: {self.konu}"

@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from banka.models import Hesap, Kart, Musteri, Personel, Politika, Rol
+from banka.models import Hesap, Kart, Musteri, Personel, Politika, Rol, Terminal
 
 # DEMO verisi. UID'ler sahte; admin panelinden kendi kartlarının UID'si ile değiştir.
 MUSTERILER = [
@@ -12,12 +12,17 @@ MUSTERILER = [
     ("Zeynep Kaya", "100002", "250000.00", "a0a0a002", "4321"),
 ]
 PERSONEL = [
-    # ad, uid, rol, pin
-    ("Ayşe (görevli)", "b0b0b001", Rol.GOREVLI, "1111"),
-    ("Burak (görevli)", "b0b0b002", Rol.GOREVLI, "2222"),
-    ("Cem (müdür yrd.)", "b0b0b003", Rol.MUDUR_YRD, "3333"),
-    ("Deniz (müdür yrd.)", "b0b0b004", Rol.MUDUR_YRD, "4444"),
-    ("Elif (müdür)", "b0b0b005", Rol.MUDUR, "5555"),
+    # ad, uid, rol, pin, e-posta, telefon  (iletisim bilgileri sahte; .example adresleri gercek degildir)
+    ("Ayşe (görevli)", "b0b0b001", Rol.GOREVLI, "1111", "ayse@banka.example", "+905550000001"),
+    ("Burak (görevli)", "b0b0b002", Rol.GOREVLI, "2222", "burak@banka.example", "+905550000002"),
+    ("Cem (müdür yrd.)", "b0b0b003", Rol.MUDUR_YRD, "3333", "cem@banka.example", "+905550000003"),
+    ("Deniz (müdür yrd.)", "b0b0b004", Rol.MUDUR_YRD, "4444", "deniz@banka.example", "+905550000004"),
+    ("Elif (müdür)", "b0b0b005", Rol.MUDUR, "5555", "elif@banka.example", "+905550000005"),
+]
+TERMINALLER = [
+    # kod, ad, enlem, boylam  (Ankara ile Istanbul arasi ~350 km: imkansiz seyahat demosu icin)
+    ("ATM-01", "Merkez Şube", 39.9334, 32.8597),
+    ("ATM-02", "İstanbul Şubesi", 41.0082, 28.9784),
 ]
 KASA_HESAP_NO = "900000"
 KASA_NAKIT = "10000000.00"
@@ -55,10 +60,15 @@ class Command(BaseCommand):
             kart.save()
             self.stdout.write(f"Müşteri: {ad}  hesap {hesap_no}  kart {uid}  PIN {pin}")
 
-        for ad, uid, rol, pin in PERSONEL:
-            if Personel.objects.filter(kart_uid=uid).exists():
+        for kod, ad, enlem, boylam in TERMINALLER:
+            Terminal.objects.get_or_create(kod=kod, defaults={"ad": ad, "enlem": enlem, "boylam": boylam})
+
+        for ad, uid, rol, pin, eposta, telefon in PERSONEL:
+            mevcut = Personel.objects.filter(kart_uid=uid)
+            if mevcut.exists():
+                mevcut.filter(eposta="", telefon="").update(eposta=eposta, telefon=telefon)
                 continue
-            p = Personel(ad=ad, kart_uid=uid, rol=rol)
+            p = Personel(ad=ad, kart_uid=uid, rol=rol, eposta=eposta, telefon=telefon)
             p.pin_ayarla(pin)
             p.save()
             self.stdout.write(f"Yetkili: {ad}  kart {uid}  PIN {pin}")

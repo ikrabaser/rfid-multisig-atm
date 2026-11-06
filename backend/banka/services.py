@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from . import ledger
+from . import baglam, bildirim, ledger
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
                      Rol, uid_duzelt)
@@ -125,13 +125,16 @@ def bakiye_sorgula(token):
 
 
 def _tutar_coz(tutar):
+    """Tutarı çözer. Virgül ya da nokta ondalık ayracı olabilir; en fazla 2 ondalık hane (kuruş)."""
     try:
-        t = Decimal(str(tutar)).quantize(Decimal("0.01"))
+        ham = Decimal(str(tutar).strip().replace(",", "."))
     except (InvalidOperation, ValueError):
         raise IslemHatasi("Geçersiz tutar", "tutar")
-    if not t.is_finite() or t <= 0 or t > Decimal("100000000"):
+    if not ham.is_finite() or ham <= 0 or ham > Decimal("100000000"):
         raise IslemHatasi("Geçersiz tutar", "tutar")
-    return t
+    if ham.as_tuple().exponent < -2:
+        raise IslemHatasi("En fazla 2 ondalık hane", "tutar")
+    return ham.quantize(Decimal("0.01"))
 
 
 def _anahtar_coz(anahtar):
@@ -284,7 +287,7 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
             with transaction.atomic():
                 islem = Islem.objects.create(
                     hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar,
-                    baslatan_uid=kart.uid, anahtar=anahtar,
+                    baslatan_uid=kart.uid, anahtar=anahtar, terminal=baglam.terminal(),
                 )
         except IntegrityError:
             # Ayni anahtarla es zamanli ikinci istek: ilk islemin sonucunu ver
@@ -311,6 +314,7 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
             "talep_id": talep.id, "islem_id": islem.id, "tur": tur, "tutar": para(tutar),
             "hesap_no": hesap.hesap_no, "gereken_onay": gereken, "en_az_rol": en_az,
         })
+    bildirim.talep_acildi(talep)  # commit sonrasi; hata verirse islemi bozmaz
     return {"durum": "onay_bekliyor", "talep_id": talep.id, "islem_id": islem.id,
             "gereken": gereken, "tekrar": False}
 
@@ -406,6 +410,7 @@ def kasa_acma_baslat(uid, pin):
         islem = Islem.objects.create(
             hesap=kasa, tur=Islem.Tur.KASA_ACMA, tutar=Decimal("0.00"),
             baslatan_uid=personel.kart_uid, durum=Islem.Durum.ONAY_BEKLIYOR,
+            terminal=baglam.terminal(),
         )
         talep = OnayTalebi.objects.create(
             islem=islem, gereken_onay=gereken, en_az_rol=en_az,
@@ -415,6 +420,7 @@ def kasa_acma_baslat(uid, pin):
             "talep_id": talep.id, "islem_id": islem.id, "baslatan_personel_id": personel.id,
             "gereken_onay": gereken, "en_az_rol": en_az,
         })
+    bildirim.talep_acildi(talep)
     return {"durum": "onay_bekliyor", "talep_id": talep.id, "islem_id": islem.id, "gereken": gereken}
 
 
@@ -493,6 +499,7 @@ def onay_karar(talep_id, uid, pin, karar):
     talep_id = _talep_no(talep_id)
     personel = personel_dogrula(uid, pin)  # atomic disinda: hatali PIN sayaci kalici olsun
     hata = None
+    kasa_acildi = None
     with transaction.atomic():
         talep = (OnayTalebi.objects.select_for_update().select_related("islem")
                  .filter(id=talep_id).first())
@@ -528,8 +535,12 @@ def onay_karar(talep_id, uid, pin, karar):
                     basarili = _uygula(islem)
                     talep.durum = OnayTalebi.Durum.UYGULANDI if basarili else OnayTalebi.Durum.BASARISIZ
                     talep.save(update_fields=["durum"])
+                    if basarili and islem.tur == Islem.Tur.KASA_ACMA:
+                        kasa_acildi = islem
         ozet = _ozet(talep)
 
+    if kasa_acildi:
+        bildirim.kasa_acildi(kasa_acildi)  # commit sonrasi
     if hata:
         raise IslemHatasi(hata[0], hata[1], **ozet)
     return ozet

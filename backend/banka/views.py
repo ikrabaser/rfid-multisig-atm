@@ -3,7 +3,7 @@ from django.shortcuts import render
 
 from . import anomali, services
 from .hashlog import zinciri_dogrula
-from .models import Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi
+from .models import Bildirim, Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi, Terminal
 
 
 @staff_member_required
@@ -19,5 +19,7 @@ def panel(request):
         "loglar": LogKaydi.objects.order_by("-sira")[:15],
         "hareketler": HesapHareketi.objects.select_related("hesap")[:12],
         "anomaliler": anomali.tara(),
+        "bildirimler": Bildirim.objects.all()[:10],
+        "terminaller": Terminal.objects.all(),
     }
     return render(request, "banka/panel.html", baglam)

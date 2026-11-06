@@ -6,13 +6,18 @@ göstermek ve kuralların ne kadar basit başlayabileceğini görmek.
 """
 import datetime
 import json
+import math
 from collections import defaultdict
 
+from django.conf import settings
 from django.utils import timezone
 
-from .models import LogKaydi
+from .models import LogKaydi, Terminal
 
 PENCERE_DK = 10
+IMKANSIZ_SEYAHAT_MIN_KM = 1.0       # bundan yakin terminaller ayni sube sayilir
+KONUMSUZ_KISA_SURE_SN = 120
+UZUN_CEVRIMDISI_SN = 1800
 CIDDIYET_SIRASI = {"yuksek": 0, "orta": 1, "dusuk": 2}
 
 
@@ -30,6 +35,15 @@ def _en_cok_olay(zamanlar, dakika=PENCERE_DK):
             j += 1
         en_cok = max(en_cok, i - j + 1)
     return en_cok
+
+
+def _mesafe_km(enlem1, boylam1, enlem2, boylam2):
+    """İki nokta arasındaki kuş uçuşu mesafe (haversine), km."""
+    r = 6371.0
+    p1, p2 = math.radians(enlem1), math.radians(enlem2)
+    dp, dl = p2 - p1, math.radians(boylam2 - boylam1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
 
 
 def _bulgu(kural, ciddiyet, aciklama, **ek):
@@ -122,6 +136,51 @@ def tara(saat=24, an=None):
                 bulgular.append(_bulgu(
                     "gece_yetkili_islemi", ciddiyet,
                     f"Gece {yerel:%H:%M} saatinde '{k.olay_turu}' (log #{k.sira})", sira=k.sira))
+
+    # 7) Imkansiz seyahat: ayni kimlik, kisa surede birbirine uzak iki terminalde
+    terminaller = {t.kod: t for t in Terminal.objects.all()}
+    son_gorulen = {}
+    for k, v in kayitlar:
+        terminal = v.get("terminal")
+        if not terminal:
+            continue
+        if k.olay_turu == "giris":
+            kimlik = f"kart:{v.get('uid', '?')}"
+        elif k.olay_turu in ("onay_verildi", "kasa_acma_talebi"):
+            kimlik = f"personel:{v.get('personel_id', v.get('baslatan_personel_id', '?'))}"
+        else:
+            continue
+        onceki = son_gorulen.get(kimlik)
+        if onceki and onceki[1] != terminal:
+            saniye = max((k.zaman - onceki[0]).total_seconds(), 1.0)
+            a, b = terminaller.get(onceki[1]), terminaller.get(terminal)
+            if a and b and None not in (a.enlem, a.boylam, b.enlem, b.boylam):
+                km = _mesafe_km(a.enlem, a.boylam, b.enlem, b.boylam)
+                hiz = km / (saniye / 3600)
+                if km >= IMKANSIZ_SEYAHAT_MIN_KM and hiz > settings.MAKS_SEYAHAT_HIZI_KMH:
+                    bulgular.append(_bulgu(
+                        "imkansiz_seyahat", "yuksek",
+                        f"{kimlik}: {onceki[1]} ile {terminal} arası {km:.0f} km, {saniye / 60:.1f} dk "
+                        f"(yaklaşık {hiz:.0f} km/sa)", kimlik=kimlik))
+            elif saniye <= KONUMSUZ_KISA_SURE_SN:
+                bulgular.append(_bulgu(
+                    "farkli_terminal_kisa_surede", "orta",
+                    f"{kimlik}: {saniye:.0f} sn arayla {onceki[1]} ve {terminal} terminallerinde "
+                    f"(konum bilinmiyor)", kimlik=kimlik))
+        son_gorulen[kimlik] = (k.zaman, terminal)
+
+    # 8) Terminal uzun sure cevrimdisi kaldi (terminalin kendi bildirdigi sure)
+    for k, v in kayitlar:
+        if k.olay_turu == "terminal_gunlugu" and v.get("olay") == "cevrimdisi_bitti":
+            try:
+                sure = int(float(v.get("veri", {}).get("sure_sn", 0)))
+            except (TypeError, ValueError):
+                continue
+            if sure >= UZUN_CEVRIMDISI_SN:
+                bulgular.append(_bulgu(
+                    "uzun_cevrimdisi", "orta",
+                    f"Terminal {v.get('terminal', '?')} {sure // 60} dk çevrimdışı kaldı (log #{k.sira})",
+                    sira=k.sira))
 
     bulgular.sort(key=lambda b: CIDDIYET_SIRASI[b["ciddiyet"]])
     return bulgular
