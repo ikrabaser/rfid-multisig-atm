@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="5">
+  <title>Banka ve Kasa Paneli</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #1c1c1c; background: #fafafa; }
+    h1 { margin-top: 0; }
+    h2 { margin: 28px 0 8px; font-size: 1.05rem; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: .9rem; }
+    th { background: #f0f0f0; }
+    .ok { background: #e6f4ea; border: 1px solid #9fd3ad; padding: 10px 14px; }
+    .kotu { background: #fde8e8; border: 1px solid #e29a9a; padding: 10px 14px; }
+    code { font-size: .8rem; }
+    .not { color: #666; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <h1>Banka ve Kasa Paneli</h1>
+  <p class="not">Sayfa 5 saniyede bir yenilenir. <a href="/admin/">Yönetim paneli</a></p>
+
+  <h2>Denetim zinciri</h2>
+  {% if zincir.saglam %}
+    <div class="ok">Zincir sağlam. {{ zincir.kayit_sayisi }} kayıt. Son hash: <code>{{ zincir.son_hash|default:"-" }}</code></div>
+  {% else %}
+    <div class="kotu">ZİNCİR BOZUK: {{ zincir.bozuk_sira }}. kayıtta. {{ zincir.sebep }}</div>
+  {% endif %}
+
+  <h2>Bekleyen onaylar</h2>
+  <table>
+    <tr><th>Talep</th><th>Tür</th><th>Tutar</th><th>Hesap</th><th>Gereken</th><th>En az rol</th><th>Son tarih</th></tr>
+    {% for t in bekleyenler %}
+      <tr><td>#{{ t.id }}</td><td>{{ t.islem.get_tur_display }}</td><td>{{ t.islem.tutar }}</td>
+          <td>{{ t.islem.hesap.hesap_no }}</td><td>{{ t.gereken_onay }}</td>
+          <td>{{ t.get_en_az_rol_display }}</td><td>{{ t.son_tarih|time:"H:i:s" }}</td></tr>
+    {% empty %}
+      <tr><td colspan="7">Bekleyen talep yok.</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Son talepler</h2>
+  <table>
+    <tr><th>Talep</th><th>Durum</th><th>Tutar</th><th>Oylar</th></tr>
+    {% for t in talepler %}
+      <tr><td>#{{ t.id }}</td><td>{{ t.get_durum_display }}</td><td>{{ t.islem.tutar }}</td>
+          <td>{% for o in t.onaylar.all %}{{ o.personel.ad }} ({{ o.karar }}){% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>
+    {% empty %}
+      <tr><td colspan="4">Henüz talep yok.</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Son işlemler</h2>
+  <table>
+    <tr><th>#</th><th>Tür</th><th>Tutar</th><th>Hesap</th><th>Hedef</th><th>Durum</th><th>Zaman</th></tr>
+    {% for i in islemler %}
+      <tr><td>{{ i.id }}</td><td>{{ i.get_tur_display }}</td><td>{{ i.tutar }}</td><td>{{ i.hesap.hesap_no }}</td>
+          <td>{{ i.hedef_hesap.hesap_no|default:"-" }}</td><td>{{ i.get_durum_display }}</td>
+          <td>{{ i.olusturma|date:"d.m.Y H:i:s" }}</td></tr>
+    {% empty %}
+      <tr><td colspan="7">Henüz işlem yok.</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Hesaplar</h2>
+  <table>
+    <tr><th>Hesap no</th><th>Müşteri</th><th>Bakiye</th></tr>
+    {% for h in hesaplar %}
+      <tr><td>{{ h.hesap_no }}</td><td>{{ h.musteri.ad }}</td><td>{{ h.bakiye }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Son denetim kayıtları</h2>
+  <table>
+    <tr><th>Sıra</th><th>Zaman</th><th>Olay</th><th>Veri</th></tr>
+    {% for l in loglar %}
+      <tr><td>{{ l.sira }}</td><td>{{ l.zaman|date:"d.m.Y H:i:s" }}</td><td>{{ l.olay_turu }}</td><td><code>{{ l.veri }}</code></td></tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
