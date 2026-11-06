@@ -23,6 +23,8 @@
     LCD   : I2C  SDA=A4, SCL=A5  (adres 0x27, calismazsa 0x3F dene)
     Buzzer: A1      Para LED'i: A2      Kasa kilidi roleisi (IN): A3
 
+  Tutar kurus icerebilir: klavyede C tusu ondalik noktasi koyar (ornek 100.50).
+
   Idempotency: ISLEM'in son alani rastgele bir anahtardir. Cevap gelmezse AYNI anahtarla
   yeniden denenir; sunucu ayni islemi ikinci kez uygulamaz.
 
@@ -109,7 +111,7 @@ String komut(const String &satir, unsigned long beklemeMs = 4000) {
   Serial.setTimeout(beklemeMs);
   String cevap = Serial.readStringUntil('\n');
   cevap.trim();
-  if (cevap.length() == 0) return S("HATA|Sunucu yanit vermedi");
+  if (cevap.length() == 0) return S("HATA|Sunucu yanitsiz");
   return cevap;
 }
 
@@ -175,7 +177,8 @@ String pinAl(const String &baslik) {
 }
 
 // Rakam alir. #: onay, *: iptal, D: geri sil. Bos string: iptal.
-String sayiAl(const String &baslik, byte maksUzunluk) {
+// ondalik=true ise C tusu ondalik noktasi koyar (en fazla 2 kurus hanesi).
+String sayiAl(const String &baslik, byte maksUzunluk, bool ondalik = false) {
   String s = "";
   ekran(baslik, "");
   unsigned long bas = millis();
@@ -185,9 +188,16 @@ String sayiAl(const String &baslik, byte maksUzunluk) {
     if (!t) continue;
     bas = millis();
     if (t >= '0' && t <= '9') {
-      if (s.length() < maksUzunluk) s += t;
+      int nokta = s.indexOf('.');
+      bool kurusDolu = (nokta >= 0 && (int)s.length() - nokta > 2);
+      if (!kurusDolu && s.length() < maksUzunluk) s += t;
+    } else if (t == 'C' && ondalik) {
+      if (s.length() > 0 && s.indexOf('.') < 0 && s.length() < maksUzunluk) s += '.';
     } else if (t == '#') {
-      if (s.length() > 0) return s;
+      if (s.length() > 0) {
+        if (s.endsWith(".")) s.remove(s.length() - 1);
+        return s;
+      }
     } else if (t == '*') {
       return String();
     } else if (t == 'D') {
@@ -362,7 +372,7 @@ void islemYap(const String &token, char tur) {
       return;
     }
   }
-  String tutar = sayiAl(S("Tutar TL (#:ok)"), 8);
+  String tutar = sayiAl(S("Tutar (C:. #:ok)"), 11, true);  // C tusu: ondalik nokta (kurus)
   if (tutar.length() == 0) {
     ekran(S("Iptal edildi"));
     delay(1000);
