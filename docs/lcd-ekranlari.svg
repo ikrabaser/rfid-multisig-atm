@@ -1,0 +1,465 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="624" viewBox="0 0 660 624" role="img" aria-label="Terminal LCD ekranlari">
+<rect width="100%" height="100%" fill="#f6f6f4"/>
+<text x="28" y="34" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#1c1c1c">Terminal ekranları (16x2 LCD)</text>
+<text x="28" y="72" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">1. Bosta</text>
+<rect x="28" y="82" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="38" y="92" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="44" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">K</text>
+<text x="60" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="76" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">r</text>
+<text x="92" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="108" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="140" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">o</text>
+<text x="156" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="172" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">u</text>
+<text x="188" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="204" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">u</text>
+<text x="220" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="44" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">M</text>
+<text x="60" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="76" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="92" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="124" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">A</text>
+<text x="140" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">T</text>
+<text x="156" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">M</text>
+<text x="188" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">/</text>
+<text x="220" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">K</text>
+<text x="236" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="252" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="268" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<rect x="44" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="44" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="344" y="72" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">2. PIN girisi</text>
+<rect x="344" y="82" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="354" y="92" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="360" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">P</text>
+<text x="376" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">I</text>
+<text x="392" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">N</text>
+<text x="424" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">g</text>
+<text x="440" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="456" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">r</text>
+<text x="472" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="488" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="504" y="118" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="360" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">P</text>
+<text x="376" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">I</text>
+<text x="392" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">N</text>
+<text x="408" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="440" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">*</text>
+<text x="456" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">*</text>
+<text x="472" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">*</text>
+<text x="488" y="148" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">*</text>
+<rect x="360" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="98" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="360" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="128" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="28" y="214" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">3. Menu</text>
+<rect x="28" y="224" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="38" y="234" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="44" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">A</text>
+<text x="60" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="76" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">B</text>
+<text x="92" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="108" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="124" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="140" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="156" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="188" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">B</text>
+<text x="204" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="220" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">C</text>
+<text x="236" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="252" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="44" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">C</text>
+<text x="60" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="76" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">Y</text>
+<text x="92" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="108" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="124" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="140" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">r</text>
+<text x="172" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">D</text>
+<text x="188" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="204" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">H</text>
+<text x="220" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="236" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">v</text>
+<text x="252" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="268" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="284" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<rect x="44" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="44" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="344" y="214" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">4. Bakiye</text>
+<rect x="344" y="224" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="354" y="234" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="360" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">B</text>
+<text x="376" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="392" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="408" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="424" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="440" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="456" y="260" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="360" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">9</text>
+<text x="376" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">9</text>
+<text x="392" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">9</text>
+<text x="408" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">0</text>
+<text x="424" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">0</text>
+<text x="440" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">0</text>
+<text x="456" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">.</text>
+<text x="472" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">0</text>
+<text x="488" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">0</text>
+<text x="520" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">T</text>
+<text x="536" y="290" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">L</text>
+<rect x="360" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="240" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="360" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="270" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="28" y="356" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">5. Onay bekleniyor</text>
+<rect x="28" y="366" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="38" y="376" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="44" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">O</text>
+<text x="60" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="76" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="92" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="124" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">1</text>
+<text x="140" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">/</text>
+<text x="156" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">3</text>
+<text x="188" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">2</text>
+<text x="204" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">2</text>
+<text x="220" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="236" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="44" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">Y</text>
+<text x="60" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="76" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="92" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="108" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="124" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="140" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="172" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="188" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="204" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">r</text>
+<text x="220" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="252" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">o</text>
+<text x="268" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="284" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">u</text>
+<rect x="44" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="44" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="344" y="356" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">6. Ust yetkili lazim</text>
+<rect x="344" y="366" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="354" y="376" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="360" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">O</text>
+<text x="376" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="392" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="408" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="440" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">3</text>
+<text x="456" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">/</text>
+<text x="472" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">3</text>
+<text x="504" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">9</text>
+<text x="520" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="536" y="402" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="360" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">U</text>
+<text x="376" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="392" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="424" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="440" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="456" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="472" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="488" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="504" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="520" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="552" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="568" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="584" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">z</text>
+<text x="600" y="432" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<rect x="360" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="382" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="360" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="412" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="28" y="498" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">7. Yetkili karari</text>
+<rect x="28" y="508" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="38" y="518" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="44" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">A</text>
+<text x="60" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="76" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">O</text>
+<text x="92" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="108" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="124" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="140" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="156" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="188" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">B</text>
+<text x="204" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="220" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">R</text>
+<text x="236" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="252" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">d</text>
+<text x="268" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">d</text>
+<text x="284" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="44" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">*</text>
+<text x="60" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="76" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">I</text>
+<text x="92" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">p</text>
+<text x="108" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">t</text>
+<text x="124" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="140" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<rect x="44" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="44" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="344" y="498" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">8. Sonuc</text>
+<rect x="344" y="508" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="354" y="518" width="268" height="68" rx="4" fill="#9cb86b"/>
+<text x="360" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">I</text>
+<text x="376" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="392" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="408" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="424" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">m</text>
+<text x="456" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">o</text>
+<text x="472" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="488" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="504" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="520" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="536" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="552" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="568" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">d</text>
+<text x="584" y="544" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="360" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">T</text>
+<text x="376" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="392" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">m</text>
+<text x="408" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="424" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">m</text>
+<text x="440" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="456" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="472" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="488" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">d</text>
+<text x="504" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<rect x="360" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="524" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="360" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="554" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+</svg>

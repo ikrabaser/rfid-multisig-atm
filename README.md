@@ -74,6 +74,12 @@ Panel: `http://127.0.0.1:8000/` (staff girişi ister): bekleyen onaylar, son iş
 Kütüphaneler (Library Manager): **MFRC522**, **Keypad**, **LiquidCrystal I2C**.
 Uno'da RAM dar; metinler bu yüzden `F()` ile flash'ta tutuluyor. "Low memory" uyarısı alırsan Mega ya da ESP32 kullan.
 
+## Terminal ekranları
+
+16x2 LCD'de görünen ekranlar (metinler `atm_terminal.ino` içindekilerle aynı):
+
+![Terminal LCD ekranları](docs/lcd-ekranlari.svg)
+
 ## Kurallar (varsayılan politika, admin panelinden değişir)
 
 | Tutar (çekme / havale) | Gereken onay |
