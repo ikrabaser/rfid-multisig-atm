@@ -11,16 +11,20 @@
     KART|uid                            TIP|MUSTERI | PERSONEL | BLOKE | BILINMIYOR
     PIN|uid|pin                         GIRIS|token|ad        veya HATA|mesaj
     BAKIYE|token                        BAKIYE|1234.50
-    ISLEM|token|C/Y/H|tutar|hedef       TAMAM|yeniBakiye | BEKLE|talepId|gereken | HATA|mesaj
+    ISLEM|token|C/Y/H|tutar|hedef|anahtar  TAMAM|yeniBakiye | BEKLE|talepId|gereken | HATA|mesaj
+    KASAAC|uid|pin                      BEKLE|talepId|gereken | HATA|mesaj   (kasa dairesi acma talebi)
     BEKLEYEN                            BEKLEYEN|YOK | BEKLEYEN|id|tur|tutar|verilen|gereken
-    DURUM|talepId                       DURUM|verilen|gereken|durum|kalanSn|ustYetkili(0/1)
+    DURUM|talepId                       DURUM|verilen|gereken|durum|kalanSn|ustYetkili(0/1)|tur
     ONAY|talepId|uid|pin|E/H            ONAY|verilen|gereken|durum | HATA|mesaj
 
   Pinler (Uno):
     RC522 : SDA/SS=10, RST=9, MOSI=11, MISO=12, SCK=13, 3.3V (5V DEGIL!)
     Keypad: satirlar 2,3,4,5  sutunlar 6,7,8,A0
     LCD   : I2C  SDA=A4, SCL=A5  (adres 0x27, calismazsa 0x3F dene)
-    Buzzer: A1      Para LED'i: A2
+    Buzzer: A1      Para LED'i: A2      Kasa kilidi roleisi (IN): A3
+
+  Idempotency: ISLEM'in son alani rastgele bir anahtardir. Cevap gelmezse AYNI anahtarla
+  yeniden denenir; sunucu ayni islemi ikinci kez uygulamaz.
 
   Kutuphaneler (Library Manager): MFRC522, Keypad, LiquidCrystal I2C
 */
@@ -35,6 +39,10 @@
 #define SS_PIN 10
 #define BUZZER_PIN A1
 #define PARA_LED_PIN A2
+#define ROLE_PIN A3        // kasa kilidi roleisi (cogu modulde LOW = role ceker)
+#define ROLE_ACIK LOW
+#define ROLE_KAPALI HIGH
+#define KILIT_ACIK_MS 5000UL
 
 // Metinleri flash'ta tutar (Uno'nun 2KB RAM'i icin onemli)
 #define S(x) String(F(x))
@@ -82,6 +90,15 @@ void paraCikis() {
   digitalWrite(PARA_LED_PIN, HIGH);
   delay(2000);
   digitalWrite(PARA_LED_PIN, LOW);
+}
+
+// Kasa dairesi kilidini role ile birkac saniye acar
+void kilitAc() {
+  ekran(S("Kasa acildi"), S("5 sn acik"));
+  bip(true);
+  digitalWrite(ROLE_PIN, ROLE_ACIK);
+  delay(KILIT_ACIK_MS);
+  digitalWrite(ROLE_PIN, ROLE_KAPALI);
 }
 
 // ---------------------------------------------------------------- seri protokol
@@ -217,12 +234,43 @@ void personelKarar(const String &talepId, const String &uid) {
   }
 }
 
+void onayBekle(const String &talepId, const String &etiket);  // asagida tanimli
+
+// Bekleyen talep yokken yetkili, kasa dairesini acmak icin onay talebi baslatabilir
+void kasaAcmaTalebi(const String &uid) {
+  ekran(S("Talep yok"), S("A:Kasa ac *:Cik"));
+  char t = 0;
+  unsigned long bas = millis();
+  while (millis() - bas < 8000UL) {
+    t = keypad.getKey();
+    if (t == 'A' || t == '*') break;
+    t = 0;
+  }
+  if (t != 'A') return;
+
+  String pin = pinAl(S("Yetkili PIN:"));
+  if (pin.length() < 4) return;
+
+  ekran(S("Kontrol ediliyor"));
+  String c = komut(S("KASAAC|") + uid + "|" + pin, 5000);
+  pin = "";
+
+  if (alan(c, 0) == S("BEKLE")) {
+    onayBekle(alan(c, 1), S("Kasa acma"));
+  } else {
+    hataGoster(c);
+  }
+}
+
 // Bos moddayken yetkili karti okutulursa bekleyen talebi gosterir
 void personelModu(const String &uid) {
   String c = komut(S("BEKLEYEN"));
-  if (alan(c, 0) != S("BEKLEYEN") || alan(c, 1) == S("YOK")) {
-    ekran(S("Bekleyen onay"), S("talebi yok"));
-    delay(1800);
+  if (alan(c, 0) != S("BEKLEYEN")) {
+    hataGoster(c);
+    return;
+  }
+  if (alan(c, 1) == S("YOK")) {
+    kasaAcmaTalebi(uid);
     return;
   }
   String talepId = alan(c, 1);
@@ -234,8 +282,8 @@ void personelModu(const String &uid) {
 // ---------------------------------------------------------------- musteri
 
 // Onay bekler. Sonuc ekranda gosterilir.
-void onayBekle(const String &talepId, const String &tutar) {
-  ekran(S("Onay gerekli"), tutar + " TL");
+void onayBekle(const String &talepId, const String &etiket) {
+  ekran(S("Onay gerekli"), etiket);
   delay(1500);
   unsigned long sonSorgu = 0;
   String uid;
@@ -256,7 +304,11 @@ void onayBekle(const String &talepId, const String &tutar) {
       if (durum == S("UYGULANDI")) {
         ekran(S("Islem onaylandi"), S("Tamamlandi"));
         bip(true);
-        paraCikis();
+        if (alan(c, 6) == S("KASA_ACMA")) {
+          kilitAc();
+        } else {
+          paraCikis();
+        }
         delay(1500);
         return;
       }
@@ -273,7 +325,7 @@ void onayBekle(const String &talepId, const String &tutar) {
         return;
       }
       if (durum == S("BASARISIZ")) {
-        ekran(S("Islem basarisiz"), S("Bakiye yetersiz"));
+        ekran(S("Islem basarisiz"), S("Subeye basvurun"));
         bip(false);
         delay(2500);
         return;
@@ -318,7 +370,14 @@ void islemYap(const String &token, char tur) {
   }
 
   ekran(S("Isleniyor..."));
-  String c = komut(S("ISLEM|") + token + "|" + String(tur) + "|" + tutar + "|" + hedef, 6000);
+  // Idempotency anahtari: ayni istek tekrarlanirsa AYNI anahtar gider, para iki kez cekilmez
+  String anahtar = String(millis(), HEX) + String(random(0xFFFF), HEX);
+  String satir = S("ISLEM|") + token + "|" + String(tur) + "|" + tutar + "|" + hedef + "|" + anahtar;
+  String c = komut(satir, 6000);
+  for (byte deneme = 0; deneme < 2 && c.startsWith(S("HATA|Sunucu")); deneme++) {
+    ekran(S("Tekrar deneniyor"));
+    c = komut(satir, 6000);
+  }
   String a0 = alan(c, 0);
 
   if (a0 == S("TAMAM")) {
@@ -327,7 +386,7 @@ void islemYap(const String &token, char tur) {
     if (tur == 'C') paraCikis();
     delay(3000);
   } else if (a0 == S("BEKLE")) {
-    onayBekle(alan(c, 1), tutar);
+    onayBekle(alan(c, 1), tutar + " TL");
   } else {
     hataGoster(c);
   }
@@ -379,6 +438,9 @@ void musteriOturumu(const String &uid) {
 // ---------------------------------------------------------------- ana program
 
 void setup() {
+  randomSeed(analogRead(A3));            // bos pin okumasi: rastgele tohum (idempotency anahtari icin)
+  digitalWrite(ROLE_PIN, ROLE_KAPALI);   // cikis yapmadan once kapali seviyeyi hazirla (role tikirdamasin)
+  pinMode(ROLE_PIN, OUTPUT);
   Serial.begin(9600);
   SPI.begin();
   mfrc522.PCD_Init();

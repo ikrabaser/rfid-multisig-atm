@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="660" height="624" viewBox="0 0 660 624" role="img" aria-label="Terminal LCD ekranlari">
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="766" viewBox="0 0 660 766" role="img" aria-label="Terminal LCD ekranlari">
 <rect width="100%" height="100%" fill="#f6f6f4"/>
 <text x="28" y="34" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#1c1c1c">Terminal ekranları (16x2 LCD)</text>
 <text x="28" y="72" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">1. Bosta</text>
@@ -459,4 +459,112 @@
 <text x="472" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
 <text x="488" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">d</text>
 <text x="504" y="574" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="28" y="640" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">9. Kasa acma talebi</text>
+<rect x="28" y="650" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="38" y="660" width="268" height="68" rx="4" fill="#9cb86b"/>
+<rect x="44" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="44" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="60" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="76" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="92" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="108" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="124" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="140" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="156" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="172" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="188" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="204" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="220" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="236" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="252" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="268" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="284" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="44" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">T</text>
+<text x="60" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="76" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="92" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">e</text>
+<text x="108" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">p</text>
+<text x="140" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">y</text>
+<text x="156" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">o</text>
+<text x="172" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="44" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">A</text>
+<text x="60" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="76" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">K</text>
+<text x="92" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="108" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="124" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="156" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="172" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">c</text>
+<text x="204" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">*</text>
+<text x="220" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">:</text>
+<text x="236" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">C</text>
+<text x="252" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="268" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
+<text x="344" y="640" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#333">10. Kasa acildi (role)</text>
+<rect x="344" y="650" width="288" height="88" rx="10" fill="#2b2f33"/>
+<rect x="354" y="660" width="268" height="68" rx="4" fill="#9cb86b"/>
+<rect x="360" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="666" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="360" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="376" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="392" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="408" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="424" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="440" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="456" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="472" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="488" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="504" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="520" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="536" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="552" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="568" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="584" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<rect x="600" y="696" width="14" height="26" fill="#1f2d10" opacity="0.06"/>
+<text x="360" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">K</text>
+<text x="376" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="392" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="408" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="440" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="456" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">c</text>
+<text x="472" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="488" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">l</text>
+<text x="504" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">d</text>
+<text x="520" y="686" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="360" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">5</text>
+<text x="392" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">s</text>
+<text x="408" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">n</text>
+<text x="440" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">a</text>
+<text x="456" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">c</text>
+<text x="472" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">i</text>
+<text x="488" y="716" font-family="Consolas, Courier New, monospace" font-size="24" font-weight="700" fill="#1f2d10">k</text>
 </svg>
