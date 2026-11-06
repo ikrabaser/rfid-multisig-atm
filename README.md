@@ -6,9 +6,12 @@ geçmişte bir kayıt değiştirilirse ya da silinirse zincir bozulur ve fark ed
 
 > Bu bir **simülasyon**. RC522 gerçek banka kartlarını (EMV) okuyamaz, yalnızca UID görür. Para sanaldır.
 
-```
-Arduino terminal  --seri (USB)-->  Python köprüsü  --HTTP/JSON-->  Django backend (SQLite)
- RC522+keypad+LCD                  bridge/serial_bridge.py          backend/
+```mermaid
+flowchart LR
+    A["Arduino terminal<br/>RC522 + keypad + LCD"] -- "seri USB<br/>düz metin" --> B["Python köprüsü<br/>serial_bridge.py"]
+    B -- "HTTP / JSON" --> C["Django backend<br/>politika, onay, log"]
+    C --> D[("SQLite")]
+    C --> E["Panel ve admin<br/>/ ve /admin/"]
 ```
 
 Arduino **hiçbir karar vermez**: kart UID'sini ve tuşları yollar, cevaba göre ekrana yazar. PIN doğrulama, bakiye,
@@ -80,6 +83,22 @@ Uno'da RAM dar; metinler bu yüzden `F()` ile flash'ta tutuluyor. "Low memory" u
 | 50.000 – 500.000 | 2 yetkili, en az biri müdür yardımcısı veya üstü |
 | > 500.000 | 3 yetkili, en az biri müdür |
 
+```mermaid
+flowchart TD
+    A["İşlem isteği"] --> B{"Tür?"}
+    B -- "Yatırma" --> OK["Direkt uygula"]
+    B -- "Çekme veya havale" --> C{"Bakiye yeterli?"}
+    C -- "Hayır" --> R["Reddet"]
+    C -- "Evet" --> D{"Tutar?"}
+    D -- "5.000 ve altı" --> OK
+    D -- "5.000 ile 50.000" --> P1["1 yetkili onayı"]
+    D -- "50.000 ile 500.000" --> P2["2 yetkili, en az müdür yrd."]
+    D -- "500.000 üstü" --> P3["3 yetkili, en az müdür"]
+    P1 --> W["Onay talebi açılır<br/>30 sn pencere"]
+    P2 --> W
+    P3 --> W
+```
+
 - Yatırma onaysız geçer.
 - Onaylar talep açıldıktan sonra `ONAY_PENCERESI_SN` (30 sn) içinde toplanmalı, yoksa talep düşer.
 - Aynı yetkili iki kez sayılmaz. İşlemi başlatan kendi işlemini onaylayamaz. Herhangi bir yetkili reddedebilir.
@@ -87,6 +106,47 @@ Uno'da RAM dar; metinler bu yüzden `F()` ile flash'ta tutuluyor. "Low memory" u
   Gece denerken fazladan onay istemesini istemiyorsan: `set MESAI_DISI_KURALI=0` (sonra `runserver`).
 - Aktif yetkili sayısı ya da gerekli rol yetmiyorsa işlem açılmaz (güvenli tarafta kalır).
 - 3 yanlış PIN kartı bloke eder (müşteri ve yetkili). Blokeyi admin panelinden kaldır.
+
+## Akış
+
+600.000 TL çekme örneği (3 onay, en az biri müdür):
+
+```mermaid
+sequenceDiagram
+    actor M as Müşteri
+    participant T as Terminal
+    participant S as Django
+    actor Y as Yetkililer
+    M->>T: Kart ve PIN
+    T->>S: Giriş (köprü üzerinden)
+    S-->>T: Kısa ömürlü oturum token
+    M->>T: Çekme 600.000 TL
+    T->>S: İşlem isteği
+    S-->>T: BEKLE, 3 onay ve en az müdür gerekli
+    loop 30 sn içinde
+        Y->>T: Kart ve PIN ile onay
+        T->>S: Onay oyu
+        S-->>T: Verilen ve gereken onay sayısı
+    end
+    S->>S: Bakiyeyi atomik güncelle ve log yaz
+    S-->>T: UYGULANDI
+```
+
+Onay talebinin yaşam döngüsü:
+
+```mermaid
+stateDiagram-v2
+    [*] --> BEKLIYOR: talep açıldı
+    BEKLIYOR --> ONAYLANDI: yeterli onay ve rol şartı
+    BEKLIYOR --> REDDEDILDI: bir yetkili reddetti
+    BEKLIYOR --> SURESI_DOLDU: 30 sn doldu
+    ONAYLANDI --> UYGULANDI: bakiye güncellendi
+    ONAYLANDI --> BASARISIZ: bakiye yetersiz
+    UYGULANDI --> [*]
+    REDDEDILDI --> [*]
+    SURESI_DOLDU --> [*]
+    BASARISIZ --> [*]
+```
 
 ## Arduino olmadan deneme (köprü konsol modu)
 
@@ -106,7 +166,17 @@ ONAY|1|b0b0b005|5555|E       <- UYGULANDI
 
 ## Hash zinciri
 
-Her kayıt: `HMAC-SHA256(anahtar, önceki_hash | sıra | zaman | olay | veri)`. Doğrulama:
+Her kayıt: `HMAC-SHA256(anahtar, önceki_hash | sıra | zaman | olay | veri)`.
+
+```mermaid
+flowchart LR
+    G["GENESIS<br/>000...0"] --> K1["Kayıt 1<br/>hash1 = HMAC(GENESIS + kayıt 1)"]
+    K1 --> K2["Kayıt 2<br/>hash2 = HMAC(hash1 + kayıt 2)"]
+    K2 --> K3["Kayıt 3<br/>hash3 = HMAC(hash2 + kayıt 3)"]
+    K2 -. "kayıt 2 değiştirilirse" .-> X["hash2 tutmaz,<br/>zincir burada kırılır"]
+```
+
+Doğrulama:
 
 ```bat
 python manage.py log_dogrula
