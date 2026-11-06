@@ -1,33 +1,51 @@
 # RFID Banka + Çok İmzalı Kasa
 
 Arduino + RC522 ile kartlı mini ATM. Küçük işlemler direkt geçer, büyük işlemler **N-of-M yetkili onayı** ister
-(ör. 5 yetkiliden en az 3'ü, 30 saniye içinde, içlerinden biri müdür). Her olay **HMAC'li hash zincirine** yazılır;
-geçmişte bir kayıt değiştirilirse ya da silinirse zincir bozulur ve fark edilir.
+(ör. 5 yetkiliden en az 3'ü, 30 saniye içinde, içlerinden biri müdür). Para hareketleri **çift taraflı deftere**,
+her olay **HMAC'li hash zincirine** yazılır; geçmişte bir kayıt değiştirilirse ya da silinirse fark edilir.
+Kasa dairesinin kilidi, onay tamamlanınca **röle** ile açılır.
 
 > Bu bir **simülasyon**. RC522 gerçek banka kartlarını (EMV) okuyamaz, yalnızca UID görür. Para sanaldır.
 
 ```mermaid
 flowchart LR
-    A["Arduino terminal<br/>RC522 + keypad + LCD"] -- "seri USB<br/>düz metin" --> B["Python köprüsü<br/>serial_bridge.py"]
-    B -- "HTTP / JSON" --> C["Django backend<br/>politika, onay, log"]
+    A["Arduino terminal<br/>RC522 + keypad + LCD + röle"] -- "seri USB<br/>düz metin" --> B["Python köprüsü<br/>serial_bridge.py"]
+    B -- "HTTPS / JSON" --> C["Django backend<br/>politika, onay, defter, log"]
     C --> D[("SQLite")]
     C --> E["Panel ve admin<br/>/ ve /admin/"]
 ```
 
 Arduino **hiçbir karar vermez**: kart UID'sini ve tuşları yollar, cevaba göre ekrana yazar. PIN doğrulama, bakiye,
-politika, onay kuralları ve log tamamen sunucudadır.
+politika, onay kuralları, defter ve log tamamen sunucudadır.
+
+## Özellikler
+
+| Özellik | Nerede | Nasıl görürsün |
+|---|---|---|
+| **N-of-M onay** (tutara göre 0–3 onay, rol şartı, 30 sn pencere) | `services.py` | README'deki demo |
+| **Çift taraflı defter**: her hareket borç/alacak, bakiye defterden doğrulanır | `ledger.py` | `python manage.py gun_sonu_mutabakat` |
+| **Idempotency**: aynı istek iki kez gelirse para iki kez çıkmaz | `services.islem_baslat` | Arduino ağ koparsa aynı anahtarla yeniden dener |
+| **Günlük limit** + kasada yeterli nakit kontrolü | `Hesap.gunluk_limit` | admin panelinden değiştir |
+| **Gün sonu mutabakatı**: defter ↔ bakiye ↔ işlem ↔ hash zinciri | `gun_sonu_mutabakat` | çıkış kodu 1 = fark var |
+| **Anomali tespiti** (PIN saldırısı, gece işlemi, hızlı talepler…) | `anomali.py` | `python manage.py anomali_tara`, panel |
+| **Kasa dairesi açma**: 3 onay + müdür, sonra röle | `kasa_acma_baslat`, firmware | yetkili kartı, "A:Kasa ac" |
+| **PIN trafiği için HTTPS** + düz HTTP koruması | `https_sunucu.py`, köprü | aşağıda "HTTPS" |
+| **HMAC'li hash zinciri** denetim kaydı | `hashlog.py` | `python manage.py log_dogrula` |
 
 ## Klasör yapısı
 
 | Yol | Ne var |
 |---|---|
-| `arduino/atm_terminal/atm_terminal.ino` | Terminal yazılımı (kart, PIN, LCD menü, onay bekleme ekranı) |
+| `arduino/atm_terminal/atm_terminal.ino` | Terminal yazılımı (kart, PIN, LCD menü, onay bekleme, röle) |
 | `bridge/serial_bridge.py` | Seri port ↔ API köprüsü (`--konsol` ile Arduino'suz da denenir) |
-| `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, OnayTalebi, Onay, LogKaydi |
-| `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika motoru, onay akışı, atomik bakiye |
+| `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, HesapHareketi, OnayTalebi, Onay, LogKaydi |
+| `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika, onay akışı, idempotency, limit, kasa açma |
+| `backend/banka/ledger.py` | Defter satırları ve mutabakat |
+| `backend/banka/anomali.py` | Log üzerinde anomali kuralları |
 | `backend/banka/hashlog.py` | Hash zinciri ekleme ve doğrulama |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
-| `backend/banka/tests.py` | Politika, onay, süre, PIN, zincir testleri |
+| `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
+| `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
 
 ## Kurulum (Windows)
 
@@ -45,8 +63,13 @@ python manage.py test
 python manage.py runserver
 ```
 
-Gereken Django sürümü **5.1 veya üstü**. `seed_demo` sahte UID'li demo müşteri/yetkili/politika üretir ve PIN'leri yazdırır
-(müşteriler `1234` / `4321`, yetkililer `1111`…`5555`). Gerçek kartlarının UID'sini admin panelinden (`/admin/`) gir.
+Gereken Django sürümü **5.1 veya üstü**. `seed_demo` sahte UID'li demo müşteri/yetkili/politika ve **nakit kasa
+hesabı** üretir, PIN'leri yazdırır (müşteriler `1234` / `4321`, yetkililer `1111`…`5555`). Gerçek kartlarının UID'sini
+admin panelinden (`/admin/`) gir.
+
+> Şema değiştiyse (ör. defter, günlük limit eklenmesi) eski demo veritabanını sil: `del db.sqlite3`, sonra
+> `makemigrations`, `migrate`, `seed_demo` komutlarını tekrar çalıştır. Eski bakiyelerin açılış kaydı olmadığı için
+> mutabakat fark gösterirdi.
 
 İkinci terminalde köprü:
 
@@ -59,7 +82,8 @@ python serial_bridge.py --port COM3
 Bir kartın UID'sini öğrenmek için kartı terminale okut; köprü satırı `KART|c518cc4f -> TIP` diye yazdırır.
 Seri port aynı anda tek programda açık olabilir, **Arduino IDE'nin Serial Monitor'unu kapat**.
 
-Panel: `http://127.0.0.1:8000/` (staff girişi ister): bekleyen onaylar, son işlemler, hesaplar, zincir durumu.
+Panel: `http://127.0.0.1:8000/` (staff girişi ister): anomali uyarıları, bekleyen onaylar, son işlemler, defter
+hareketleri, hesaplar, zincir durumu.
 
 ## Bağlantılar (Uno)
 
@@ -70,9 +94,20 @@ Panel: `http://127.0.0.1:8000/` (staff girişi ister): bekleyen onaylar, son iş
 | I2C LCD 16x2 | SDA=A4, SCL=A5 (adres `0x27`, olmazsa `0x3F`) |
 | Buzzer | A1 |
 | "Para çıkışı" LED'i | A2 |
+| Kasa kilidi rölesi (IN) | A3 |
 
 Kütüphaneler (Library Manager): **MFRC522**, **Keypad**, **LiquidCrystal I2C**.
 Uno'da RAM dar; metinler bu yüzden `F()` ile flash'ta tutuluyor. "Low memory" uyarısı alırsan Mega ya da ESP32 kullan.
+
+### Kasa kilidi (röle)
+
+Arduino pini kilidi süremez. 5V röle modülü araya girer, kilit **ayrı 12V adaptörden** beslenir:
+
+- Röle modülü: `VCC` → 5V, `GND` → GND, `IN` → A3
+- Adaptör `+` → rölenin `COM`; rölenin `NO` → kilidin `+`; kilidin `-` → adaptör `-`
+- Kilidin uçlarına ters yönde bir **1N4007 diyot** bağla (bobinin gerilim sıçramasını söndürür)
+- Çoğu modül LOW'da çeker. Seninki tersse `atm_terminal.ino` içinde `ROLE_ACIK` ile `ROLE_KAPALI` değerlerini yer değiştir.
+- İlk denemede kilit yerine LED ya da rölenin "klik" sesiyle dene. Kilit 5 sn açık kalır (`KILIT_ACIK_MS`).
 
 ## Terminal ekranları
 
@@ -91,9 +126,11 @@ Uno'da RAM dar; metinler bu yüzden `F()` ile flash'ta tutuluyor. "Low memory" u
 
 ```mermaid
 flowchart TD
-    A["İşlem isteği"] --> B{"Tür?"}
-    B -- "Yatırma" --> OK["Direkt uygula"]
-    B -- "Çekme veya havale" --> C{"Bakiye yeterli?"}
+    A["İşlem isteği"] --> K{"Aynı idempotency<br/>anahtarı geldi mi?"}
+    K -- "Evet" --> KS["Eski sonucu döndür<br/>yeni işlem açma"]
+    K -- "Hayır" --> B{"Tür?"}
+    B -- "Yatırma" --> OK["Defter hareketlerini yaz<br/>ve uygula"]
+    B -- "Çekme veya havale" --> C{"Bakiye, kasada nakit<br/>ve günlük limit yeterli?"}
     C -- "Hayır" --> R["Reddet"]
     C -- "Evet" --> D{"Tutar?"}
     D -- "5.000 ve altı" --> OK
@@ -105,7 +142,9 @@ flowchart TD
     P3 --> W
 ```
 
-- Yatırma onaysız geçer.
+- Yatırma onaysız geçer ve günlük limite takılmaz.
+- **Günlük limit** (varsayılan 1.000.000 TL/hesap) bugünkü uygulanmış ve onay bekleyen çekme/havaleleri sayar.
+- Çekme için **kasada yeterli nakit** de gerekir (`seed_demo` kasaya 10.000.000 TL koyar).
 - Onaylar talep açıldıktan sonra `ONAY_PENCERESI_SN` (30 sn) içinde toplanmalı, yoksa talep düşer.
 - Aynı yetkili iki kez sayılmaz. İşlemi başlatan kendi işlemini onaylayamaz. Herhangi bir yetkili reddedebilir.
 - **Mesai dışı** (09–18 dışı ve hafta sonu) onay isteyen işlemlerde **+1 onay** ve **bir üst rol** gerekir.
@@ -127,14 +166,14 @@ sequenceDiagram
     T->>S: Giriş (köprü üzerinden)
     S-->>T: Kısa ömürlü oturum token
     M->>T: Çekme 600.000 TL
-    T->>S: İşlem isteği
+    T->>S: İşlem isteği + idempotency anahtarı
     S-->>T: BEKLE, 3 onay ve en az müdür gerekli
     loop 30 sn içinde
         Y->>T: Kart ve PIN ile onay
         T->>S: Onay oyu
         S-->>T: Verilen ve gereken onay sayısı
     end
-    S->>S: Bakiyeyi atomik güncelle ve log yaz
+    S->>S: Defter hareketlerini atomik yaz ve log ekle
     S-->>T: UYGULANDI
 ```
 
@@ -146,13 +185,86 @@ stateDiagram-v2
     BEKLIYOR --> ONAYLANDI: yeterli onay ve rol şartı
     BEKLIYOR --> REDDEDILDI: bir yetkili reddetti
     BEKLIYOR --> SURESI_DOLDU: 30 sn doldu
-    ONAYLANDI --> UYGULANDI: bakiye güncellendi
-    ONAYLANDI --> BASARISIZ: bakiye yetersiz
+    ONAYLANDI --> UYGULANDI: defter yazıldı
+    ONAYLANDI --> BASARISIZ: bakiye ya da nakit yetersiz
     UYGULANDI --> [*]
     REDDEDILDI --> [*]
     SURESI_DOLDU --> [*]
     BASARISIZ --> [*]
 ```
+
+## Kasa dairesini açma
+
+Bekleyen talep yokken **yetkili kartını** okut → `A:Kasa ac` → PIN. 3 onay gerekir ve en az biri müdür olmalıdır
+(`KASA_ACMA_GEREKEN_ONAY`, `KASA_ACMA_EN_AZ_ROL`). Diğer yetkililer kartlarını okutup onaylar; **talebi başlatan kendi
+talebini onaylayamaz**, bu yüzden onaylayabilecek başka yeterli yetkili yoksa talep hiç açılmaz (tek müdürün
+başlattığı talep sonsuza dek takılırdı). Son onayda sunucu `UYGULANDI` der ve terminal röleyi 5 sn çeker.
+
+## Çift taraflı defter ve mutabakat
+
+Bakiye tek bir sayı değildir; her para hareketi, toplamı sıfır olan borç/alacak satırlarıdır:
+
+| İşlem | Borç | Alacak |
+|---|---|---|
+| Çekme | müşteri hesabı | kasa |
+| Yatırma | kasa | müşteri hesabı |
+| Havale | gönderen müşteri | alıcı müşteri |
+
+`Hesap.bakiye` hızlı okuma için tutulan önbelleğdir. `Hesap.acilis_bakiyesi` + defterin net etkisi gerçek bakiyedir.
+
+```bat
+python manage.py gun_sonu_mutabakat                 :: bugün
+python manage.py gun_sonu_mutabakat --tarih 2026-11-05
+```
+
+Komut şunları karşılaştırır, fark varsa çıkış kodu 1 verir ve sonucu denetim loguna yazar:
+kayıtlı bakiye ↔ defterden hesaplanan bakiye, her işlemde borç = alacak = tutar, uygulanmış işlemin defter satırı olması,
+uygulanmamış işleme ait yetim satır olmaması, hash zincirinin sağlamlığı.
+
+## Idempotency
+
+Ağ koparsa ya da cevap gecikirse aynı istek iki kez gelebilir. Terminal her işlem için rastgele bir **anahtar** üretir;
+cevap gelmezse AYNI anahtarla en fazla 2 kez yeniden dener. Sunucu `(hesap, anahtar)` çiftini tekil tutar: ikinci istek
+yeni işlem açmaz, ilk işlemin sonucunu döndürür (`"tekrar": true`). Aynı anahtar farklı tutar/hedefle gelirse reddedilir.
+
+## Anomali tespiti
+
+```bat
+python manage.py anomali_tara --saat 24        :: yüksek ciddiyette bulgu varsa çıkış kodu 1
+```
+
+| Kural | Ciddiyet | Ne yakalar |
+|---|---|---|
+| `pin_yagmuru` | yüksek | Aynı kimlikte 10 dk içinde 3+ hatalı PIN |
+| `dagitik_pin` | yüksek | 10 dk içinde 3+ farklı kimlikte toplam 5+ hatalı PIN |
+| `bilinmeyen_kart_tekrar` | orta | Tanımsız kartın 10 dk içinde 3+ kez okutulması |
+| `bloke_kart_denemesi` | orta | Bloke kimlikle ısrarlı deneme |
+| `hizli_talep` | orta | Aynı hesapta 10 dk içinde 3+ onay talebi |
+| `gece_yetkili_islemi` | orta / yüksek | 00:00–05:00 arasında onay ya da kasa açma |
+
+Kurallar hash zincirli logdaki olaylara bakar, bulgular panelin üstünde görünür. Tek terminal olduğu için "imkânsız
+seyahat" gibi kurallar yok; birden çok terminal eklenirse log olaylarına terminal kimliği konup eklenebilir.
+
+## HTTPS (PIN trafiği)
+
+PIN, Arduino → köprü arası USB'den düz gider (aynı bilgisayar). Köprü → API arası ise ağdan geçebilir; bu yüzden:
+
+- Köprü, **bu bilgisayar dışındaki bir adrese düz HTTP ile bağlanmayı reddeder** (`--guvensiz-http` ile bilerek açılır).
+- `DJANGO_HTTPS=1` ise API düz HTTP isteklerini `403` ile reddeder, oturum/CSRF çerezleri `Secure` olur.
+- `backend/https_sunucu.py` geliştirme için TLS'li sunucu açar (üretimde gunicorn/waitress + Caddy/nginx kullan).
+
+```bat
+mkcert -install
+mkcert localhost 127.0.0.1 ::1
+set DJANGO_HTTPS=1
+python https_sunucu.py --sertifika localhost+2.pem --anahtar localhost+2-key.pem
+
+python serial_bridge.py --port COM3 --api https://127.0.0.1:8443 --ca-dosyasi "<mkcert -CAROOT klasörü>\rootCA.pem"
+```
+
+**Neden PIN'i Arduino'da hash'lemiyoruz?** 4 haneli PIN'in 10.000 olasılığı var; hash'i ele geçiren herkes saniyeler içinde
+PIN'i bulur, üstelik hash'in kendisi "PIN yerine geçen sır" olur (pass-the-hash). Asıl koruma kanalın şifrelenmesi,
+sunucuda yavaş hash (Django PBKDF2) ve deneme sınırıdır. Gerçek sistemlerde PIN, güvenli PIN-pad içinde şifrelenir (PIN block) ve HSM ile doğrulanır.
 
 ## Arduino olmadan deneme (köprü konsol modu)
 
@@ -162,12 +274,16 @@ python serial_bridge.py --konsol
 
 ```
 KART|a0a0a001
-PIN|a0a0a001|1234            <- GIRIS|<token>|Ali Yilmaz
-ISLEM|<token>|C|600000|      <- BEKLE|1|3       (token 120 sn geçerli)
-ONAY|1|b0b0b001|1111|E       <- ONAY|1|3|BEKLIYOR
+PIN|a0a0a001|1234                 <- GIRIS|<token>|Ali Yilmaz
+ISLEM|<token>|C|600000||anahtar1  <- BEKLE|1|3   (token 120 sn geçerli)
+ISLEM|<token>|C|600000||anahtar1  <- BEKLE|1|3   (aynı anahtar: yeni talep açılmaz)
+ONAY|1|b0b0b001|1111|E            <- ONAY|1|3|BEKLIYOR
 ONAY|1|b0b0b002|2222|E
-ONAY|1|b0b0b003|3333|E       <- 3 onay var ama müdür yok: BEKLIYOR, "üst yetkili lazım"
-ONAY|1|b0b0b005|5555|E       <- UYGULANDI
+ONAY|1|b0b0b003|3333|E            <- 3 onay var ama müdür yok: BEKLIYOR, üst rol lazım
+ONAY|1|b0b0b005|5555|E            <- UYGULANDI
+
+KASAAC|b0b0b001|1111              <- BEKLE|2|3   (kasa dairesi açma talebi)
+ONAY|2|b0b0b002|2222|E            ... Burak, Cem, Elif onaylar; Ayşe kendi talebini onaylayamaz
 ```
 
 ## Hash zinciri
@@ -196,23 +312,40 @@ Dürüst sınırlar:
   `--beklenen-son-hash` ile karşılaştır.
 - `LOG_HMAC_ANAHTARI` ortam değişkenini veritabanının **dışında** tut. Anahtarı bilen biri zinciri baştan hesaplayabilir.
 - Hash zinciri veritabanına erişimi engellemez, değişikliği **görünür** kılar.
+- Defter hareketleri de eklenir ama değiştirilmez/silinmez (model düzeyinde); veritabanına doğrudan erişim bunu aşabilir,
+  mutabakat komutu böyle bir değişikliği bakiye farkı olarak yakalar.
 
 ## Protokol (Arduino ↔ köprü)
 
 Satır satır metin, alanlar `|` ile ayrılır, 9600 baud. Uno'da JSON ayrıştırmak RAM yer; bu yüzden düz metin.
-Tam liste `atm_terminal.ino` dosyasının başındaki yorumda.
+Tam liste `atm_terminal.ino` dosyasının başındaki yorumda. Özet:
+
+| Arduino → köprü | Cevap |
+|---|---|
+| `KART\|uid` | `TIP\|MUSTERI/PERSONEL/BLOKE/BILINMIYOR` |
+| `PIN\|uid\|pin` | `GIRIS\|token\|ad` |
+| `BAKIYE\|token` | `BAKIYE\|tutar` |
+| `ISLEM\|token\|C/Y/H\|tutar\|hedef\|anahtar` | `TAMAM\|bakiye` ya da `BEKLE\|talepId\|gereken` |
+| `KASAAC\|uid\|pin` | `BEKLE\|talepId\|gereken` |
+| `BEKLEYEN` | `BEKLEYEN\|YOK` ya da `BEKLEYEN\|id\|tur\|tutar\|verilen\|gereken` |
+| `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur` |
+| `ONAY\|talepId\|uid\|pin\|E/H` | `ONAY\|verilen\|gereken\|durum` |
+
+Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter).
 
 ## Bilinen sınırlar
 
 - UID kopyalanabilir (MIFARE Classic UID'si klonlanır). Bu yüzden kart tek başına yetmez, PIN de isteniyor. Gerçek
   güvenlik için imzalı/şifreli kart (NTAG 424 DNA, DESFire) ve PN532 gerekir.
-- PIN, Arduino → köprü → API arasında düz metin gider. Hepsi aynı bilgisayarda (USB + localhost) olduğu sürece kabul edilebilir;
-  ağdan geçirirsen HTTPS kullan. Seri modda köprü PIN ve token'ları konsola yazmaz.
+- Arduino → köprü arası USB'de PIN düz metindir (aynı bilgisayarda). Köprü → API arası için HTTPS kullan.
 - Tutar klavyeden tam TL girilir (kuruş yok). Tek terminal hem müşteri hem yetkili modunda çalışır.
+- Terminal, idempotency için yalnızca yeniden deneme yapar; ISLEM cevabı hiç gelmezse işlem sunucuda uygulanmış olabilir ve
+  ekranda "Sunucu yanit vermedi" görünür. Aynı anahtarla yeniden gönderince sonucu alırsın; kalıcı çözüm çevrimdışı kuyruk olurdu.
 - SQLite geliştirme içindir. Varsayılan anahtarlar (`DJANGO_SECRET_KEY`, `KOPRU_API_ANAHTARI`, `LOG_HMAC_ANAHTARI`) sadece demo içindir.
 
-## Fikir sırası
+## Sıradaki fikirler
 
-1. Terminal + köprü + backend çalışsın (bu repo).
-2. Röle ile kapı kilidi: "kasa dairesi" onaylandığında `UYGULANDI` olunca röleyi çek.
-3. Log üzerinde anomali tespiti (imkânsız seyahat, gece davranışı, tekrarlayan başarısız deneme).
+1. Log olaylarına terminal kimliği ekleyip birden çok terminalle "imkânsız seyahat" kuralı.
+2. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
+3. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
+4. Terminalde çevrimdışı kuyruk ve kuruş desteği.
