@@ -11,10 +11,11 @@
     KART|uid                            TIP|MUSTERI | PERSONEL | BLOKE | BILINMIYOR
     PIN|uid|pin                         GIRIS|token|ad        veya HATA|mesaj
     BAKIYE|token                        BAKIYE|1234.50
-    ISLEM|token|C/Y/H|tutar|hedef|anahtar  TAMAM|yeniBakiye | BEKLE|talepId|gereken | HATA|mesaj
+    ISLEM|token|C/Y/H|tutar|hedef|anahtar  TAMAM|yeniBakiye|islemId | BEKLE|talepId|gereken | HATA|mesaj
     KASAAC|uid|pin                      BEKLE|talepId|gereken | HATA|mesaj   (kasa dairesi acma talebi)
     BEKLEYEN                            BEKLEYEN|YOK | BEKLEYEN|id|tur|tutar|verilen|gereken
-    DURUM|talepId                       DURUM|verilen|gereken|durum|kalanSn|ustYetkili(0/1)|tur
+    DURUM|talepId                       DURUM|verilen|gereken|durum|kalanSn|ustYetkili(0/1)|tur|islemId
+    TESLIM|islemId|A/H                  TESLIM|ALINDI | TESLIM|GERI   (para teslimi; H = alinmadi, ters kayit)
     ONAY|talepId|uid|pin|E/H            ONAY|verilen|gereken|durum | HATA|mesaj
 
   Pinler (Uno):
@@ -22,6 +23,10 @@
     Keypad: satirlar 2,3,4,5  sutunlar 6,7,8,A0
     LCD   : I2C  SDA=A4, SCL=A5  (adres 0x27, calismazsa 0x3F dene)
     Buzzer: A1      Para LED'i: A2      Kasa kilidi roleisi (IN): A3
+
+  Para teslimi: nakit cekmede LED yanar, A tusu "para alindi" sensorunu simule eder. 8 sn icinde
+  basilmazsa para geri cekilmis sayilir ve sunucu islemi TERS KAYDEDER (gercek ATM'de bunu dagitici
+  sensoru bildirir). Sunucu cevap vermezse ayni bildirim tekrar denenir.
 
   Tutar kurus icerebilir: klavyede C tusu ondalik noktasi koyar (ornek 100.50).
 
@@ -45,6 +50,7 @@
 #define ROLE_ACIK LOW
 #define ROLE_KAPALI HIGH
 #define KILIT_ACIK_MS 5000UL
+#define PARA_ALMA_MS 8000UL   // para alinmazsa geri cekilmis sayilir
 
 // Metinleri flash'ta tutar (Uno'nun 2KB RAM'i icin onemli)
 #define S(x) String(F(x))
@@ -87,13 +93,6 @@ void bip(bool basarili) {
   }
 }
 
-void paraCikis() {
-  // Para verildi simulasyonu: LED 2 sn yanar
-  digitalWrite(PARA_LED_PIN, HIGH);
-  delay(2000);
-  digitalWrite(PARA_LED_PIN, LOW);
-}
-
 // Kasa dairesi kilidini role ile birkac saniye acar
 void kilitAc() {
   ekran(S("Kasa acildi"), S("5 sn acik"));
@@ -134,6 +133,41 @@ void hataGoster(const String &cevap) {
   ekran(m.substring(0, 16), m.substring(16));
   bip(false);
   delay(2500);
+}
+
+// Parayi verir (LED) ve alinmasini bekler (A tusu = "para alindi" sensoru). Alinmazsa sunucu islemi
+// ters kaydeder. true: islem geri alindi.
+bool paraVer(const String &islemId) {
+  digitalWrite(PARA_LED_PIN, HIGH);
+  ekran(S("Parayi alin"), S("A: Aldim"));
+  bool alindi = false;
+  unsigned long bas = millis();
+  while (millis() - bas < PARA_ALMA_MS) {
+    if (keypad.getKey() == 'A') {
+      alindi = true;
+      break;
+    }
+  }
+  digitalWrite(PARA_LED_PIN, LOW);
+  if (islemId.length() == 0) return false;
+
+  ekran(S("Kaydediliyor..."));
+  String satir = S("TESLIM|") + islemId + "|" + (alindi ? "A" : "H");
+  String c = komut(satir, 5000);
+  for (byte deneme = 0; deneme < 2 && c.startsWith(S("HATA|Sunucu")); deneme++) {
+    c = komut(satir, 5000);  // ayni bildirim tekrar: sunucuda idempotent
+  }
+  if (alan(c, 0) != S("TESLIM")) {
+    hataGoster(c);
+    return false;
+  }
+  if (alan(c, 1) == S("GERI")) {
+    ekran(S("Para alinmadi"), S("Islem iptal"));
+    bip(false);
+    delay(2500);
+    return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- kart / tus
@@ -317,7 +351,7 @@ void onayBekle(const String &talepId, const String &etiket) {
         if (alan(c, 6) == S("KASA_ACMA")) {
           kilitAc();
         } else {
-          paraCikis();
+          paraVer(alan(c, 7));  // DURUM'un 8. alani: islem no
         }
         delay(1500);
         return;
@@ -391,10 +425,13 @@ void islemYap(const String &token, char tur) {
   String a0 = alan(c, 0);
 
   if (a0 == S("TAMAM")) {
-    ekran(S("Islem tamam"), S("Bak: ") + alan(c, 1));
-    bip(true);
-    if (tur == 'C') paraCikis();
-    delay(3000);
+    // TAMAM|bakiye|islemId
+    bool geriAlindi = (tur == 'C') ? paraVer(alan(c, 2)) : false;
+    if (!geriAlindi) {
+      ekran(S("Islem tamam"), S("Bak: ") + alan(c, 1));
+      bip(true);
+      delay(3000);
+    }
   } else if (a0 == S("BEKLE")) {
     onayBekle(alan(c, 1), tutar + " TL");
   } else {
