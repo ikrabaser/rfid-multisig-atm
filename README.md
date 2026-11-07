@@ -35,6 +35,8 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Kuruş desteği** (klavyede `C` tuşu ondalık noktası) | firmware, `_tutar_coz` | `100.50` yaz |
 | **Çevrimdışı günlük kuyruğu** (store-and-forward) | köprü, `terminal.py` | sunucuyu kapatıp terminali dene |
 | **Bildirimler** (e-posta + SMS simülasyonu) | `bildirim.py` | talep açılınca yetkililere gider |
+| **Maker-checker**: politika değişikliği 2 farklı kullanıcının onayını ister, korkuluklar, onaysız değişiklik tespiti | `politika_degisikligi.py` | admin → Politika değişikliği talepleri |
+| **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
 
 ## Klasör yapısı
 
@@ -50,6 +52,7 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | `backend/banka/terminal.py` | Terminal doğrulama, çevrimdışı günlüğün yüklenmesi |
 | `backend/banka/bildirim.py` | E-posta ve SMS (simülasyon) bildirimleri |
 | `backend/banka/baglam.py` | İsteğin terminalini log katmanına taşıyan bağlam |
+| `backend/banka/politika_degisikligi.py` | Maker-checker, korkuluklar, politika bütünlüğü (onaylı görüntü) |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
 | `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
 | `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
@@ -79,7 +82,10 @@ admin panelinden (`/admin/`) gir.
 > mutabakat fark gösterirdi.
 
 > Mevcut veritabanın varsa silmene gerek yok: `makemigrations` yeni bir migration (`0003_...`) üretir, `migrate` uygular,
-> `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar.
+> `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar, politika için onaylı başlangıç
+> görüntüsünü kaydeder ve maker-checker için 3 demo yönetim kullanıcısı (`politika_talep`, `politika_onay1`,
+> `politika_onay2`) ile 2 grup oluşturur; **şifreleri yalnızca ilk çalıştırmada ekrana yazar**, not al.
+> Veritabanın eskiden kalmaysa ve politikaların varsa bir kez `python manage.py politika_goruntu_al` çalıştır.
 
 İkinci terminalde köprü:
 
@@ -254,6 +260,8 @@ python manage.py anomali_tara --saat 24        :: yüksek ciddiyette bulgu varsa
 | `imkansiz_seyahat` | yüksek | Aynı kart/yetkili, kısa sürede birbirine uzak iki terminalde (varsayılan eşik 150 km/sa) |
 | `farkli_terminal_kisa_surede` | orta | Terminal konumu bilinmiyorsa: aynı kimlik 2 dk içinde iki terminalde |
 | `uzun_cevrimdisi` | orta | Terminal 30 dk'dan uzun çevrimdışı kaldı (terminalin kendi beyanı) |
+| `teslim_belirsiz` | orta | Nakit çekmenin para teslimi 5 dk'dan uzun süredir bildirilmedi |
+| `cok_ters_kayit` | orta | Aynı hesapta 60 dk içinde 3+ ters kayıt (dağıtıcı arızası ya da suistimal) |
 
 Kurallar hash zincirli logdaki olaylara bakar, bulgular panelin üstünde görünür. Kimlik başına son görüldüğü terminal tutulur; terminal koordinatları varsa haversine mesafesi ve hız hesaplanır.
 `python manage.py anomali_tara --bildir` yüksek ciddiyetteki bulguları müdür yardımcısı ve üstüne bildirir.
@@ -367,6 +375,91 @@ sequenceDiagram
   commit edildikten sonra gönderilir. Panelde "Son bildirimler" bölümü var.
 - Bloke ya da pasif yetkililere bildirim gitmez.
 
+## Politika değişikliği: maker-checker
+
+Onay politikası (hangi tutarda kaç onay) sistemin en kritik ayarıdır; tek kişi "50.000 TL'ye kadar onaysız" yazarsa
+bütün N-of-M düzeni boşa gider. Bu yüzden **Politika tablosu admin panelinde salt okunurdur** (ekleme, değiştirme ve
+silme kapalı). Değişiklik yalnızca "Politika değişikliği talepleri" ile yapılır:
+
+```mermaid
+sequenceDiagram
+    actor M as Talep eden (maker)
+    participant S as Sistem
+    actor C1 as Onaylayan 1
+    actor C2 as Onaylayan 2
+    M->>S: Talep aç (gerekçe zorunlu)
+    S->>S: Korkulukları kontrol et
+    S-->>C1: E-posta bildirimi
+    C1->>S: Onayla
+    C2->>S: Onayla
+    S->>S: Değişikliği uygula, yeni politika görüntüsünü hash zincirine yaz
+```
+
+- Talep eden kendi talebini **onaylayamaz**, aynı kullanıcı iki kez sayılmaz, herhangi bir onaylayan reddedebilir,
+  talep 24 saat içinde onaylanmazsa düşer. Aynı politika için aynı anda tek bekleyen talep olabilir.
+- Yetki Django izinleriyle verilir: `politika_talep_et` (maker) ve `politika_onayla` (checker). `seed_demo` iki grup
+  ve üç demo kullanıcı kurar (1 talep eden + 2 onaylayan). Gereken onay sayısı `POLITIKA_DEGISIKLIK_ONAY` (varsayılan 2).
+- Aralıkta yalnızca **alt limit** girilir; üst limit bir sonraki aralığın alt limitinden türetilir, böylece boşluk ve
+  çakışma olamaz. Yeni eşik eklemek bir aralığı böler, silmek öncekini uzatır.
+
+**Korkuluklar (onaylansa bile aşılamaz, panelden değişmez, `settings.py`'dedir):**
+
+| Kural | Neden |
+|---|---|
+| Onaysız (0 onay) aralık en fazla `POLITIKA_ONAYSIZ_AZAMI_TUTAR` (10.000 TL) olabilir | Büyük işlemi onaysız bırakmak engellenir |
+| Tutar arttıkça gereken onay sayısı ve rol azalamaz | "Daha büyük tutar, daha az kontrol" olamaz |
+| En üst aralık en az `POLITIKA_EN_UST_ARALIK_MIN_ONAY` (2) onay ister | En büyük işlem tek imzayla geçemez |
+| İlk aralık 0'dan başlar, alt limitler tekil, onay ≤ `POLITIKA_MAKS_ONAY` | Kapsama ve tutarlılık |
+
+**Onaysız değişikliği yakalamak (bütünlük):** Her onaylı değişiklikte politika tablosunun özeti (SHA-256) hash zincirine
+yazılır. Tablo bu "onaylı görüntü"den farklıysa (ör. veritabanına doğrudan müdahale) sistem **kapalı kalır**: her
+çekme/havale en sıkı kuralla (3 onay, müdür) istenir, `politika_butunluk_ihlali` loga yazılır (saatte bir) ve
+`gun_sonu_mutabakat` hata verir. Tablo onaysız değiştirilmişken yeni bir politika talebi de uygulanmaz.
+`politika_goruntu_al` ilk kurulumda başlangıç görüntüsünü yazar; tablo farklıyken meşrulaştırmayı reddeder, bilerek
+yapılacaksa `--zorla` ister ve denetim kaydına işlenir.
+
+Dürüst sınırlar: Maker-checker, kullanıcı yönetimi kadar güvenlidir. Bir superuser ek kullanıcı oluşturup kendi talebini
+başka hesapla onaylayabilir; gerçek sistemde kullanıcı ve yetki yönetimi de aynı şekilde onaya bağlı olurdu. Tek talep,
+geçerli bir politika kümesi bırakmak zorundadır (ara geçersiz durum yok). Kasa açma kuralı (`KASA_ACMA_*`) ve
+korkuluk eşikleri ayarlardadır, yani değişiklikleri kod incelemesinden geçer.
+
+## Ters kayıt ve para teslimi
+
+Nakit çekmede "UYGULANDI" paranın müşteriye ulaştığı anlamına gelmez. Bu yüzden her çekme `teslim=BEKLIYOR` ile başlar ve
+**teslim bildirimi** bekler:
+
+```mermaid
+sequenceDiagram
+    participant T as Terminal
+    participant S as Django
+    S-->>T: UYGULANDI (nakit çekme)
+    T->>T: LED yanar, 8 sn içinde A tuşu bekler
+    alt A basıldı
+        T->>S: TESLIM islemId A
+        S->>S: teslim = ALINDI
+    else basılmadı ya da dağıtıcı arızası
+        T->>S: TESLIM islemId H
+        S->>S: ters kayıt: müşteri alacak, kasa borç
+        S-->>T: GERI (işlem iptal)
+    end
+```
+
+- **Orijinal defter satırlarına dokunulmaz.** Geri alma, yeni bir `TERS_KAYIT` işleminin ters borç/alacak satırlarıdır
+  (çekmede: müşteri **alacak**, kasa **borç**). Bir çekme en fazla bir kez ters kaydedilir (veritabanı kısıtı).
+- Teslimi yalnızca **işlemi başlatan terminal**, işlemden sonra `TESLIM_PENCERESI_SN` (120 sn) içinde bildirebilir.
+  Aynı bildirim tekrarlanırsa aynı sonuç döner (ağ kopması güvenli). Bildirilen sonuçla çelişen ikinci bildirim reddedilir.
+- Yalnızca **nakit çekme** ters kaydedilir. Yatırma ve havalenin geri alınması alıcının bakiyesine ve rızasına bağlı
+  olduğu için bilinçli olarak kapsam dışıdır.
+- Ters kaydedilen çekme günlük limiti tüketmez; aynı idempotency anahtarıyla yeniden gelen istek "başarılı" döndürmez.
+- Ters kayıtlar müdür yardımcısı ve üstüne bildirilir. `gun_sonu_mutabakat` her ters kaydın uygulanmış bir çekmeyi
+  (aynı hesap, aynı tutar) geri aldığını ve geri alınmış her çekmenin tam bir ters kaydı olduğunu doğrular; teslimi
+  10 dk'dan uzun süredir bildirilmeyen çekmeleri uyarı olarak listeler. Anomali tarayıcı da bunları (`teslim_belirsiz`,
+  `cok_ters_kayit`) işaretler.
+- **Simülasyon notu:** Gerçek ATM'de "para alındı" bilgisini dağıtıcının sensörü verir. Burada A tuşu o sensörü taklit
+  eder; bu yüzden bir müşteri parayı alıp tuşa basmayarak iade alabilirdi. Gerçek bir sensörde bu mümkün olmaz.
+- Elle ters kayıt (terminal hiç bildirmediyse) bilinçli olarak yok: tek kişinin yapacağı bir geri alma da dört göz
+  isterdi. Belirsiz teslimler uyarı olarak görünür ve incelenir.
+
 ## Hash zinciri
 
 Her kayıt: `HMAC-SHA256(anahtar, önceki_hash | sıra | zaman | olay | veri)`.
@@ -406,10 +499,11 @@ Tam liste `atm_terminal.ino` dosyasının başındaki yorumda. Özet:
 | `KART\|uid` | `TIP\|MUSTERI/PERSONEL/BLOKE/BILINMIYOR` |
 | `PIN\|uid\|pin` | `GIRIS\|token\|ad` |
 | `BAKIYE\|token` | `BAKIYE\|tutar` |
-| `ISLEM\|token\|C/Y/H\|tutar\|hedef\|anahtar` | `TAMAM\|bakiye` ya da `BEKLE\|talepId\|gereken` |
+| `ISLEM\|token\|C/Y/H\|tutar\|hedef\|anahtar` | `TAMAM\|bakiye\|islemId` ya da `BEKLE\|talepId\|gereken` |
+| `TESLIM\|islemId\|A/H` | `TESLIM\|ALINDI` ya da `TESLIM\|GERI` (ters kayıt yapıldı) |
 | `KASAAC\|uid\|pin` | `BEKLE\|talepId\|gereken` |
 | `BEKLEYEN` | `BEKLEYEN\|YOK` ya da `BEKLEYEN\|id\|tur\|tutar\|verilen\|gereken` |
-| `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur` |
+| `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur\|islemId` |
 | `ONAY\|talepId\|uid\|pin\|E/H` | `ONAY\|verilen\|gereken\|durum` |
 
 Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter). `HATA|Sunucu...` ile başlayan hatalarda terminal `ISLEM`i
@@ -427,8 +521,10 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 
 ## Sıradaki fikirler
 
-1. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
-2. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
-3. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir; çevrimdışı çekim bu limitle sınırlı olur.
-4. Gerçek bir SMS sağlayıcısı ve onay talebine bildirimden yanıt verme.
-5. GitHub Actions ile her push'ta `python manage.py test`.
+1. Elle ters kayıt ve diğer hassas işlemler için de maker-checker (şu an yalnızca politika değişikliği korunuyor).
+2. Kullanıcı ve yetki yönetimini de onaya bağlamak.
+3. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
+4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
+5. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
+6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
+7. GitHub Actions ile her push'ta `python manage.py test`.
