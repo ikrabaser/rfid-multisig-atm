@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from .models import Hesap, HesapHareketi, Islem
 
-MUSTERI_ISLEMLERI = (Islem.Tur.CEKME, Islem.Tur.YATIRMA, Islem.Tur.HAVALE)
+MUSTERI_ISLEMLERI = (Islem.Tur.CEKME, Islem.Tur.YATIRMA, Islem.Tur.HAVALE, Islem.Tur.TERS_KAYIT)  # defter satiri yazan islemler
 
 
 def _para(d):
@@ -82,6 +82,30 @@ def mutabakat(tarih=None):
             dengesiz.append(islem.id)
     yetim = sorted(i for i in toplamlar if i not in uygulanan_idler)
 
+    # Ters kayitlar: her ters kayit uygulanmis bir nakit cekmeyi (ayni hesap, ayni tutar) geri almali,
+    # geri alinmis her cekmenin de tam bir ters kaydi olmali.
+    tutarsiz_ters = []
+    for t in Islem.objects.filter(tur=Islem.Tur.TERS_KAYIT, durum=Islem.Durum.UYGULANDI).select_related("ters_islem"):
+        o = t.ters_islem
+        if (o is None or o.tur != Islem.Tur.CEKME or o.durum != Islem.Durum.UYGULANDI
+                or o.teslim != Islem.Teslim.GERI_ALINDI or o.tutar != t.tutar or o.hesap_id != t.hesap_id):
+            tutarsiz_ters.append(t.id)
+    tersi_olmayan = sorted(
+        Islem.objects.filter(teslim=Islem.Teslim.GERI_ALINDI)
+        .exclude(id__in=Islem.objects.filter(ters_islem__isnull=False).values("ters_islem_id"))
+        .values_list("id", flat=True)
+    )
+    # Uyari (hata degil): teslimi 10 dakikadan uzun suredir bildirilmeyen nakit cekmeler
+    belirsiz_teslim = sorted(
+        Islem.objects.filter(
+            tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, teslim=Islem.Teslim.BEKLIYOR,
+            tamamlanma__lt=timezone.now() - datetime.timedelta(minutes=10),
+        ).values_list("id", flat=True)
+    )
+
+    from . import politika_degisikligi
+    politika_durumu = politika_degisikligi.butunluk_durumu()
+
     zincir = zinciri_dogrula()
 
     gun = tarih or timezone.localdate()
@@ -96,12 +120,17 @@ def mutabakat(tarih=None):
         .values("durum").annotate(adet=Count("id")).order_by("durum")
     )
     return {
-        "saglam": not (bakiye_farklari or dengesiz or hareketsiz or yetim) and zincir["saglam"],
+        "saglam": (not (bakiye_farklari or dengesiz or hareketsiz or yetim or tutarsiz_ters or tersi_olmayan)
+                   and zincir["saglam"] and politika_durumu != "tutarsiz"),
         "tarih": gun.isoformat(),
         "bakiye_farklari": bakiye_farklari,
         "dengesiz_islemler": dengesiz,
         "hareketsiz_islemler": hareketsiz,
         "yetim_hareketler": yetim,
+        "tutarsiz_ters_kayitlar": tutarsiz_ters,
+        "tersi_olmayan_geri_alinanlar": tersi_olmayan,
+        "belirsiz_teslimler": belirsiz_teslim,
+        "politika": politika_durumu,
         "zincir": zincir,
         "uygulananlar": [
             {"tur": u["tur"], "adet": u["adet"], "toplam": _para(u["toplam"] or 0)} for u in uygulananlar

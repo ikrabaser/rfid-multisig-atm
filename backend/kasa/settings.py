@@ -1,5 +1,6 @@
 import os
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -107,3 +108,13 @@ MAKS_SEYAHAT_HIZI_KMH = 150
 # E-posta: varsayilan konsola yazar. Gercek SMTP icin DJANGO_EMAIL_BACKEND ve EMAIL_* ayarlarini ver.
 EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "banka@banka.example")
+
+# Maker-checker (politika degisikligi) ve korkuluklar. Bu sinirlar panelden DEGISMEZ; kod/ayar degisikligi ister.
+POLITIKA_DEGISIKLIK_ONAY = 2             # talep sahibi HARIC kac farkli onaylayici
+POLITIKA_DEGISIKLIK_SURE_SAAT = 24       # talebin gecerlilik suresi
+POLITIKA_ONAYSIZ_AZAMI_TUTAR = Decimal("10000")   # onaysiz (0 onay) aralik en fazla bu tutara kadar olabilir
+POLITIKA_EN_UST_ARALIK_MIN_ONAY = 2      # en yuksek tutar araligi en az bu kadar onay istemeli
+POLITIKA_MAKS_ONAY = 5
+
+# Ters kayit: nakit cekmede para teslimi bu sure icinde bildirilmelidir
+TESLIM_PENCERESI_SN = 120

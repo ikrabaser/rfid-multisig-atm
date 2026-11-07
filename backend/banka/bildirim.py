@@ -103,3 +103,44 @@ def anomali_bildir(bulgular):
         gonderilen += yetkililere_bildir("anomali", konu, b["aciklama"], en_az_rol=Rol.MUDUR_YRD)
         kayit_ekle("anomali_bildirimi", veri)
     return gonderilen
+
+
+def _eposta_kullaniciya(alici, adres, olay, konu, metin):
+    try:
+        send_mail(konu, metin, settings.DEFAULT_FROM_EMAIL, [adres])
+        durum, hata = Bildirim.Durum.GONDERILDI, ""
+    except Exception as e:
+        log.warning("E-posta gonderilemedi (%s): %s", adres, e)
+        durum, hata = Bildirim.Durum.BASARISIZ, str(e)[:200]
+    Bildirim.objects.create(
+        kanal=Bildirim.Kanal.EPOSTA, durum=durum, alici=alici, adres=adres,
+        konu=konu[:120], metin=metin, olay=olay, hata=hata,
+    )
+
+
+def politika_degisikligi_acildi(talep):
+    """Politika değişikliği talebi: onay yetkisi olan yönetim kullanıcılarına (talep sahibi hariç) e-posta."""
+    try:
+        from django.contrib.auth import get_user_model
+        konu = f"Politika değişikliği talebi #{talep.id}"
+        metin = (f"{talep.talep_eden.get_username()} politika değişikliği talep etti "
+                 f"({talep.get_islem_display()}). Gerekçe: {talep.gerekce[:200]} "
+                 f"Yönetim panelinde inceleyip onaylayın: /admin/banka/politikadegisikligi/")
+        sayi = 0
+        for u in get_user_model().objects.filter(is_active=True, is_staff=True).exclude(id=talep.talep_eden_id):
+            if u.email and u.has_perm("banka.politika_onayla"):
+                _eposta_kullaniciya(u.get_username(), u.email, "politika_talebi", konu, metin)
+                sayi += 1
+        return sayi
+    except Exception:
+        log.exception("Politika talebi bildirimi basarisiz")
+        return 0
+
+
+def ters_kayit(ters):
+    """Para teslim edilmediği için işlem ters kaydedildi: müdür yardımcısı ve üstüne bilgi."""
+    orijinal = ters.ters_islem
+    konu = f"Ters kayıt: işlem #{orijinal.id}"
+    metin = (f"İşlem #{orijinal.id} ({tl(orijinal.tutar)}, hesap {orijinal.hesap.hesap_no}) ters kaydedildi. "
+             f"Neden: {ters.ters_neden}. Terminal: {orijinal.terminal or '-'}.")
+    return yetkililere_bildir("ters_kayit", konu, metin, en_az_rol=Rol.MUDUR_YRD)

@@ -29,6 +29,18 @@
     <div class="kotu">ZİNCİR BOZUK: {{ zincir.bozuk_sira }}. kayıtta. {{ zincir.sebep }}</div>
   {% endif %}
 
+  <h2>Politika bütünlüğü ve değişiklik talepleri</h2>
+  <div class="{{ politika_durumu.0 }}">{{ politika_durumu.1 }}</div>
+  <table>
+    <tr><th>Talep</th><th>Tür</th><th>Hedef</th><th>Durum</th><th>Talep eden</th><th>Son tarih</th></tr>
+    {% for t in politika_talepleri %}
+      <tr><td>#{{ t.id }}</td><td>{{ t.get_islem_display }}</td><td>{{ t.hedef_id|default:"-" }}</td>
+          <td>{{ t.get_durum_display }}</td><td>{{ t.talep_eden }}</td><td>{{ t.son_tarih|date:"d.m H:i" }}</td></tr>
+    {% empty %}
+      <tr><td colspan="6">Politika değişikliği talebi yok.</td></tr>
+    {% endfor %}
+  </table>
+
   <h2>Anomali uyarıları (son 24 saat)</h2>
   {% if anomaliler %}
     <table>

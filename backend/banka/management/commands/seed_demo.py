@@ -1,7 +1,12 @@
+import secrets
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand
 from django.db import transaction
+
+from banka import politika_degisikligi
 
 from banka.models import Hesap, Kart, Musteri, Personel, Politika, Rol, Terminal
 
@@ -35,8 +40,33 @@ POLITIKALAR = [
 ]
 
 
+# Politika degisikligi (maker-checker) icin yonetim kullanicilari: 1 talep eden + 2 onaylayan
+GRUPLAR = {
+    "Politika Talep Eden": ["politika_talep_et", "view_politikadegisikligi", "view_politika"],
+    "Politika Onaylayan": ["politika_onayla", "view_politikadegisikligi", "view_politika"],
+}
+YONETIM_KULLANICILARI = [
+    ("politika_talep", "Politika Talep Eden"),
+    ("politika_onay1", "Politika Onaylayan"),
+    ("politika_onay2", "Politika Onaylayan"),
+]
+
+
 class Command(BaseCommand):
     help = "Demo müşteri, personel ve politika verisini oluşturur (varsa dokunmaz)."
+
+    def _yonetim_kullanicilari(self):
+        for grup_adi, izinler in GRUPLAR.items():
+            grup, _ = Group.objects.get_or_create(name=grup_adi)
+            grup.permissions.set(Permission.objects.filter(content_type__app_label="banka", codename__in=izinler))
+        Kullanici = get_user_model()
+        for ad, grup_adi in YONETIM_KULLANICILARI:
+            if Kullanici.objects.filter(username=ad).exists():
+                continue
+            sifre = secrets.token_urlsafe(9)
+            kullanici = Kullanici.objects.create_user(ad, email=f"{ad}@banka.example", password=sifre, is_staff=True)
+            kullanici.groups.add(Group.objects.get(name=grup_adi))
+            self.stdout.write(f"Yönetim kullanıcısı: {ad}  şifre {sifre}  ({grup_adi})")
 
     @transaction.atomic
     def handle(self, *args, **opts):
@@ -81,5 +111,10 @@ class Command(BaseCommand):
                     gereken_onay=onay, en_az_rol=rol, aciklama=aciklama,
                 )
             self.stdout.write("Politikalar oluşturuldu.")
+
+        if politika_degisikligi.goruntu_tutarli_mi() is None:
+            politika_degisikligi.goruntu_kaydet("seed_demo")
+            self.stdout.write("Politika onaylı başlangıç görüntüsü kaydedildi.")
+        self._yonetim_kullanicilari()
 
         self.stdout.write(self.style.SUCCESS("Demo verisi hazır. PIN'ler demo içindir, gerçek kullanımda değiştir."))

@@ -8,6 +8,7 @@ urlpatterns = [
     path("bakiye/", api.bakiye),
     path("islem/", api.islem),
     path("kasa-ac/", api.kasa_ac),
+    path("teslim/", api.teslim),
     path("onay/", api.onay),
     path("talep/", api.talep),
     path("bekleyen/", api.bekleyen),

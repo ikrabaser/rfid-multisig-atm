@@ -6,16 +6,19 @@ from decimal import Decimal
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from . import anomali, baglam, bildirim, ledger, services
+from . import anomali, baglam, bildirim, ledger, politika_degisikligi, services
 from .hashlog import kayit_ekle, zinciri_dogrula
-from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol,
-                     Terminal, TerminalGunlukKaydi)
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Politika,
+                     PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi)
+from .politika_degisikligi import PolitikaHatasi
 from .services import IslemHatasi
 
 # seed_demo verisi: Ali 100001 (a0a0a001/1234), Zeynep 100002 (a0a0a002/4321)
@@ -951,3 +954,475 @@ class BildirimTestleri(Yardimci, TestCase):
         self.assertIn("bilinmeyen_kart_tekrar", {b["kural"] for b in bulgular})
         self.assertEqual(bildirim.anomali_bildir(bulgular), 0)
         self.assertEqual(len(mail.outbox), 0)
+
+
+# ====================================================================== ters kayit (teslim)
+
+@override_settings(MESAI_DISI_KURALI=False)
+class TersKayitTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def cek(self, tutar="1000", **ek):
+        return services.islem_baslat(self.giris(), "CEKME", tutar, **ek)
+
+    def test_nakit_cekme_teslim_bekler(self):
+        r = self.cek()
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BEKLIYOR")
+        self.assertEqual(Islem.objects.filter(tur="YATIRMA").count(), 0)
+
+    def test_alinmayan_para_ters_kaydedilir(self):
+        r = self.cek()
+        sonuc = services.teslim_bildir(r["islem_id"], "ALINMADI")
+        self.assertEqual(sonuc["teslim"], "GERI")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertEqual(self.yenile(self.kasa), Decimal("10000000.00"))
+        orijinal = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual(orijinal.teslim, "GERI_ALINDI")
+        ters = Islem.objects.get(ters_islem_id=r["islem_id"])
+        self.assertEqual((ters.tur, ters.ters_neden, ters.durum), ("TERS_KAYIT", "MUSTERI_ALMADI", "UYGULANDI"))
+        satirlar = {(h.hesap.hesap_no, h.yon) for h in HesapHareketi.objects.filter(islem=ters)}
+        self.assertEqual(satirlar, {("100001", "ALACAK"), ("900000", "BORC")})
+        # orijinal satirlara dokunulmadi, ters satirlar eklendi
+        self.assertEqual(HesapHareketi.objects.filter(islem=orijinal).count(), 2)
+        self.assertEqual(HesapHareketi.objects.count(), 4)
+        self.assertTrue(ledger.mutabakat()["saglam"])
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_alinan_para_onaylanir_ve_celisen_bildirim_reddedilir(self):
+        r = self.cek()
+        self.assertEqual(services.teslim_bildir(r["islem_id"], "ALINDI")["teslim"], "ALINDI")
+        with self.assertRaises(IslemHatasi) as e:
+            services.teslim_bildir(r["islem_id"], "ALINMADI")
+        self.assertEqual(e.exception.kod, "celiski")
+        self.assertEqual(self.yenile(self.ali), Decimal("999000.00"))
+        self.assertEqual(Islem.objects.filter(tur="TERS_KAYIT").count(), 0)
+
+    def test_ayni_bildirim_tekrar_edilebilir(self):
+        r = self.cek()
+        for _ in range(2):
+            self.assertEqual(services.teslim_bildir(r["islem_id"], "ALINMADI")["teslim"], "GERI")
+        self.assertEqual(Islem.objects.filter(tur="TERS_KAYIT").count(), 1)
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        r2 = self.cek()
+        for _ in range(2):
+            self.assertEqual(services.teslim_bildir(r2["islem_id"], "ALINDI")["teslim"], "ALINDI")
+
+    def test_dagitici_arizasi_ters_kaydeder(self):
+        r = self.cek()
+        services.teslim_bildir(r["islem_id"], "ARIZA")
+        self.assertEqual(Islem.objects.get(ters_islem_id=r["islem_id"]).ters_neden, "PARA_VERILMEDI")
+
+    def test_baska_terminal_teslim_bildiremez(self):
+        with baglam.terminal_baglami("ATM-01"):
+            r = self.cek()
+        with baglam.terminal_baglami("ATM-02"):
+            with self.assertRaises(IslemHatasi) as e:
+                services.teslim_bildir(r["islem_id"], "ALINMADI")
+        self.assertEqual(e.exception.kod, "terminal")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="teslim_baska_terminal").exists())
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BEKLIYOR")
+
+    def test_sure_asimindan_sonra_bildirim_reddedilir(self):
+        r = self.cek()
+        Islem.objects.filter(id=r["islem_id"]).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=10))
+        with self.assertRaises(IslemHatasi) as e:
+            services.teslim_bildir(r["islem_id"], "ALINMADI")
+        self.assertEqual(e.exception.kod, "sure")
+        self.assertEqual(self.yenile(self.ali), Decimal("999000.00"))
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="teslim_sure_asimi").exists())
+
+    def test_onayli_cekme_de_ters_kaydedilir(self):
+        r = self.cek("10000")
+        services.onay_karar(r["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(self.yenile(self.ali), Decimal("990000.00"))
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_yatirma_ve_havale_ters_kaydedilemez(self):
+        token = self.giris()
+        for tur, hedef in (("YATIRMA", None), ("HAVALE", "100002")):
+            r = services.islem_baslat(token, tur, "100", hedef)
+            with self.assertRaises(IslemHatasi) as e:
+                services.teslim_bildir(r["islem_id"], "ALINMADI")
+            self.assertEqual(e.exception.kod, "yok")
+
+    def test_gecersiz_durum_ve_islem(self):
+        r = self.cek()
+        with self.assertRaises(IslemHatasi) as e:
+            services.teslim_bildir(r["islem_id"], "belki")
+        self.assertEqual(e.exception.kod, "teslim")
+        with self.assertRaises(IslemHatasi):
+            services.teslim_bildir("abc", "ALINDI")
+        with self.assertRaises(IslemHatasi):
+            services.teslim_bildir(99999, "ALINDI")
+
+    def test_ters_kayit_gunluk_limiti_serbest_birakir(self):
+        Hesap.objects.filter(hesap_no="100001").update(gunluk_limit=Decimal("5000.00"))
+        r = self.cek("4000")
+        with self.assertRaises(IslemHatasi):
+            self.cek("4000")
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        self.cek("4000")  # limit serbest kaldi
+
+    def test_ters_kaydedilen_islemin_tekrar_istegi_basari_donmez(self):
+        r = self.cek(anahtar="t-1")
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek(anahtar="t-1")
+        self.assertEqual(e.exception.kod, "ters_kayit")
+
+    def test_ayni_islem_veritabaninda_iki_kez_ters_kaydedilemez(self):
+        r = self.cek()
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Islem.objects.create(hesap=self.ali, tur="TERS_KAYIT", tutar=Decimal("1000.00"),
+                                 baslatan_uid="x", ters_islem_id=r["islem_id"])
+
+    def test_mutabakat_orijinaliyle_uyusmayan_ters_kaydi_yakalar(self):
+        r = self.cek()
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        Islem.objects.filter(id=r["islem_id"]).update(teslim="ALINDI")
+        rapor = ledger.mutabakat()
+        self.assertFalse(rapor["saglam"])
+        self.assertEqual(len(rapor["tutarsiz_ters_kayitlar"]), 1)
+
+    def test_mutabakat_tersi_olmayan_geri_alinani_yakalar(self):
+        r = self.cek()
+        Islem.objects.filter(id=r["islem_id"]).update(teslim="GERI_ALINDI")
+        rapor = ledger.mutabakat()
+        self.assertFalse(rapor["saglam"])
+        self.assertEqual(rapor["tersi_olmayan_geri_alinanlar"], [r["islem_id"]])
+
+    def test_belirsiz_teslim_uyarisi(self):
+        r = self.cek()
+        Islem.objects.filter(id=r["islem_id"]).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=10))
+        self.assertIn("teslim_belirsiz", {b["kural"] for b in anomali.tara()})
+        rapor = ledger.mutabakat()
+        self.assertEqual(rapor["belirsiz_teslimler"], [r["islem_id"]])
+        self.assertTrue(rapor["saglam"])  # uyari, hata degil
+        Islem.objects.filter(id=r["islem_id"]).update(teslim="ALINDI")
+        self.assertNotIn("teslim_belirsiz", {b["kural"] for b in anomali.tara()})
+
+    def test_taze_teslim_beklemesi_alarm_vermez(self):
+        self.cek()
+        self.assertNotIn("teslim_belirsiz", {b["kural"] for b in anomali.tara()})
+
+    def test_cok_ters_kayit_kurali(self):
+        for _ in range(3):
+            services.teslim_bildir(self.cek()["islem_id"], "ALINMADI")
+        self.assertIn("cok_ters_kayit", {b["kural"] for b in anomali.tara()})
+
+    def test_ters_kayit_yoneticilere_bildirilir(self):
+        r = self.cek()
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        konu = f"Ters kayıt: işlem #{r['islem_id']}"
+        alicilar = sorted(a for m in mail.outbox if m.subject == konu for a in m.to)
+        self.assertEqual(alicilar, ["cem@banka.example", "deniz@banka.example", "elif@banka.example"])
+
+    def test_mutabakat_komutu_ters_kayitla_gecer(self):
+        services.teslim_bildir(self.cek()["islem_id"], "ALINMADI")
+        cikti = io.StringIO()
+        call_command("gun_sonu_mutabakat", stdout=cikti)
+        self.assertIn("Mutabakat tamam", cikti.getvalue())
+        self.assertIn("TERS_KAYIT", cikti.getvalue())
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class TeslimApiTestleri(ApiYardimci, TestCase):
+    def setUp(self):
+        self.api_hazirla()
+
+    def cekim(self, terminal=None):
+        token = self.api("/api/giris/", {"uid": "a0a0a001", "pin": "1234"}, terminal=terminal).json()["token"]
+        return self.api("/api/islem/", {"token": token, "tur": "CEKME", "tutar": "1000"}, terminal=terminal).json()
+
+    def test_teslim_ucu_ters_kaydeder(self):
+        r = self.cekim()
+        t = self.api("/api/teslim/", {"islem_id": r["islem_id"], "durum": "ALINMADI"}).json()
+        self.assertEqual((t["ok"], t["teslim"]), (True, "GERI"))
+        self.assertEqual(self.api("/api/teslim/", {"islem_id": r["islem_id"], "durum": "ALINMADI"}).json()["teslim"], "GERI")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+
+    def test_baska_terminalden_teslim_reddedilir(self):
+        r = self.cekim()  # varsayilan terminal ATM-01
+        t = self.api("/api/teslim/", {"islem_id": r["islem_id"], "durum": "ALINMADI"}, terminal="ATM-02")
+        self.assertEqual(t.status_code, 400)
+        self.assertEqual(t.json()["kod"], "terminal")
+
+    def test_durum_cevabinda_islem_no_var(self):
+        token = self.api("/api/giris/", {"uid": "a0a0a001", "pin": "1234"}).json()["token"]
+        r = self.api("/api/islem/", {"token": token, "tur": "CEKME", "tutar": "10000"}).json()
+        d = self.api("/api/talep/", {"talep_id": r["talep_id"]}).json()
+        self.assertEqual(d["islem_id"], r["islem_id"])
+
+
+# ====================================================================== maker-checker (politika degisikligi)
+
+@override_settings(MESAI_DISI_KURALI=False)
+class MakerCheckerTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.maker = self.U.objects.get(username="politika_talep")
+        self.c1 = self.U.objects.get(username="politika_onay1")
+        self.c2 = self.U.objects.get(username="politika_onay2")
+        self.p3 = Politika.objects.get(alt_limit=Decimal("50000"))  # 50.000-500.000: 2 onay, mudur yrd.
+
+    GEREKCE = "Dolandırıcılık riski nedeniyle onay sayısı artırıldı"
+
+    def talep(self, onay=3, kullanici=None):
+        return politika_degisikligi.talep_olustur(
+            kullanici or self.maker, "GUNCELLE", self.p3.id,
+            {"alt": "50000", "onay": onay, "rol": 2, "aciklama": "daha sıkı"}, self.GEREKCE)
+
+    def r(self, alt, ust, onay, rol):
+        return {"alt": alt, "ust": ust, "onay": onay, "rol": rol}
+
+    def test_baslangic_goruntusu_tutarli(self):
+        self.assertEqual(politika_degisikligi.butunluk_durumu(), "tutarli")
+
+    def test_iki_onayla_uygulanir(self):
+        t = self.talep()
+        self.assertEqual(t.durum, "BEKLIYOR")
+        politika_degisikligi.oy_ver(t.id, self.c1, "ONAY")
+        self.assertEqual(services.gerekli_onay(Decimal("60000")), (2, Rol.MUDUR_YRD))  # henuz degismedi
+        t = politika_degisikligi.oy_ver(t.id, self.c2, "ONAY")
+        self.assertEqual(t.durum, "UYGULANDI")
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 3)
+        self.assertEqual(services.gerekli_onay(Decimal("60000")), (3, Rol.MUDUR_YRD))
+        self.assertEqual(politika_degisikligi.butunluk_durumu(), "tutarli")
+        olaylar = list(LogKaydi.objects.values_list("olay_turu", flat=True))
+        for beklenen in ("politika_degisikligi_talebi", "politika_degisikligi_onayi", "politika_degisikligi_uygulandi"):
+            self.assertIn(beklenen, olaylar)
+        self.assertEqual(olaylar.count("politika_goruntusu"), 2)  # seed + bu degisiklik
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_talep_acilinca_onaylayicilara_eposta(self):
+        self.talep()
+        alicilar = sorted(a for m in mail.outbox if m.subject.startswith("Politika değişikliği talebi") for a in m.to)
+        self.assertEqual(alicilar, ["politika_onay1@banka.example", "politika_onay2@banka.example"])
+
+    def test_talep_eden_kendi_talebini_onaylayamaz(self):
+        root = self.U.objects.create_superuser("root", "root@banka.example", "x")  # hem maker hem checker yetkisi
+        t = self.talep(kullanici=root)
+        with self.assertRaises(PolitikaHatasi) as e:
+            politika_degisikligi.oy_ver(t.id, root, "ONAY")
+        self.assertEqual(e.exception.kod, "kendi_talebi")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="politika_onay_reddi_kendi_talebi").exists())
+        self.assertEqual(PolitikaDegisikligi.objects.get(id=t.id).oylar.count(), 0)
+
+    def test_ayni_onaylayan_iki_kez_sayilmaz(self):
+        t = self.talep()
+        politika_degisikligi.oy_ver(t.id, self.c1, "ONAY")
+        with self.assertRaises(PolitikaHatasi) as e:
+            politika_degisikligi.oy_ver(t.id, self.c1, "ONAY")
+        self.assertEqual(e.exception.kod, "tekrar")
+        t.refresh_from_db()
+        self.assertEqual((t.durum, t.oylar.count()), ("BEKLIYOR", 1))
+
+    def test_yetkisiz_kullanici(self):
+        t = self.talep()
+        dis = self.U.objects.create_user("dis", is_staff=True)
+        for kullanici in (self.maker, dis):  # talep eden grubunda onay yetkisi yok
+            with self.assertRaises(PolitikaHatasi) as e:
+                politika_degisikligi.oy_ver(t.id, kullanici, "ONAY")
+            self.assertEqual(e.exception.kod, "yetki")
+        with self.assertRaises(PolitikaHatasi) as e:
+            self.talep(kullanici=dis)
+        self.assertEqual(e.exception.kod, "yetki")
+        with self.assertRaises(PolitikaHatasi) as e:
+            politika_degisikligi.oy_ver(99999, self.c1, "ONAY")
+        self.assertEqual(e.exception.kod, "yok")
+
+    def test_red_talebi_kapatir(self):
+        t = self.talep()
+        self.assertEqual(politika_degisikligi.oy_ver(t.id, self.c1, "RED").durum, "REDDEDILDI")
+        self.assertEqual(politika_degisikligi.oy_ver(t.id, self.c2, "ONAY").durum, "REDDEDILDI")  # kapali talep
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 2)
+
+    def test_sure_dolumu(self):
+        t = self.talep()
+        PolitikaDegisikligi.objects.filter(id=t.id).update(son_tarih=timezone.now() - datetime.timedelta(seconds=1))
+        self.assertEqual(politika_degisikligi.oy_ver(t.id, self.c1, "ONAY").durum, "SURESI_DOLDU")
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 2)
+
+    def test_iptal_yalniz_talep_sahibine_aittir(self):
+        t = self.talep()
+        with self.assertRaises(PolitikaHatasi) as e:
+            politika_degisikligi.iptal(t.id, self.c1)
+        self.assertEqual(e.exception.kod, "yetki")
+        self.assertEqual(politika_degisikligi.iptal(t.id, self.maker).durum, "IPTAL")
+        with self.assertRaises(PolitikaHatasi):
+            politika_degisikligi.iptal(t.id, self.maker)  # artik beklemiyor
+
+    def test_ayni_hedef_icin_cakisan_talep(self):
+        self.talep()
+        with self.assertRaises(PolitikaHatasi) as e:
+            self.talep(onay=2)
+        self.assertEqual(e.exception.kod, "cakisan")
+
+    def test_gerekce_zorunlu(self):
+        with self.assertRaises(PolitikaHatasi) as e:
+            politika_degisikligi.talep_olustur(
+                self.maker, "GUNCELLE", self.p3.id, {"alt": "50000", "onay": 3, "rol": 2}, "kısa")
+        self.assertEqual(e.exception.kod, "gerekce")
+
+    def test_onaysiz_aralik_korkulugu(self):
+        with self.assertRaises(PolitikaHatasi) as e:
+            self.talep(onay=0)  # 50.000-500.000 araligi onaysiz olamaz
+        self.assertEqual(e.exception.kod, "gecersiz_politika")
+        self.assertEqual(PolitikaDegisikligi.objects.count(), 0)
+
+    def test_kume_dogrula_kurallari(self):
+        r = self.r
+        politika_degisikligi.kume_dogrula([r("0.00", "5000.00", 0, 1), r("5000.00", None, 3, 3)])  # gecerli
+        politika_degisikligi.kume_dogrula(politika_degisikligi.mevcut_kume())
+        kotular = [
+            ("bitişik", [r("0.00", "5000.00", 0, 1), r("6000.00", None, 3, 3)]),
+            ("bitişik", [r("0.00", "5000.00", 0, 1), r("4000.00", None, 3, 3)]),
+            ("Son aralığın", [r("0.00", "5000.00", 0, 1), r("5000.00", "9000.00", 3, 3)]),
+            ("azalamaz", [r("0.00", "5000.00", 0, 1), r("5000.00", "50000.00", 3, 3), r("50000.00", None, 2, 3)]),
+            ("onaysız aralık", [r("0.00", None, 0, 1)]),
+            ("0'dan", [r("1000.00", None, 3, 3)]),
+            ("en az 2 onay", [r("0.00", "5000.00", 0, 1), r("5000.00", None, 1, 1)]),
+            ("Aynı alt limit", [r("0.00", "5000.00", 0, 1), r("5000.00", "5000.00", 1, 1), r("5000.00", None, 3, 3)]),
+        ]
+        for beklenen, kume in kotular:
+            with self.assertRaises(PolitikaHatasi, msg=beklenen) as e:
+                politika_degisikligi.kume_dogrula(kume)
+            self.assertIn(beklenen, e.exception.mesaj)
+
+    def test_yeni_esik_eklemek_komsu_araligi_baglar(self):
+        t = politika_degisikligi.talep_olustur(
+            self.maker, "EKLE", None, {"alt": "20000", "onay": 1, "rol": 1, "aciklama": "orta kademe"}, self.GEREKCE)
+        politika_degisikligi.oy_ver(t.id, self.c1, "ONAY")
+        self.assertEqual(politika_degisikligi.oy_ver(t.id, self.c2, "ONAY").durum, "UYGULANDI")
+        self.assertEqual(Politika.objects.count(), 5)
+        self.assertEqual(Politika.objects.get(alt_limit=Decimal("5000")).ust_limit, Decimal("20000.00"))
+        self.assertEqual(Politika.objects.get(alt_limit=Decimal("20000")).ust_limit, Decimal("50000.00"))
+        self.assertEqual(services.gerekli_onay(Decimal("30000")), (1, Rol.GOREVLI))
+        self.assertEqual(politika_degisikligi.butunluk_durumu(), "tutarli")
+
+    def test_aralik_silmek_oncekini_uzatir(self):
+        t = politika_degisikligi.talep_olustur(self.maker, "SIL", self.p3.id, gerekce=self.GEREKCE)
+        politika_degisikligi.oy_ver(t.id, self.c1, "ONAY")
+        politika_degisikligi.oy_ver(t.id, self.c2, "ONAY")
+        self.assertEqual(Politika.objects.count(), 3)
+        self.assertEqual(Politika.objects.get(alt_limit=Decimal("5000")).ust_limit, Decimal("500000.00"))
+        self.assertEqual(services.gerekli_onay(Decimal("60000")), (1, Rol.GOREVLI))
+
+    def test_silme_korkuluga_takilir(self):
+        ikinci = Politika.objects.get(alt_limit=Decimal("5000"))
+        for hedef in (ikinci.id, Politika.objects.get(alt_limit=Decimal("0")).id):
+            with self.assertRaises(PolitikaHatasi) as e:
+                politika_degisikligi.talep_olustur(self.maker, "SIL", hedef, gerekce=self.GEREKCE)
+            self.assertEqual(e.exception.kod, "gecersiz_politika")
+
+    def test_onaysiz_veritabani_degisikligi_sistemi_kapatir(self):
+        token = self.giris()
+        Politika.objects.filter(alt_limit=Decimal("5000")).update(gereken_onay=0)  # dogrudan mudahale
+        self.assertEqual(politika_degisikligi.butunluk_durumu(), "tutarsiz")
+        self.assertEqual(services.gerekli_onay(Decimal("100")), (3, Rol.MUDUR))
+        self.assertEqual(services.islem_baslat(token, "CEKME", "100")["durum"], "onay_bekliyor")
+        self.assertEqual(LogKaydi.objects.filter(olay_turu="politika_butunluk_ihlali").count(), 1)  # saatte bir
+        self.assertFalse(ledger.mutabakat()["saglam"])
+        self.assertTrue(zinciri_dogrula()["saglam"])  # log zinciri bozulmadi: mudahale gorunur kaldi
+
+    def test_tablo_tutarsizken_degisiklik_uygulanmaz(self):
+        t = self.talep()
+        Politika.objects.filter(alt_limit=Decimal("5000")).update(gereken_onay=2)  # gecerli ama onaysiz degisiklik
+        politika_degisikligi.oy_ver(t.id, self.c1, "ONAY")
+        sonuc = politika_degisikligi.oy_ver(t.id, self.c2, "ONAY")
+        self.assertEqual(sonuc.durum, "BASARISIZ")
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 2)
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="politika_degisikligi_uygulanamadi").exists())
+
+    def test_onayli_goruntu_yoksa_zorlama_yapilmaz(self):
+        LogKaydi.objects.filter(olay_turu="politika_goruntusu").delete()
+        self.assertEqual(politika_degisikligi.butunluk_durumu(), "baslangic_yok")
+        self.assertEqual(services.gerekli_onay(Decimal("100")), (0, Rol.GOREVLI))
+        self.assertEqual(ledger.mutabakat()["politika"], "baslangic_yok")
+
+    def test_goruntu_al_komutu(self):
+        cikti = io.StringIO()
+        call_command("politika_goruntu_al", stdout=cikti)
+        self.assertIn("zaten", cikti.getvalue())
+        Politika.objects.filter(alt_limit=Decimal("5000")).update(gereken_onay=2)
+        with self.assertRaises(SystemExit):  # onaysiz degisikligi sessizce mesrulastirmaz
+            call_command("politika_goruntu_al", stdout=io.StringIO(), stderr=io.StringIO())
+        call_command("politika_goruntu_al", "--zorla", stdout=io.StringIO())
+        self.assertEqual(politika_degisikligi.butunluk_durumu(), "tutarli")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="politika_goruntusu", veri__contains="--zorla").exists())
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class PolitikaAdminTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.maker = self.U.objects.get(username="politika_talep")
+        self.c1 = self.U.objects.get(username="politika_onay1")
+        self.c2 = self.U.objects.get(username="politika_onay2")
+        self.p3 = Politika.objects.get(alt_limit=Decimal("50000"))
+        self.veri = {
+            "islem": "GUNCELLE", "hedef_id": self.p3.id, "yeni_alt_limit": "50000", "yeni_gereken_onay": "3",
+            "yeni_en_az_rol": "2", "yeni_aciklama": "daha sıkı",
+            "gerekce": "Dolandırıcılık riski nedeniyle onay sayısı artırıldı", "_save": "Kaydet",
+        }
+
+    def test_politika_dogrudan_degistirilemez(self):
+        root = self.U.objects.create_superuser("root", "root@banka.example", "x")
+        self.client.force_login(root)
+        self.assertEqual(self.client.get("/admin/banka/politika/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/banka/politika/add/").status_code, 403)
+        self.assertEqual(self.client.post(f"/admin/banka/politika/{self.p3.id}/change/",
+                                          {"alt_limit": "50000", "gereken_onay": "0"}).status_code, 403)
+        self.assertEqual(self.client.post(f"/admin/banka/politika/{self.p3.id}/delete/", {"post": "yes"}).status_code, 403)
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 2)
+
+    def test_talep_formu(self):
+        self.client.force_login(self.maker)
+        self.assertEqual(self.client.get("/admin/banka/politikadegisikligi/add/").status_code, 200)
+        r = self.client.post("/admin/banka/politikadegisikligi/add/", self.veri)
+        self.assertEqual(r.status_code, 302)
+        t = PolitikaDegisikligi.objects.get()
+        self.assertEqual((t.talep_eden, t.durum, t.gereken_onay), (self.maker, "BEKLIYOR", 2))
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 2)  # henuz uygulanmadi
+
+    def test_formda_korkuluk_hatasi_gosterilir(self):
+        self.client.force_login(self.maker)
+        kotu = {**self.veri, "yeni_gereken_onay": "0"}
+        r = self.client.post("/admin/banka/politikadegisikligi/add/", kotu)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "onaysız aralık")
+        self.assertEqual(PolitikaDegisikligi.objects.count(), 0)
+
+    def test_onay_admin_aksiyonuyla_verilir(self):
+        t = politika_degisikligi.talep_olustur(
+            self.maker, "GUNCELLE", self.p3.id,
+            {"alt": "50000", "onay": 3, "rol": 2, "aciklama": "x"}, "Dolandırıcılık riski nedeniyle artırıldı")
+        for kullanici in (self.c1, self.c2):
+            self.client.force_login(kullanici)
+            r = self.client.post("/admin/banka/politikadegisikligi/",
+                                 {"action": "onayla", "_selected_action": [t.id], "index": "0"})
+            self.assertEqual(r.status_code, 302)
+        t.refresh_from_db()
+        self.assertEqual(t.durum, "UYGULANDI")
+        self.assertEqual(Politika.objects.get(id=self.p3.id).gereken_onay, 3)
+
+    def test_talep_eden_onay_aksiyonunu_gormez(self):
+        politika_degisikligi.talep_olustur(
+            self.maker, "GUNCELLE", self.p3.id, {"alt": "50000", "onay": 3, "rol": 2}, "Dolandırıcılık riski nedeniyle artırıldı")
+        self.client.force_login(self.maker)
+        self.assertNotContains(self.client.get("/admin/banka/politikadegisikligi/"), 'value="onayla"')
+        self.client.force_login(self.c1)
+        self.assertContains(self.client.get("/admin/banka/politikadegisikligi/"), 'value="onayla"')
+
+    def test_panel_politika_bolumu(self):
+        root = self.U.objects.create_superuser("root", "root@banka.example", "x")
+        self.client.force_login(root)
+        r = self.client.get("/")
+        self.assertContains(r, "Politika bütünlüğü")
+        self.assertContains(r, "son onaylı sürümle aynı")

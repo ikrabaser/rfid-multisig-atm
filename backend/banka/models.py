@@ -1,6 +1,7 @@
 import re
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -143,6 +144,13 @@ class Islem(models.Model):
         YATIRMA = "YATIRMA", "Para yatırma"
         HAVALE = "HAVALE", "Havale"
         KASA_ACMA = "KASA_ACMA", "Kasa dairesi açma"
+        TERS_KAYIT = "TERS_KAYIT", "Ters kayıt"
+
+    class Teslim(models.TextChoices):
+        """Nakit çekmede paranın müşteriye fiilen teslimi (dağıtıcı/sensör olayı)."""
+        BEKLIYOR = "BEKLIYOR", "Teslim bekleniyor"
+        ALINDI = "ALINDI", "Para alındı"
+        GERI_ALINDI = "GERI_ALINDI", "Geri alındı (ters kayıt)"
 
     class Durum(models.TextChoices):
         HAZIR = "HAZIR", "Hazır"
@@ -164,6 +172,12 @@ class Islem(models.Model):
         "Idempotency anahtarı", max_length=40, null=True, blank=True
     )
     terminal = models.CharField("İşlemin başladığı terminal", max_length=20, blank=True, default="")
+    teslim = models.CharField(max_length=12, choices=Teslim.choices, blank=True, default="")
+    ters_islem = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="tersi",
+        verbose_name="Ters kaydedilen işlem",
+    )
+    ters_neden = models.CharField(max_length=20, blank=True, default="")
     olusturma = models.DateTimeField(auto_now_add=True)
     tamamlanma = models.DateTimeField(null=True, blank=True)
 
@@ -176,6 +190,11 @@ class Islem(models.Model):
                 fields=["hesap", "anahtar"],
                 condition=models.Q(anahtar__isnull=False),
                 name="islem_anahtari_tekil",
+            ),
+            models.UniqueConstraint(
+                fields=["ters_islem"],
+                condition=models.Q(ters_islem__isnull=False),
+                name="tek_ters_kayit",
             ),
         ]
 
@@ -367,3 +386,73 @@ class Bildirim(models.Model):
 
     def __str__(self):
         return f"{self.kanal} → {self.alici}: {self.konu}"
+
+
+class PolitikaDegisikligi(models.Model):
+    """Onay politikasında değişiklik talebi (maker-checker / dört göz).
+
+    Politika tablosu doğrudan düzenlenemez. Bir kullanıcı talep açar (maker), en az
+    `gereken_onay` başka kullanıcı onaylar (checker); son onayda değişiklik uygulanır.
+    """
+
+    class Islem(models.TextChoices):
+        EKLE = "EKLE", "Aralık ekle"
+        GUNCELLE = "GUNCELLE", "Aralığı güncelle"
+        SIL = "SIL", "Aralığı sil"
+
+    class Durum(models.TextChoices):
+        BEKLIYOR = "BEKLIYOR", "Bekliyor"
+        UYGULANDI = "UYGULANDI", "Uygulandı"
+        REDDEDILDI = "REDDEDILDI", "Reddedildi"
+        IPTAL = "IPTAL", "İptal edildi"
+        SURESI_DOLDU = "SURESI_DOLDU", "Süresi doldu"
+        BASARISIZ = "BASARISIZ", "Uygulanamadı"
+
+    islem = models.CharField("Değişiklik türü", max_length=8, choices=Islem.choices)
+    hedef_id = models.PositiveIntegerField("Hedef politika no", null=True, blank=True)
+    yeni_alt_limit = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    yeni_gereken_onay = models.PositiveSmallIntegerField(null=True, blank=True)
+    yeni_en_az_rol = models.PositiveSmallIntegerField(choices=Rol.choices, null=True, blank=True)
+    yeni_aciklama = models.CharField(max_length=120, blank=True)
+    gerekce = models.TextField("Gerekçe")
+    talep_eden = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="politika_taleplerim"
+    )
+    gereken_onay = models.PositiveSmallIntegerField()
+    durum = models.CharField(max_length=12, choices=Durum.choices, default=Durum.BEKLIYOR)
+    son_tarih = models.DateTimeField()
+    olusturma = models.DateTimeField(auto_now_add=True)
+    kapanma = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Politika değişikliği talebi"
+        verbose_name_plural = "Politika değişikliği talepleri"
+        ordering = ["-id"]
+        permissions = [
+            ("politika_talep_et", "Politika değişikliği talep edebilir (maker)"),
+            ("politika_onayla", "Politika değişikliği talebini onaylayabilir (checker)"),
+        ]
+
+    def __str__(self):
+        return f"Politika talebi #{self.id} ({self.get_islem_display()}) [{self.durum}]"
+
+
+class PolitikaDegisiklikOyu(models.Model):
+    class Karar(models.TextChoices):
+        ONAY = "ONAY", "Onay"
+        RED = "RED", "Red"
+
+    talep = models.ForeignKey(PolitikaDegisikligi, on_delete=models.PROTECT, related_name="oylar")
+    kullanici = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="politika_oylarim")
+    karar = models.CharField(max_length=5, choices=Karar.choices)
+    zaman = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Politika oyu"
+        verbose_name_plural = "Politika oyları"
+        constraints = [
+            models.UniqueConstraint(fields=["talep", "kullanici"], name="politika_her_kullanici_bir_oy"),
+        ]
+
+    def __str__(self):
+        return f"{self.kullanici} → {self.karar} (talep #{self.talep_id})"

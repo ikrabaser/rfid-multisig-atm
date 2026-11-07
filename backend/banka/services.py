@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from . import baglam, bildirim, ledger
+from . import baglam, bildirim, ledger, politika_degisikligi
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
                      Rol, uid_duzelt)
@@ -168,8 +168,12 @@ def gerekli_onay(tutar, an=None):
         .order_by("-alt_limit")
         .first()
     )
-    if politika is None:
-        gereken, en_az = 3, int(Rol.MUDUR)  # yapilandirma eksikse kapali kal
+    butunluk_bozuk = politika_degisikligi.goruntu_tutarli_mi() is False
+    if butunluk_bozuk:
+        politika_degisikligi.ihlal_kaydet()
+    if politika is None or butunluk_bozuk:
+        # yapilandirma eksikse ya da politika tablosu ONAYSIZ degistirilmisse kapali kal
+        gereken, en_az = 3, int(Rol.MUDUR)
     else:
         gereken, en_az = politika.gereken_onay, int(politika.en_az_rol)
 
@@ -199,12 +203,14 @@ def gunluk_toplam(hesap, an=None):
         tur__in=[Islem.Tur.CEKME, Islem.Tur.HAVALE],
         durum__in=[Islem.Durum.UYGULANDI, Islem.Durum.ONAY_BEKLIYOR],
         olusturma__gte=gun_basi,
-    ).aggregate(t=Sum("tutar"))["t"]
+    ).exclude(teslim=Islem.Teslim.GERI_ALINDI).aggregate(t=Sum("tutar"))["t"]
     return toplam or Decimal("0.00")
 
 
 def _islem_sonucu(islem, tekrar=False):
     """Mevcut bir islemin durumunu, islem_baslat cevabi bicimine cevirir."""
+    if islem.teslim == Islem.Teslim.GERI_ALINDI:
+        raise IslemHatasi("İşlem ters kaydedildi", "ters_kayit")
     if islem.durum == Islem.Durum.ONAY_BEKLIYOR:
         talep_durumu(islem.talep.id)  # suresi dolduysa burada kapanir
         islem.refresh_from_db()
@@ -380,13 +386,97 @@ def _uygula(islem):
 
     islem.durum = Islem.Durum.UYGULANDI
     islem.tamamlanma = simdi()
-    islem.save(update_fields=["durum", "tamamlanma"])
+    if islem.tur == Islem.Tur.CEKME:
+        islem.teslim = Islem.Teslim.BEKLIYOR  # paranin fiilen verilmesi terminalden bildirilecek
+    islem.save(update_fields=["durum", "tamamlanma", "teslim"])
     kayit_ekle("islem_uygulandi", {
         "islem_id": islem.id, "tur": islem.tur, "tutar": para(tutar),
         "hesap_no": kaynak.hesap_no, "yeni_bakiye": para(kaynak.bakiye),
         "hedef_hesap_id": islem.hedef_hesap_id,
     })
     return True
+
+
+# ------------------------------------------------------------------ ters kayit / teslim
+
+def _ters_kayit_uygula(orijinal, neden):
+    """Nakit cekmeyi, orijinal satirlara DOKUNMADAN, ters borc/alacak satirlariyla geri alir.
+
+    transaction.atomic() ICINDE ve `orijinal` kilitliyken cagrilir.
+    """
+    kasa = _kasa_hesabi()
+    idler = sorted({orijinal.hesap_id, kasa.id})
+    kilitli = {h.id: h for h in Hesap.objects.select_for_update().filter(id__in=idler).order_by("id")}
+    musteri, kasa = kilitli[orijinal.hesap_id], kilitli[kasa.id]
+    Y = HesapHareketi.Yon
+
+    ters = Islem.objects.create(
+        hesap=orijinal.hesap, tur=Islem.Tur.TERS_KAYIT, tutar=orijinal.tutar,
+        baslatan_uid=orijinal.baslatan_uid, ters_islem=orijinal, ters_neden=neden,
+        terminal=baglam.terminal(),
+    )
+    ledger.hareket_ekle(ters, musteri, Y.ALACAK, orijinal.tutar)
+    ledger.hareket_ekle(ters, kasa, Y.BORC, orijinal.tutar)
+    kasa.save(update_fields=["bakiye"])
+    musteri.save(update_fields=["bakiye"])
+
+    ters.durum = Islem.Durum.UYGULANDI
+    ters.tamamlanma = simdi()
+    ters.save(update_fields=["durum", "tamamlanma"])
+    orijinal.teslim = Islem.Teslim.GERI_ALINDI
+    orijinal.save(update_fields=["teslim"])
+    kayit_ekle("ters_kayit", {
+        "orijinal_islem_id": orijinal.id, "ters_islem_id": ters.id, "tutar": para(orijinal.tutar),
+        "neden": neden, "hesap_no": musteri.hesap_no, "yeni_bakiye": para(musteri.bakiye),
+    })
+    return ters
+
+
+def teslim_bildir(islem_id, durum):
+    """Terminal, nakit cekmede paranin fiilen teslim edilip edilmedigini bildirir (dagitici/sensor olayi).
+
+    durum: ALINDI (para alindi) | ALINMADI (zaman asimi, para geri cekildi) | ARIZA (dagitici hatasi).
+    ALINMADI ve ARIZA, islemi ters kaydeder. Ayni bildirim tekrarlanirsa ayni sonuc doner (idempotent).
+    Yalnizca islemi baslatan terminal, TESLIM_PENCERESI_SN icinde bildirebilir.
+    """
+    durum = str(durum).upper()
+    if durum not in ("ALINDI", "ALINMADI", "ARIZA"):
+        raise IslemHatasi("Geçersiz teslim durumu", "teslim")
+    try:
+        islem_id = int(islem_id)
+    except (TypeError, ValueError):
+        raise IslemHatasi("İşlem bulunamadı", "yok")
+
+    T = Islem.Teslim
+    hata, ters = None, None
+    with transaction.atomic():
+        islem = Islem.objects.select_for_update().select_related("hesap").filter(id=islem_id).first()
+        if islem is None or islem.tur != Islem.Tur.CEKME or islem.durum != Islem.Durum.UYGULANDI:
+            hata = ("İşlem bulunamadı ya da teslim bildirilemez", "yok")
+        elif islem.terminal and islem.terminal != baglam.terminal():
+            kayit_ekle("teslim_baska_terminal", {"islem_id": islem.id, "islem_terminali": islem.terminal})
+            hata = ("Teslimi yalnızca işlemi başlatan terminal bildirebilir", "terminal")
+        elif not islem.teslim:
+            hata = ("Bu işlem için teslim takibi yok", "yok")
+        elif islem.teslim == T.BEKLIYOR:
+            if simdi() - islem.tamamlanma > timedelta(seconds=settings.TESLIM_PENCERESI_SN):
+                kayit_ekle("teslim_sure_asimi", {"islem_id": islem.id, "bildirilen": durum})
+                hata = ("Teslim bildirimi için süre geçti", "sure")
+            elif durum == "ALINDI":
+                islem.teslim = T.ALINDI
+                islem.save(update_fields=["teslim"])
+                kayit_ekle("teslim_onayi", {"islem_id": islem.id})
+            else:
+                ters = _ters_kayit_uygula(islem, "MUSTERI_ALMADI" if durum == "ALINMADI" else "PARA_VERILMEDI")
+        elif (islem.teslim == T.ALINDI) != (durum == "ALINDI"):
+            kayit_ekle("teslim_celiskisi", {"islem_id": islem.id, "kayitli": islem.teslim, "bildirilen": durum})
+            hata = ("Bu işlemin teslim durumu zaten kayıtlı", "celiski")
+        sonuc = "GERI" if islem and islem.teslim == T.GERI_ALINDI else "ALINDI"
+    if hata:
+        raise IslemHatasi(*hata)
+    if ters:
+        bildirim.ters_kayit(ters)  # commit sonrasi
+    return {"teslim": sonuc, "islem_id": islem.id}
 
 
 # ------------------------------------------------------------------ kasa dairesi

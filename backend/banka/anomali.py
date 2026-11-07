@@ -12,7 +12,7 @@ from collections import defaultdict
 from django.conf import settings
 from django.utils import timezone
 
-from .models import LogKaydi, Terminal
+from .models import Islem, LogKaydi, Terminal
 
 PENCERE_DK = 10
 IMKANSIZ_SEYAHAT_MIN_KM = 1.0       # bundan yakin terminaller ayni sube sayilir
@@ -181,6 +181,29 @@ def tara(saat=24, an=None):
                     "uzun_cevrimdisi", "orta",
                     f"Terminal {v.get('terminal', '?')} {sure // 60} dk çevrimdışı kaldı (log #{k.sira})",
                     sira=k.sira))
+
+    # 9) Nakit cekme: para teslimi 5 dakikadan uzun suredir bildirilmedi (terminal coktu mu, para ortada mi?)
+    belirsiz = list(Islem.objects.filter(
+        tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, teslim=Islem.Teslim.BEKLIYOR,
+        tamamlanma__gte=baslangic, tamamlanma__lt=an - datetime.timedelta(minutes=5),
+    ).values_list("id", flat=True))
+    if belirsiz:
+        bulgular.append(_bulgu(
+            "teslim_belirsiz", "orta",
+            f"{len(belirsiz)} nakit çekmede para teslimi 5 dk'dan uzun süredir bildirilmedi "
+            f"(işlem no: {', '.join(str(i) for i in belirsiz[:5])})"))
+
+    # 10) Ayni hesapta kisa surede cok sayida ters kayit (dagitici arizasi ya da suistimal)
+    ters = defaultdict(list)
+    for k, v in kayitlar:
+        if k.olay_turu == "ters_kayit":
+            ters[v.get("hesap_no", "?")].append(k.zaman)
+    for hesap_no, zamanlar in ters.items():
+        n = _en_cok_olay(zamanlar, 60)
+        if n >= 3:
+            bulgular.append(_bulgu(
+                "cok_ters_kayit", "orta",
+                f"Hesap {hesap_no} için 60 dk içinde {n} ters kayıt", hesap_no=hesap_no))
 
     bulgular.sort(key=lambda b: CIDDIYET_SIRASI[b["ciddiyet"]])
     return bulgular

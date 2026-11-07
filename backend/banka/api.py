@@ -95,3 +95,8 @@ def log_dogrula(g):
 @kopru_endpoint
 def terminal_gunlugu(g):
     return terminal_modulu.gunluk_yukle(g.get("girdiler"), baglam.terminal())
+
+
+@kopru_endpoint
+def teslim(g):
+    return services.teslim_bildir(g.get("islem_id"), g.get("durum"))

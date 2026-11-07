@@ -1,9 +1,10 @@
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render
 
-from . import anomali, services
+from . import anomali, politika_degisikligi, services
 from .hashlog import zinciri_dogrula
-from .models import Bildirim, Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi, Terminal
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi, PolitikaDegisikligi,
+                     Terminal)
 
 
 @staff_member_required
@@ -20,6 +21,12 @@ def panel(request):
         "hareketler": HesapHareketi.objects.select_related("hesap")[:12],
         "anomaliler": anomali.tara(),
         "bildirimler": Bildirim.objects.all()[:10],
+        "politika_durumu": {
+            "tutarli": ("ok", "Politika tablosu son onaylı sürümle aynı."),
+            "tutarsiz": ("kotu", "POLİTİKA TABLOSU ONAYLI SÜRÜMDEN FARKLI: sistem kapalı modda, her çekme/havale en sıkı kuralı ister."),
+            "baslangic_yok": ("kotu", "Politika için onaylı başlangıç görüntüsü yok (python manage.py politika_goruntu_al)."),
+        }[politika_degisikligi.butunluk_durumu()],
+        "politika_talepleri": PolitikaDegisikligi.objects.select_related("talep_eden")[:8],
         "terminaller": Terminal.objects.all(),
     }
     return render(request, "banka/panel.html", baglam)

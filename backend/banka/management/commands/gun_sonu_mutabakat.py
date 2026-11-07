@@ -42,6 +42,18 @@ class Command(BaseCommand):
             sorunlar.append(f"Uygulanmış ama defter hareketi olmayan işlemler: {r['hareketsiz_islemler']}")
         if r["yetim_hareketler"]:
             sorunlar.append(f"Uygulanmamış işleme ait defter hareketleri: {r['yetim_hareketler']}")
+        if r["tutarsiz_ters_kayitlar"]:
+            sorunlar.append(f"Orijinaliyle uyuşmayan ters kayıtlar: {r['tutarsiz_ters_kayitlar']}")
+        if r["tersi_olmayan_geri_alinanlar"]:
+            sorunlar.append(f"Geri alındı işaretli ama ters kaydı olmayan işlemler: {r['tersi_olmayan_geri_alinanlar']}")
+        if r["politika"] == "tutarsiz":
+            sorunlar.append("Politika tablosu son onaylı sürümden farklı (onaysız değişiklik olabilir)")
+        if r["belirsiz_teslimler"]:
+            self.stdout.write(self.style.WARNING(
+                f"UYARI: Teslimi 10 dk'dan uzun süredir bildirilmeyen çekmeler: {r['belirsiz_teslimler']}"))
+        if r["politika"] == "baslangic_yok":
+            self.stdout.write(self.style.WARNING(
+                "UYARI: Politika için onaylı başlangıç görüntüsü yok (python manage.py politika_goruntu_al)"))
         if not r["zincir"]["saglam"]:
             sorunlar.append(f"Hash zinciri bozuk: {r['zincir']['bozuk_sira']}. kayıt, {r['zincir']['sebep']}")
 
