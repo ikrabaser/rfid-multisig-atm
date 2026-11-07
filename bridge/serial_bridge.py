@@ -39,7 +39,7 @@ import requests
 ESLEME = str.maketrans({"ı": "i", "İ": "I", "ß": "ss"})
 TUR = {"C": "CEKME", "Y": "YATIRMA", "H": "HAVALE"}
 TUR_KISA = {"CEKME": "Cek", "YATIRMA": "Yatir", "HAVALE": "Havale", "KASA_ACMA": "Kasa"}
-KOMUTLAR = {"KART", "PIN", "BAKIYE", "ISLEM", "BEKLEYEN", "DURUM", "ONAY", "KASAAC"}
+KOMUTLAR = {"KART", "PIN", "BAKIYE", "ISLEM", "BEKLEYEN", "DURUM", "ONAY", "KASAAC", "TESLIM"}
 GIZLI_KOMUTLAR = {"PIN", "ONAY", "BAKIYE", "ISLEM", "KASAAC"}  # konsola yazilirken ayrintilari gizlenir
 YEREL_ADRESLER = {"127.0.0.1", "localhost", "::1"}
 
@@ -251,7 +251,7 @@ class Kopru:
                 return f"BEKLE|{r['talep_id']}|{r['gereken']}"
             if not r.get("basarili", True):
                 return hata("Islem basarisiz")
-            return f"TAMAM|{r['bakiye']}"
+            return f"TAMAM|{r['bakiye']}|{r['islem_id']}"
 
         if komut == "KASAAC":
             r = self._post("/api/kasa-ac/", {"uid": a[0], "pin": a[1]})
@@ -275,7 +275,16 @@ class Kopru:
             if not r.get("ok"):
                 return hata(r.get("hata", "Hata"))
             ust = 1 if r["ust_yetkili_gerekli"] else 0
-            return f"DURUM|{r['verilen']}|{r['gereken']}|{r['durum']}|{r['kalan_sn']}|{ust}|{r['tur']}"
+            return (f"DURUM|{r['verilen']}|{r['gereken']}|{r['durum']}|{r['kalan_sn']}|{ust}|{r['tur']}|"
+                    f"{r['islem_id']}")
+
+        if komut == "TESLIM":
+            # TESLIM|islemId|A (para alindi) ya da H (alinmadi: zaman asimi, para geri cekildi)
+            durum = "ALINDI" if a[1].upper() == "A" else "ALINMADI"
+            r = self._post("/api/teslim/", {"islem_id": int(a[0]), "durum": durum})
+            if not r.get("ok"):
+                return hata(r.get("hata", "Hata"))
+            return f"TESLIM|{r['teslim']}"
 
         if komut == "ONAY":
             karar = "RED" if a[3].upper() == "H" else "ONAY"
