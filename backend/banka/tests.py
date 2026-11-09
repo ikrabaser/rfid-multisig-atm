@@ -1121,7 +1121,8 @@ class TersKayitTestleri(Yardimci, TestCase):
 
     def test_belirsiz_teslim_uyarisi(self):
         r = self.cek()
-        Islem.objects.filter(id=r["islem_id"]).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=10))
+        # Esik 10 dk: tam sinira (10 dk) koymak Windows'un kaba saat cozunurlugunde kararsiz olurdu, 15 dk guvenli
+        Islem.objects.filter(id=r["islem_id"]).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=15))
         self.assertIn("teslim_belirsiz", {b["kural"] for b in anomali.tara()})
         rapor = ledger.mutabakat()
         self.assertEqual(rapor["belirsiz_teslimler"], [r["islem_id"]])
