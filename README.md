@@ -39,7 +39,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **RBAC**: rol → yetki matrisi, admin grupları koddan, görev ayrımı denetimi | `rbac.py` | `python manage.py rbac_denetimi` |
 | **Hassas yönetim işlemleri için maker-checker** (yetkili ekleme, rol, PIN, bloke, limit, terminal) | `yonetim_talepleri.py` | admin → Yönetim talepleri |
 | **Müşteri kartı ve PIN'i maker-checker'da**: kart tanımlama, PIN sıfırlama, telefon; PIN müşterinin telefonuna gider | `yonetim_talepleri.py` | admin → Yönetim talepleri |
-| **Kart bütünlüğü**: sahte/değiştirilmiş kart yalnızca kendisi kapanır | `kart_butunlugu.py` | `python manage.py kart_goruntu_al` |
+| **Kart bütünlüğü**: satır başına HMAC mührü, sahte/değiştirilmiş kart yalnızca kendisi kapanır, ölçeklenir | `kart_butunlugu.py` | `python manage.py kart_goruntu_al` |
+| **Bloke bütünlüğü**: veritabanından bloke kaldırma/ekleme log'dan türetilen beklenen durumla yakalanır | `bloke_butunlugu.py` | `python manage.py gun_sonu_mutabakat` |
+| **PIN gizliliği**: PIN yalnızca SMS sağlayıcıya verilir; log, veritabanı, panel ve e-postada görünmez | `sms.py` | `python manage.py sms_kutusu` |
 | **Yetkili bütünlüğü**: sahte yetkili/rol/PIN değişikliği veritabanından yapılırsa onaylar kapanır | `personel_butunlugu.py` | `python manage.py personel_goruntu_al` |
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
 
@@ -61,7 +63,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | `backend/banka/rbac.py` | Rol → yetki matrisi, admin grupları, görev ayrımı denetimi |
 | `backend/banka/yonetim_talepleri.py` | Hassas yönetim işlemleri için maker-checker (7 işlem türü) |
 | `backend/banka/personel_butunlugu.py` | Yetkili kümesinin onaylı görüntüsü ve sapma tespiti |
-| `backend/banka/kart_butunlugu.py` | Müşteri kartlarının onaylı listesi ve kart başına doğrulama |
+| `backend/banka/kart_butunlugu.py` | Kart satırı mührü (HMAC), onaylı özet ve kart başına O(1) doğrulama |
+| `backend/banka/bloke_butunlugu.py` | Bloke durumunu log'dan türetip veritabanıyla karşılaştırır |
+| `backend/banka/sms.py` | SMS sağlayıcı soyutlaması (dosya/bellek) ve simülasyon gelen kutusu |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
 | `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
 | `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
@@ -530,7 +534,7 @@ Onay sayıları `YONETIM_ONAY_SAYILARI` ayarındadır.
   (ör. aynı yetkili için hem rol hem PIN talebi aynı anda açılamaz), gerekçe zorunludur. Her adım hash zincirine yazılır.
 - **PIN'ler asla talebe yazılmaz ve hiçbir kullanıcıya gösterilmez:** uygulama anında rastgele üretilir (aynı rakamlı ve
   ardışık PIN'ler hariç) ve yetkilinin **kendi telefonuna** SMS ile iletilir. Simülasyonda SMS içeriği yalnızca
-  `banka.bildirim` log satırında görünür; bildirim kaydında ve panelde görünmez.
+  `sms_kutusu` komutuyla okunan ayrı bir dosyada ("telefon") görünür; log'da, bildirim kaydında ve panelde görünmez.
 - **Müşteri kartı ve PIN'i de bu mekanizmanın içindedir** (aşağıda "Müşteri kartları ve PIN'leri").
 
 ## Müşteri kartları ve PIN'leri
@@ -546,16 +550,54 @@ Yetkililer korunuyordu ama bir yönetici admin'den müşteriye bilinen PIN'li bi
 - **Telefon, hesap ele geçirmenin kapısıdır, o yüzden kendisi de maker-checker'dadır:** yeni numara onaylayıcıya
   **tam**, eski numara maskeli gösterilir (müşteriyle doğrulansın diye). PIN talebi açıldıktan sonra numara
   değişirse talep **uygulanmaz** (talepte telefonun özeti saklanır), yani PIN yeni numaraya sızdırılamaz.
-- **Kart bütünlüğü (kart başına):** Her onaylı kart değişikliğinde kart listesi (UID, hesap no, PIN hash özeti) hash
-  zincirine yazılır. Terminalde bir kart okutulunca ya da giriş yapılınca kartın satırı bu listede aranır; veritabanına
-  doğrudan eklenmiş, PIN'i değiştirilmiş ya da başka hesaba taşınmış bir kart **doğrulanamaz** ve "bloke" gibi davranır
-  (`kart_butunluk_ihlali` loga yazılır, anomali taraması `butunluk_ihlali` olarak işaretler). Yetkililerden farkı:
-  yalnızca ilgili kart kapanır, **diğer müşteriler etkilenmez**. Kartlarla ilgili yeni talepler ise liste tutarsızken
-  uygulanmaz. `kart_goruntu_al` ilk kurulum içindir, tutarsızken meşrulaştırmayı reddeder, `--zorla` ister.
+- **Kart bütünlüğü (kart başına, ölçeklenebilir):** Her kartın satırında bir **mühür** vardır:
+  `HMAC(KART_MAC_ANAHTARI, uid | hesap no | PIN hash özeti)`. Mührü yalnızca onaylı işlemler (kart tanımlama, PIN sıfırlama) ve
+  ilk kurulum üretir; anahtar **veritabanında değildir** (`KART_MAC_ANAHTARI` ortam değişkeni, `LOG_HMAC_ANAHTARI` gibi).
+  Terminalde kart okutulunca ya da giriş yapılınca yalnızca **o kartın** mührü kontrol edilir (O(1)). Veritabanına doğrudan
+  eklenmiş, PIN'i değiştirilmiş ya da başka hesaba taşınmış kartın mührü tutmaz: kart **doğrulanamaz** ve "bloke" gibi
+  davranır (`kart_butunluk_ihlali` loga yazılır, anomali taraması `butunluk_ihlali` olarak işaretler). **Diğer müşteriler
+  etkilenmez.** Başka bir kartın PIN ve mührünü kopyalamak da işe yaramaz, çünkü mühür kartın UID'sine bağlıdır.
+- **Log büyümez:** Her onaylı kart değişikliğinde hash zincirine yalnızca küçük bir özet yazılır (tüm mühürlerin özeti ve kart
+  sayısı, satır listesi yok). Mutabakat bu özeti yeniden hesaplayıp karşılaştırır (silinen kart, geri alma). Kart sayısı
+  100 de olsa 1.000.000 da olsa log kaydı aynı boyuttadır.
+- Kartlarla ilgili yeni talepler, **onaylı başlangıç yokken ya da kayıtlar tutarsızken uygulanmaz** (aksi halde mevcut
+  mühürsüz kartlar sessizce meşrulaşırdı). `kart_goruntu_al` ilk kurulum içindir: tüm kartları mühürler ve başlangıcı yazar;
+  tutarsızken meşrulaştırmayı reddeder, `--zorla` ister ve denetim kaydına işler.
+- **Yükseltme:** Eski (satır listeli) görüntü başlangıç sayılmaz; `seed_demo` ya da `kart_goruntu_al` çalışana kadar kartlar
+  zorlanmaz, yani yükseltme müşterileri kilitlemez.
 
-Dürüst sınırlar: Bloke durumu özete girmediği için veritabanından bloke kaldırma yakalanmaz. Kart listesi log'a satır satır
-yazıldığından çok büyük bankalarda bu yöntem ölçeklenmez (orada Merkle ağacı ya da HSM kullanılır). SMS simülasyonunda PIN
-yalnızca `banka.bildirim` log satırında görünür.
+## Bloke durumunun bütünlüğü
+
+Bloke kaldırma yalnızca onaylı talep ile yapılıyor, ama `bloke` alanı veritabanından doğrudan sıfırlanabilirdi. Artık bu alana
+**güvenilmez**: beklenen durum, hash zincirli log'dan türetilir. 3. yanlış PIN'de sistemin yazdığı `pin_hatali (bloke: true)`
+olayı kimliği bloke eder; onaylı `BLOKE_KALDIR` talebi (`yonetim_talebi` + `yonetim_talebi_uygulandi` olayları) blokeyi kaldırır.
+Kimliğin beklenen durumu bu olaylardan **sonuncusunun** sonucudur.
+
+- Log "bloke" derken veritabanı "bloke değil" diyorsa kimlik **yine bloke sayılır** (kapalı kal), `bloke_butunluk_ihlali` loga
+  yazılır ve anomali olarak işaretlenir. Terminal bu durumda doğru PIN'i bile kabul etmez.
+- `gun_sonu_mutabakat` her iki yöndeki sapmayı (onaysız kaldırma ve veritabanından onaysız bloke) listeler.
+- Kilitlenme olmaz: onaysız kaldırılmış bir kimlik için de "Bloke kaldır" talebi açılabilir; onaylanınca log'a işlenir.
+- Mutabakattaki bu kontrol kimlik başına log sorgular (toplu işlem içindir); terminalde yalnızca okutulan kimlik için çalışır.
+
+## PIN gizliliği (SMS sağlayıcı)
+
+PIN yalnızca **SMS sağlayıcıya** verilir (`sms.py`); sunucu log'una, veritabanına, panele, e-postaya ve denetim zincirine yazılmaz.
+Log yalnızca "PIN SMS ile gönderildi (içerik gizli)" ve numarayı yazar. Gerçek sağlayıcı için `sms.SmsSaglayici`'dan türeyen bir
+sınıf yazıp `SMS_SAGLAYICI` ayarına koymak yeter (Twilio, Netgsm vb.).
+
+Simülasyonda varsayılan sağlayıcı (`DosyaSmsSaglayici`), telefonu temsil eden ayrı bir dosyaya yazar
+(`backend/sms_kutusu.jsonl`, git'e girmez, mümkünse yalnızca sahibi okur). Telefonu "açmak" için ayrı bir terminalde:
+
+```bat
+python manage.py sms_kutusu                      :: tüm mesajlar
+python manage.py sms_kutusu --telefon +905551000001
+python manage.py sms_kutusu --temizle            :: gösterdikten sonra siler
+```
+
+Dürüst sınırlar: Dosya, bu bilgisayarda yetkili kullanıcılar tarafından okunabilir; bu bir simülasyondur ve gerçek bir telefonun
+yerini tutmaz. Eski bir (PIN, mühür) çiftinin veritabanına geri yüklenmesi (rollback) terminalde anlık engellenmez, çünkü o
+an mühür geçerlidir; mutabakat özet farkıyla yakalar. Anlık engellemek için kart başına sürüm sayacını veritabanı dışında
+tutmak gerekir (HSM/ayrı servis). Kart satırı mührü, mührü üreten anahtarı bilen biri için koruma sağlamaz.
 
 ## Yetkili bütünlüğü
 
@@ -571,8 +613,7 @@ Sistemin kendi güncellemeleri (3 yanlış PIN sonrası bloke, hatalı deneme sa
 yanlış alarm üretmez. `personel_goruntu_al` ilk kurulum içindir; küme farklıyken meşrulaştırmayı reddeder, bilerek
 yapılacaksa `--zorla` ister ve denetim kaydına işlenir.
 
-Dürüst sınırlar: Bloke durumunun veritabanından kaldırılması özete girmediği için bu yolla yakalanmaz (kalan açık; yalnızca
-yönetim yolu kapatıldı). Maker-checker kullanıcı yönetimi kadar güvenlidir: bir superuser ek kullanıcı oluşturup kendi
+Dürüst sınırlar: Maker-checker kullanıcı yönetimi kadar güvenlidir: bir superuser ek kullanıcı oluşturup kendi
 talebini başka hesapla onaylatabilir; gerçek sistemde kullanıcı ve yetki yönetimi de aynı şekilde onaya bağlı olurdu.
 
 ## Hash zinciri
@@ -636,12 +677,11 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 
 ## Sıradaki fikirler
 
-1. Bloke durumunu da log tabanlı doğrulamak (veritabanından bloke kaldırmayı yakalamak).
-2. Kullanıcı ve grup yönetimini de onaya bağlamak.
-3. Elle ters kayıt (dört göz ile).
-4. Müşteri PIN'ini müşterinin kendisinin değiştirmesi (terminalde, eski PIN ile).
-5. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
-6. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
-7. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
-8. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
-9. GitHub Actions ile her push'ta `python manage.py test`.
+1. Kullanıcı ve grup yönetimini de onaya bağlamak.
+2. Elle ters kayıt (dört göz ile).
+3. Müşteri PIN'ini müşterinin kendisinin değiştirmesi (terminalde, eski PIN ile).
+4. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
+5. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
+6. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
+7. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
+8. GitHub Actions ile her push'ta `python manage.py test`.
