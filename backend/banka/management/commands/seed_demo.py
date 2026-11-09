@@ -6,7 +6,7 @@ from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from banka import personel_butunlugu, politika_degisikligi, rbac
+from banka import kart_butunlugu, personel_butunlugu, politika_degisikligi, rbac
 from banka.models import Hesap, Kart, Musteri, Personel, Politika, Rol, Terminal
 
 # DEMO verisi. UID'ler sahte; admin panelinden kendi kartlarının UID'si ile değiştir.
@@ -15,6 +15,7 @@ MUSTERILER = [
     ("Ali Yılmaz", "100001", "1000000.00", "a0a0a001", "1234"),
     ("Zeynep Kaya", "100002", "250000.00", "a0a0a002", "4321"),
 ]
+MUSTERI_TELEFONLARI = {"100001": "+905551000001", "100002": "+905551000002"}  # sahte; PIN'ler buraya SMS ile gider
 PERSONEL = [
     # ad, uid, rol, pin, e-posta, telefon  (iletisim bilgileri sahte; .example adresleri gercek degildir)
     ("Ayşe (görevli)", "b0b0b001", Rol.GOREVLI, "1111", "ayse@banka.example", "+905550000001"),
@@ -79,9 +80,11 @@ class Command(BaseCommand):
             self.stdout.write(f"Nakit kasa hesabı: {KASA_HESAP_NO}  bakiye {KASA_NAKIT}")
 
         for ad, hesap_no, bakiye, uid, pin in MUSTERILER:
+            Musteri.objects.filter(hesaplar__hesap_no=hesap_no, telefon="").update(
+                telefon=MUSTERI_TELEFONLARI.get(hesap_no, ""))  # eski demo veritabani icin
             if Kart.objects.filter(uid=uid).exists() or Hesap.objects.filter(hesap_no=hesap_no).exists():
                 continue
-            musteri = Musteri.objects.create(ad=ad)
+            musteri = Musteri.objects.create(ad=ad, telefon=MUSTERI_TELEFONLARI.get(hesap_no, ""))
             hesap = Hesap.objects.create(
                 musteri=musteri, hesap_no=hesap_no, acilis_bakiyesi=Decimal(bakiye), bakiye=Decimal(bakiye)
             )
@@ -118,6 +121,9 @@ class Command(BaseCommand):
         if personel_butunlugu.tutarli_mi() is None:
             personel_butunlugu.goruntu_kaydet("seed_demo")
             self.stdout.write("Yetkili kayıtları için onaylı başlangıç görüntüsü kaydedildi.")
+        if kart_butunlugu.tutarli_mi() is None:
+            kart_butunlugu.goruntu_kaydet("seed_demo")
+            self.stdout.write("Müşteri kartları için onaylı başlangıç görüntüsü kaydedildi.")
         self._yonetim_kullanicilari()
 
         self.stdout.write(self.style.SUCCESS("Demo verisi hazır. PIN'ler demo içindir, gerçek kullanımda değiştir."))

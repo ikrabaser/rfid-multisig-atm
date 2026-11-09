@@ -9,45 +9,22 @@ from .politika_degisikligi import PolitikaHatasi
 from .yonetim_talepleri import YonetimHatasi
 
 
-class PinFormu(forms.ModelForm):
-    yeni_pin = forms.CharField(
-        label="Yeni PIN", required=False, widget=forms.PasswordInput(render_value=False),
-        help_text="4 rakam. Boş bırakırsan PIN değişmez (yeni kayıtta zorunlu).",
-    )
-
-    def clean(self):
-        veri = super().clean()
-        pin = veri.get("yeni_pin")
-        if not self.instance.pk and not pin:
-            self.add_error("yeni_pin", "Yeni kayıt için PIN zorunlu.")
-        if pin:
-            try:
-                self.instance.pin_ayarla(pin)
-            except Exception as e:  # ValidationError
-                self.add_error("yeni_pin", getattr(e, "messages", [str(e)]))
-        return veri
-
-
-class PinliAdmin(admin.ModelAdmin):
-    form = PinFormu
-    exclude = ("pin_hash",)
-    readonly_fields = ("hatali_deneme",)
-
-    def save_model(self, request, obj, form, change):
-        pin = form.cleaned_data.get("yeni_pin")
-        if pin:
-            obj.pin_ayarla(pin)
-        if change and "bloke" in form.changed_data and not obj.bloke:
-            obj.hatali_deneme = 0  # blokeyi kaldirinca deneme hakki yenilenir
-        super().save_model(request, obj, form, change)
-
-
 @admin.register(Kart)
-class KartAdmin(PinliAdmin):
-    """Bloke durumu burada değişmez: 'Yönetim talepleri → Bloke kaldır' (maker-checker)."""
+class KartAdmin(admin.ModelAdmin):
+    """Salt okunur. Kart tanımlama ve PIN sıfırlama 'Yönetim talepleri' (maker-checker) ile yapılır, yeni PIN
+    müşterinin kendi telefonuna SMS ile gider; bloke kaldırma da talep ile. Admin hiçbir PIN'i bilemez ya da belirleyemez."""
     list_display = ("uid", "hesap", "bloke", "hatali_deneme")
     list_filter = ("bloke",)
-    readonly_fields = ("hatali_deneme", "bloke")
+    exclude = ("pin_hash",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Personel)
@@ -89,7 +66,15 @@ class HesapAdmin(admin.ModelAdmin):
     readonly_fields = ("tur", "acilis_bakiyesi", "bakiye", "gunluk_limit")
 
 
-admin.site.register(Musteri)
+@admin.register(Musteri)
+class MusteriAdmin(admin.ModelAdmin):
+    """Telefon (PIN'in gideceği numara) yalnızca 'Yönetim talepleri → Müşteri telefonunu değiştir' ile değişir."""
+    list_display = ("ad", "telefon_maskeli")
+    readonly_fields = ("telefon",)
+
+    @admin.display(description="Telefon")
+    def telefon_maskeli(self, obj):
+        return yonetim_talepleri._maske(obj.telefon) if obj.telefon else "-"
 
 
 class SadeceOkunur(admin.ModelAdmin):
@@ -262,21 +247,27 @@ def _ham(veri):
         return {"hedef": veri.get("hedef_turu"), "id": veri.get("hedef_no")}
     if tur == T.GUNLUK_LIMIT:
         return {"hesap_no": veri.get("hedef_no"), "yeni_limit": veri.get("deger")}
+    if tur == T.KART_TANIMLA:
+        return {"hesap_no": veri.get("hedef_no"), "kart_uid": veri.get("kart_uid")}
+    if tur == T.KART_PIN_SIFIRLA:
+        return {"kart_id": veri.get("hedef_no")}
+    if tur == T.MUSTERI_TELEFON:
+        return {"musteri_id": veri.get("hedef_no"), "yeni_telefon": veri.get("telefon")}
     return {"kod": veri.get("hedef_no"), "aktif": veri.get("deger")}  # TERMINAL_DURUM
 
 
 class YonetimTalebiFormu(forms.ModelForm):
     hedef_no = forms.CharField(label="Hedef", required=False,
-                               help_text="Personel no / kart no / hesap no / terminal kodu")
+                               help_text="Personel no / kart no / hesap no / müşteri no / terminal kodu")
     hedef_turu = forms.ChoiceField(label="Hedef türü (yalnızca bloke kaldırma)", required=False,
                                    choices=[("", "—"), ("personel", "Yetkili"), ("kart", "Müşteri kartı")])
     deger = forms.CharField(label="Yeni değer", required=False,
                             help_text="Rol 1-3 / aktif ya da pasif / günlük limit (TL)")
     ad = forms.CharField(label="Ad (yeni yetkili)", required=False)
-    kart_uid = forms.CharField(label="Kart UID (yeni yetkili)", required=False)
+    kart_uid = forms.CharField(label="Kart UID (yeni yetkili ya da yeni müşteri kartı)", required=False)
     eposta = forms.EmailField(label="E-posta (yeni yetkili)", required=False)
-    telefon = forms.CharField(label="Telefon (yeni yetkili)", required=False,
-                              help_text="İlk PIN bu telefona SMS ile gider; hiçbir ekranda gösterilmez.")
+    telefon = forms.CharField(label="Telefon (yeni yetkili ya da müşteri)", required=False,
+                              help_text="Yeni yetkilide ilk PIN bu telefona gider; hiçbir ekranda gösterilmez.")
 
     class Meta:
         model = YonetimTalebi

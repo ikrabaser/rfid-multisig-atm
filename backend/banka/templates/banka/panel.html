@@ -43,6 +43,7 @@
 
   <h2>Yetkili bütünlüğü ve yönetim talepleri</h2>
   <div class="{{ personel_durumu.0 }}">{{ personel_durumu.1 }}</div>
+  <div class="{{ kart_durumu.0 }}" style="margin-top:6px">{{ kart_durumu.1 }}</div>
   <table>
     <tr><th>Talep</th><th>İşlem</th><th>Özet</th><th>Durum</th><th>Talep eden</th><th>Son tarih</th></tr>
     {% for t in yonetim_talepleri %}

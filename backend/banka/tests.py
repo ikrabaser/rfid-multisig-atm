@@ -16,10 +16,10 @@ from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from . import (anomali, baglam, bildirim, ledger, personel_butunlugu, politika_degisikligi, rbac, services,
-               yonetim_talepleri)
+from . import (anomali, baglam, bildirim, kart_butunlugu, ledger, personel_butunlugu, politika_degisikligi, rbac,
+               services, yonetim_talepleri)
 from .hashlog import kayit_ekle, zinciri_dogrula
-from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Politika,
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, OnayTalebi, Personel, Politika,
                      PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi, YonetimTalebi)
 from .politika_degisikligi import PolitikaHatasi
 from .yonetim_talepleri import YonetimHatasi
@@ -1928,8 +1928,8 @@ class YonetimAdminTestleri(Yardimci, TestCase):
         self.assertTrue(t.aktif)  # aktif alani formda yok: kapatilamaz
         kart = Kart.objects.get(uid="a0a0a001")
         Kart.objects.filter(id=kart.id).update(bloke=True, hatali_deneme=3)
-        r = self.client.post(f"/admin/banka/kart/{kart.id}/change/", {"uid": "a0a0a001", "hesap": kart.hesap_id, "yeni_pin": "", "bloke": ""})
-        self.assertEqual(r.status_code, 302)
+        r = self.client.post(f"/admin/banka/kart/{kart.id}/change/", {"uid": "a0a0a001", "hesap": kart.hesap_id, "bloke": ""})
+        self.assertEqual(r.status_code, 403)  # kart admin'de tamamen salt okunur
         kart.refresh_from_db()
         self.assertTrue(kart.bloke)  # bloke yalnizca talep-onay ile kalkar
 
@@ -1968,3 +1968,287 @@ class YonetimAdminTestleri(Yardimci, TestCase):
         r = self.client.get("/")
         self.assertContains(r, "Yetkili bütünlüğü")
         self.assertContains(r, "Yetkili kayıtları son onaylı sürümle aynı")
+
+
+# ====================================================================== musteri karti ve PIN'i (maker-checker)
+
+@override_settings(MESAI_DISI_KURALI=False)
+class MusteriKartTalepleriTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.maker = self.U.objects.get(username="yonetim_talep")
+        self.c1, self.c2 = (self.U.objects.get(username=f"yonetim_onay{i}") for i in (1, 2))
+
+    def talep(self, tur, ham):
+        return yonetim_talepleri.talep_olustur(self.maker, tur, ham, GEREKCE)
+
+    def oy(self, t, *kullanicilar):
+        for k in kullanicilar:
+            t = yonetim_talepleri.oy_ver(t.id, k, "ONAY")
+        return t
+
+    def pin_al(self, kayit):
+        return re.search(r"Yeni PIN'iniz: (\d{4})", "\n".join(kayit.output)).group(1)
+
+    def test_demo_musterilerinin_telefonu_var(self):
+        self.assertEqual(Musteri.objects.get(hesaplar__hesap_no="100001").telefon, "+905551000001")
+
+    def test_kart_tanimlama_akisi_pin_musterinin_telefonuna_gider(self):
+        t = self.talep("KART_TANIMLA", {"hesap_no": "100002", "kart_uid": "A0A0A003"})
+        self.assertEqual(t.gereken_onay, 2)
+        self.assertIn("+905*******02", t.ozet)         # onaylayici numarayi maskeli gorur
+        self.assertNotIn("+905551000002", t.ozet)
+        self.oy(t, self.c1)
+        self.assertFalse(Kart.objects.filter(uid="a0a0a003").exists())  # henuz yok
+        with self.assertLogs("banka.bildirim", level="INFO") as kayit:
+            self.assertEqual(self.oy(t, self.c2).durum, "UYGULANDI")
+        kart = Kart.objects.get(uid="a0a0a003")
+        self.assertEqual(kart.hesap.hesap_no, "100002")
+        pin = self.pin_al(kayit)
+        self.assertTrue(services.musteri_giris("a0a0a003", pin)["token"])  # SMS'teki PIN calisiyor
+        sms = Bildirim.objects.get(olay="pin_iletildi")
+        self.assertEqual(sms.adres, "+905551000002")
+        self.assertNotIn(pin, sms.metin)
+        self.assertEqual(set(json.loads(t.veri)), {"hesap_no", "kart_uid", "telefon_ozeti"})  # PIN talepte yok
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertEqual(services.kart_tipi("a0a0a003"), "MUSTERI")
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_kart_tanimlama_dogrulamalari(self):
+        kotuler = [
+            {"hesap_no": "999999", "kart_uid": "a0a0a003"},      # hesap yok
+            {"hesap_no": "900000", "kart_uid": "a0a0a003"},      # kasa hesabi musteri degil
+            {"hesap_no": "100002", "kart_uid": "xyz"},           # gecersiz uid
+            {"hesap_no": "100002", "kart_uid": "a0a0a001"},      # baska musterinin karti
+            {"hesap_no": "100002", "kart_uid": "b0b0b001"},      # yetkili karti
+        ]
+        for ham in kotuler:
+            with self.assertRaises(YonetimHatasi, msg=str(ham)):
+                self.talep("KART_TANIMLA", ham)
+        Musteri.objects.filter(hesaplar__hesap_no="100002").update(telefon="")
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("KART_TANIMLA", {"hesap_no": "100002", "kart_uid": "a0a0a003"})
+        self.assertEqual(e.exception.kod, "telefon")
+        self.assertEqual(YonetimTalebi.objects.count(), 0)
+
+    def test_hesap_basina_kart_siniri(self):
+        zeynep = Hesap.objects.get(hesap_no="100002")
+        for uid in ("a0a0a010", "a0a0a011"):  # zaten 1 karti var: toplam 3
+            kart = Kart(uid=uid, hesap=zeynep)
+            kart.pin_ayarla("1234")
+            kart.save()
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("KART_TANIMLA", {"hesap_no": "100002", "kart_uid": "a0a0a012"})
+        self.assertEqual(e.exception.kod, "limit")
+
+    def test_musteri_pin_sifirlama(self):
+        kart = Kart.objects.get(uid="a0a0a001")
+        t = self.talep("KART_PIN_SIFIRLA", {"kart_id": kart.id})
+        self.assertEqual(t.gereken_onay, 2)
+        self.oy(t, self.c1)
+        with self.assertLogs("banka.bildirim", level="INFO") as kayit:
+            self.assertEqual(self.oy(t, self.c2).durum, "UYGULANDI")
+        pin = self.pin_al(kayit)
+        with self.assertRaises(IslemHatasi):
+            services.musteri_giris("a0a0a001", "1234")      # eski PIN artik gecmez
+        self.assertTrue(services.musteri_giris("a0a0a001", pin)["token"])
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertEqual(services.kart_tipi("a0a0a001"), "MUSTERI")
+
+    def test_bekleyen_pin_talebinde_telefon_degisirse_uygulanmaz(self):
+        kart = Kart.objects.get(uid="a0a0a001")
+        t = self.talep("KART_PIN_SIFIRLA", {"kart_id": kart.id})
+        Musteri.objects.filter(hesaplar__hesap_no="100001").update(telefon="+905559998877")  # numara degisti
+        self.oy(t, self.c1)
+        self.assertEqual(self.oy(t, self.c2).durum, "BASARISIZ")
+        self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])  # PIN degismedi
+        self.assertEqual(Bildirim.objects.filter(olay="pin_iletildi").count(), 0)  # yeni numaraya SMS gitmedi
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="yonetim_talebi_uygulanamadi").exists())
+
+    def test_telefon_degistirme(self):
+        musteri = Musteri.objects.get(hesaplar__hesap_no="100001")
+        t = self.talep("MUSTERI_TELEFON", {"musteri_id": musteri.id, "yeni_telefon": "+905559998877"})
+        self.assertEqual(t.gereken_onay, 2)
+        self.assertIn("+905559998877", t.ozet)           # yeni numara tam gorunur (musteriyle dogrulamak icin)
+        self.assertNotIn("+905551000001", t.ozet)        # eski numara maskeli
+        self.assertEqual(self.oy(t, self.c1, self.c2).durum, "UYGULANDI")
+        musteri.refresh_from_db()
+        self.assertEqual(musteri.telefon, "+905559998877")
+        for ham in ({"yeni_telefon": "123"}, {"yeni_telefon": "+905559998877"}, {"yeni_telefon": ""}):
+            with self.assertRaises(YonetimHatasi, msg=str(ham)):
+                self.talep("MUSTERI_TELEFON", {"musteri_id": musteri.id, **ham})
+
+    def test_yeni_pin_onayli_degisiklikten_sonra_yeni_numaraya_gider(self):
+        musteri = Musteri.objects.get(hesaplar__hesap_no="100001")
+        self.oy(self.talep("MUSTERI_TELEFON", {"musteri_id": musteri.id, "yeni_telefon": "+905559998877"}), self.c1, self.c2)
+        t = self.talep("KART_PIN_SIFIRLA", {"kart_id": Kart.objects.get(uid="a0a0a001").id})
+        with self.assertLogs("banka.bildirim", level="INFO") as kayit:
+            self.assertEqual(self.oy(t, self.c1, self.c2).durum, "UYGULANDI")
+        self.assertIn("+905559998877", "\n".join(kayit.output))
+
+    def test_cakisan_talepler(self):
+        kart = Kart.objects.get(uid="a0a0a001")
+        self.talep("KART_PIN_SIFIRLA", {"kart_id": kart.id})
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("KART_PIN_SIFIRLA", {"kart_id": kart.id})
+        self.assertEqual(e.exception.kod, "cakisan")
+        self.talep("KART_TANIMLA", {"hesap_no": "100002", "kart_uid": "a0a0a003"})
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("KART_TANIMLA", {"hesap_no": "100001", "kart_uid": "a0a0a003"})
+        self.assertEqual(e.exception.kod, "cakisan")
+
+    def test_olaylar_zincire_yazilir(self):
+        self.oy(self.talep("KART_TANIMLA", {"hesap_no": "100002", "kart_uid": "a0a0a003"}), self.c1, self.c2)
+        olaylar = list(LogKaydi.objects.values_list("olay_turu", flat=True))
+        self.assertEqual(olaylar.count("kart_goruntusu"), 2)  # seed + bu degisiklik
+        self.assertIn("yonetim_talebi_uygulandi", olaylar)
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+
+# ====================================================================== kart butunlugu (kart basina)
+
+@override_settings(MESAI_DISI_KURALI=False)
+class KartButunluguTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+
+    def sahte_kart(self, uid="e0e0e001", pin="1111", hesap_no="100002"):
+        kart = Kart(uid=uid, hesap=Hesap.objects.get(hesap_no=hesap_no))
+        kart.pin_ayarla(pin)
+        kart.save()  # dogrudan veritabani mudahalesi
+        return kart
+
+    def test_baslangic_tutarli(self):
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertTrue(kart_butunlugu.kart_dogrulandi_mi(Kart.objects.select_related("hesap").get(uid="a0a0a001")))
+
+    def test_sahte_kart_yalniz_kendisi_kapanir(self):
+        self.sahte_kart()
+        self.assertEqual(services.kart_tipi("e0e0e001"), "BLOKE")
+        with self.assertRaises(IslemHatasi) as e:
+            services.musteri_giris("e0e0e001", "1111")
+        self.assertEqual(e.exception.kod, "kart_butunluk")
+        # diger musteriler etkilenmez (hizmet reddi yok)
+        self.assertEqual(services.kart_tipi("a0a0a001"), "MUSTERI")
+        self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])
+        self.assertTrue(services.musteri_giris("a0a0a002", "4321")["token"])
+        self.assertEqual(LogKaydi.objects.filter(olay_turu="kart_butunluk_ihlali").count(), 1)  # kart basina saatte bir
+        rapor = ledger.mutabakat()
+        self.assertFalse(rapor["saglam"])
+        self.assertEqual(rapor["kart"], "tutarsiz")
+        self.assertTrue(zinciri_dogrula()["saglam"])
+        self.assertIn("butunluk_ihlali", {b["kural"] for b in anomali.tara()})
+
+    def test_pin_degisikligi_ve_hesap_tasima_yakalanir(self):
+        zeynep = Hesap.objects.get(hesap_no="100002")
+
+        def pin_degistir():
+            kart = Kart.objects.get(uid="a0a0a001")
+            kart.pin_ayarla("9999")
+            kart.save()
+
+        degisiklikler = [pin_degistir, lambda: Kart.objects.filter(uid="a0a0a001").update(hesap=zeynep)]
+        for degistir in degisiklikler:
+            with transaction.atomic():
+                degistir()
+                self.assertEqual(services.kart_tipi("a0a0a001"), "BLOKE")
+                transaction.set_rollback(True)
+        self.assertEqual(services.kart_tipi("a0a0a001"), "MUSTERI")
+
+    def test_sistemin_kendi_guncellemeleri_bozmaz(self):
+        Kart.objects.filter(uid="a0a0a001").update(bloke=True, hatali_deneme=2)
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertEqual(services.kart_tipi("a0a0a001"), "BLOKE")  # bloke oldugu icin, butunluk yuzunden degil
+        self.assertFalse(LogKaydi.objects.filter(olay_turu="kart_butunluk_ihlali").exists())
+
+    def test_tutarsizken_kart_talepleri_uygulanmaz_ama_digerleri_uygulanir(self):
+        self.sahte_kart()
+        maker = self.U.objects.get(username="yonetim_talep")
+        c1, c2 = (self.U.objects.get(username=f"yonetim_onay{i}") for i in (1, 2))
+        kart = Kart.objects.get(uid="a0a0a001")
+        t = yonetim_talepleri.talep_olustur(maker, "KART_PIN_SIFIRLA", {"kart_id": kart.id}, GEREKCE)
+        yonetim_talepleri.oy_ver(t.id, c1, "ONAY")
+        self.assertEqual(yonetim_talepleri.oy_ver(t.id, c2, "ONAY").durum, "BASARISIZ")
+        self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])  # PIN degismedi
+        limit = yonetim_talepleri.talep_olustur(maker, "GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"}, GEREKCE)
+        self.assertEqual(yonetim_talepleri.oy_ver(limit.id, c1, "ONAY").durum, "UYGULANDI")
+
+    def test_onayli_goruntu_yoksa_zorlama_yapilmaz(self):
+        LogKaydi.objects.filter(olay_turu="kart_goruntusu").delete()
+        self.sahte_kart()
+        self.assertEqual(kart_butunlugu.durum(), "baslangic_yok")
+        self.assertEqual(services.kart_tipi("e0e0e001"), "MUSTERI")
+        self.assertTrue(services.musteri_giris("e0e0e001", "1111")["token"])
+        self.assertEqual(ledger.mutabakat()["kart"], "baslangic_yok")
+
+    def test_goruntu_al_komutu(self):
+        cikti = io.StringIO()
+        call_command("kart_goruntu_al", stdout=cikti)
+        self.assertIn("zaten", cikti.getvalue())
+        self.sahte_kart()
+        with self.assertRaises(SystemExit):  # onaysiz karti sessizce mesrulastirmaz
+            call_command("kart_goruntu_al", stdout=io.StringIO(), stderr=io.StringIO())
+        call_command("kart_goruntu_al", "--zorla", stdout=io.StringIO())
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertEqual(services.kart_tipi("e0e0e001"), "MUSTERI")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="kart_goruntusu", veri__contains="--zorla").exists())
+
+    def test_bloke_kaldirma_kart_butunlugunu_bozmaz(self):
+        for _ in range(3):
+            with self.assertRaises(IslemHatasi):
+                services.musteri_giris("a0a0a001", "0000")
+        maker = self.U.objects.get(username="yonetim_talep")
+        c1 = self.U.objects.get(username="yonetim_onay1")
+        t = yonetim_talepleri.talep_olustur(maker, "BLOKE_KALDIR", {"hedef": "kart", "id": Kart.objects.get(uid="a0a0a001").id}, GEREKCE)
+        self.assertEqual(yonetim_talepleri.oy_ver(t.id, c1, "ONAY").durum, "UYGULANDI")
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertEqual(services.kart_tipi("a0a0a001"), "MUSTERI")
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class KartAdminTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.root = self.U.objects.create_superuser("root", "root@banka.example", "x")
+
+    def test_kart_admin_den_eklenemez_degistirilemez_silinemez(self):
+        self.client.force_login(self.root)
+        kart = Kart.objects.get(uid="a0a0a001")
+        self.assertEqual(self.client.get("/admin/banka/kart/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/banka/kart/add/").status_code, 403)
+        self.assertEqual(self.client.get(f"/admin/banka/kart/{kart.id}/change/").status_code, 200)  # salt okunur gorunum
+        self.assertEqual(self.client.post(f"/admin/banka/kart/{kart.id}/change/", {"uid": "ffffffff"}).status_code, 403)
+        self.assertEqual(self.client.post(f"/admin/banka/kart/{kart.id}/delete/", {"post": "yes"}).status_code, 403)
+        kart.refresh_from_db()
+        self.assertEqual(kart.uid, "a0a0a001")
+        html = self.client.get(f"/admin/banka/kart/{kart.id}/change/").content.decode()
+        self.assertNotIn(kart.pin_hash, html)  # PIN hash'i bile gorunmez
+
+    def test_musteri_telefonu_admin_den_degismez(self):
+        self.client.force_login(self.root)
+        musteri = Musteri.objects.get(hesaplar__hesap_no="100001")
+        r = self.client.post(f"/admin/banka/musteri/{musteri.id}/change/", {"ad": "Ali Y.", "telefon": "+905550000000"})
+        self.assertEqual(r.status_code, 302)
+        musteri.refresh_from_db()
+        self.assertEqual((musteri.ad, musteri.telefon), ("Ali Y.", "+905551000001"))  # telefon salt okunur
+
+    def test_kart_ve_telefon_talep_formlari(self):
+        self.client.force_login(self.U.objects.get(username="yonetim_talep"))
+        musteri = Musteri.objects.get(hesaplar__hesap_no="100001")
+        bos = {"deger": "", "ad": "", "kart_uid": "", "eposta": "", "telefon": "", "hedef_no": "", "hedef_turu": "", "_save": "Kaydet"}
+        r = self.client.post("/admin/banka/yonetimtalebi/add/", {
+            **bos, "tur": "KART_TANIMLA", "gerekce": "Müşteri yeni kart talep etti", "hedef_no": "100002", "kart_uid": "a0a0a003"})
+        self.assertEqual(r.status_code, 302)
+        r = self.client.post("/admin/banka/yonetimtalebi/add/", {
+            **bos, "tur": "MUSTERI_TELEFON", "gerekce": "Müşteri numarasını değiştirdi", "hedef_no": str(musteri.id),
+            "telefon": "+905559998877"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(sorted(YonetimTalebi.objects.values_list("tur", flat=True)), ["KART_TANIMLA", "MUSTERI_TELEFON"])
+        self.assertFalse(Kart.objects.filter(uid="a0a0a003").exists())  # henuz uygulanmadi
+        kotu = self.client.post("/admin/banka/yonetimtalebi/add/", {
+            **bos, "tur": "KART_TANIMLA", "gerekce": "Müşteri yeni kart talep etti", "hedef_no": "100002", "kart_uid": "xyz"})
+        self.assertEqual(kotu.status_code, 200)
+        self.assertContains(kotu, "Kart UID")

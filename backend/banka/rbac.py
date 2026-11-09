@@ -38,7 +38,7 @@ def yetki_var_mi(personel, yetki):
 
 # ------------------------------------------------------------------ 2. yonetim (admin) duzlemi
 
-TALEP_YONETIM_GOZLEM = ["view_yonetimtalebi", "view_personel", "view_hesap", "view_terminal", "view_kart"]
+TALEP_YONETIM_GOZLEM = ["view_yonetimtalebi", "view_personel", "view_hesap", "view_terminal", "view_kart", "view_musteri"]
 
 YONETIM_GRUPLARI = {
     "Politika Talep Eden": ["politika_talep_et", "view_politikadegisikligi", "view_politika"],
@@ -48,7 +48,7 @@ YONETIM_GRUPLARI = {
     "Denetçi": [
         "view_logkaydi", "view_hesaphareketi", "view_islem", "view_onaytalebi", "view_onay", "view_bildirim",
         "view_terminalgunlukkaydi", "view_politikadegisikligi", "view_politikadegisiklikoyu", "view_yonetimtalebi",
-        "view_yonetimoyu", "view_politika", "view_personel", "view_hesap", "view_terminal",
+        "view_yonetimoyu", "view_politika", "view_personel", "view_hesap", "view_terminal", "view_kart", "view_musteri",
     ],
 }
 

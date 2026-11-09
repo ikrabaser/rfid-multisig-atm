@@ -205,5 +205,12 @@ def tara(saat=24, an=None):
                 "cok_ters_kayit", "orta",
                 f"Hesap {hesap_no} için 60 dk içinde {n} ters kayıt", hesap_no=hesap_no))
 
+    # 11) Onaysiz veri degisikligi (politika / yetkili / kart) tespit edildi
+    for k, v in kayitlar:
+        if k.olay_turu in ("politika_butunluk_ihlali", "personel_butunluk_ihlali", "kart_butunluk_ihlali"):
+            bulgular.append(_bulgu(
+                "butunluk_ihlali", "yuksek",
+                f"Onaysız veri değişikliği tespit edildi: {k.olay_turu} (log #{k.sira})", sira=k.sira))
+
     bulgular.sort(key=lambda b: CIDDIYET_SIRASI[b["ciddiyet"]])
     return bulgular

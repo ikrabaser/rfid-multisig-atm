@@ -128,7 +128,9 @@ YONETIM_ONAY_SAYILARI = {
     "BLOKE_KALDIR_PERSONEL": 2, "BLOKE_KALDIR_KART": 1,
     "GUNLUK_LIMIT_ARTIR": 2, "GUNLUK_LIMIT_AZALT": 1,
     "TERMINAL_AKTIF_ET": 2, "TERMINAL_PASIF_ET": 1,
+    "KART_TANIMLA": 2, "KART_PIN_SIFIRLA": 2, "MUSTERI_TELEFON": 2,
 }
+MAKS_KART_SAYISI = 3                               # bir hesaba en fazla bu kadar kart tanimlanabilir
 YONETIM_TALEP_SURE_SAAT = 24
 YONETIM_MIN_AKTIF_YETKILI = 4                      # 3 onay + talebi baslatan (kasa acma) icin
 HESAP_GUNLUK_LIMIT_AZAMI = Decimal("5000000")      # hicbir hesabin gunluk limiti bunu asamaz

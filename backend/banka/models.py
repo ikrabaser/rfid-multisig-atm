@@ -40,6 +40,10 @@ class PinliKimlik(models.Model):
 
 class Musteri(models.Model):
     ad = models.CharField(max_length=80)
+    telefon = models.CharField(
+        max_length=20, blank=True, default="",
+        help_text="Kart PIN'i yalnızca bu numaraya SMS ile gider. Yalnızca 'Müşteri telefonu' talebiyle değişir.",
+    )
     olusturma = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -474,6 +478,9 @@ class YonetimTalebi(models.Model):
         BLOKE_KALDIR = "BLOKE_KALDIR", "Bloke kaldır"
         GUNLUK_LIMIT = "GUNLUK_LIMIT", "Günlük limiti değiştir"
         TERMINAL_DURUM = "TERMINAL_DURUM", "Terminali aç/kapat"
+        KART_TANIMLA = "KART_TANIMLA", "Müşteriye kart tanımla"
+        KART_PIN_SIFIRLA = "KART_PIN_SIFIRLA", "Müşteri kartının PIN'ini sıfırla"
+        MUSTERI_TELEFON = "MUSTERI_TELEFON", "Müşteri telefonunu değiştir"
 
     class Durum(models.TextChoices):
         BEKLIYOR = "BEKLIYOR", "Bekliyor"

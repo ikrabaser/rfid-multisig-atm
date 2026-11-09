@@ -5,7 +5,8 @@ ekleyebilir, PIN'ini bilip onay verebilir, bloke kartı açabilir ya da günlük
 boşa gider. Bu yüzden aşağıdaki işlemler doğrudan değiştirilemez; bir kullanıcı talep açar (maker), işlemin
 ağırlığına göre 1-3 BAŞKA kullanıcı onaylar (checker), son onayda uygulanır:
 
-    PERSONEL_EKLE, PERSONEL_ROL, PERSONEL_DURUM, PERSONEL_PIN_SIFIRLA, BLOKE_KALDIR, GUNLUK_LIMIT, TERMINAL_DURUM
+    PERSONEL_EKLE, PERSONEL_ROL, PERSONEL_DURUM, PERSONEL_PIN_SIFIRLA, BLOKE_KALDIR, GUNLUK_LIMIT, TERMINAL_DURUM,
+    KART_TANIMLA, KART_PIN_SIFIRLA, MUSTERI_TELEFON
 
 Kurallar (politika değişikliğindekilerle aynı): talep eden kendi talebini onaylayamaz, aynı kullanıcı iki kez
 sayılmaz, herhangi bir onaylayan reddedebilir, süresi dolan talep düşer, aynı hedef için tek bekleyen talep olur.
@@ -13,9 +14,11 @@ Korkuluklar: en az YONETIM_MIN_AKTIF_YETKILI aktif yetkili ve en az bir aktif m�
 HESAP_GUNLUK_LIMIT_AZAMI'yi aşamaz. Koruyucu yönler (rol düşürme, pasif yapma, limit azaltma, terminal kapatma)
 daha az onay ister; genişletici yönler daha çok.
 
-PIN'ler asla talebe yazılmaz ve hiçbir kullanıcıya gösterilmez: uygulama anında rastgele üretilir ve yetkilinin
-KENDİ telefonuna SMS ile iletilir (simülasyon).
+PIN'ler asla talebe yazılmaz ve hiçbir kullanıcıya gösterilmez: uygulama anında rastgele üretilir ve yetkilinin ya da
+MÜŞTERİNİN KENDİ telefonuna SMS ile iletilir (simülasyon). Müşteri telefonu da yalnızca onaylı taleble değişir;
+bekleyen bir PIN talebi sırasında telefon değişmişse (özet farkı) talep uygulanmaz.
 """
+import hashlib
 import json
 import re
 import secrets
@@ -28,14 +31,15 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
-from . import bildirim, personel_butunlugu
+from . import bildirim, kart_butunlugu, personel_butunlugu
 from .hashlog import kayit_ekle
-from .models import Hesap, Kart, Personel, Rol, Terminal, YonetimOyu, YonetimTalebi, uid_duzelt
+from .models import Hesap, Kart, Musteri, Personel, Rol, Terminal, YonetimOyu, YonetimTalebi, uid_duzelt
 
 T = YonetimTalebi.Tur
 UID_DESENI = re.compile(r"[0-9a-f]{8,20}")
 TELEFON_DESENI = re.compile(r"\+?\d{10,15}")
 PERSONEL_TURLERI = {T.PERSONEL_EKLE, T.PERSONEL_ROL, T.PERSONEL_DURUM, T.PERSONEL_PIN_SIFIRLA}
+KART_TURLERI = {T.KART_TANIMLA, T.KART_PIN_SIFIRLA}
 
 
 class YonetimHatasi(Exception):
@@ -95,6 +99,25 @@ def _telefon_gerekli(telefon, neden):
     if not TELEFON_DESENI.fullmatch(telefon):
         raise YonetimHatasi(f"{neden}: geçerli bir telefon gerekli (ör. +905551112233)", "telefon")
     return telefon
+
+
+def _maske(telefon):
+    """+905551000001 -> +905*******01 (onaylayıcı numarayı tam görmez, ama hangi numara olduğunu ayırt eder)."""
+    t = str(telefon or "")
+    return t[:4] + "*" * max(len(t) - 6, 0) + t[-2:] if len(t) > 6 else t
+
+
+def _telefon_ozeti(telefon):
+    return hashlib.sha256(str(telefon).encode("utf-8")).hexdigest()[:16]
+
+
+def _ozet_kontrol(ham, telefon):
+    """Talepte saklanan telefon özeti, şimdiki telefonla aynı mı? (talep ile uygulama arasında numara değişmemeli)"""
+    simdiki = _telefon_ozeti(telefon)
+    onceki = ham.get("telefon_ozeti")
+    if onceki is not None and onceki != simdiki:
+        raise YonetimHatasi("Müşterinin telefonu talepten sonra değişmiş; PIN iletilemez", "durum_degisti")
+    return simdiki
 
 
 def _yetkili_kumesi_dogrula(satirlar):
@@ -306,6 +329,88 @@ def _uygula_terminal_durum(veri):
     return {}
 
 
+def _hazirla_kart_tanimla(ham):
+    hesap = (Hesap.objects.select_related("musteri")
+             .filter(hesap_no=str(ham.get("hesap_no") or "").strip(), tur=Hesap.Tur.MUSTERI).first())
+    if hesap is None:
+        raise YonetimHatasi("Müşteri hesabı bulunamadı", "hedef")
+    uid = uid_duzelt(ham.get("kart_uid"))
+    if not UID_DESENI.fullmatch(uid):
+        raise YonetimHatasi("Kart UID 8-20 karakterlik onaltılık (hex) olmalı", "gecersiz")
+    if Kart.objects.filter(uid=uid).exists() or Personel.objects.filter(kart_uid=uid).exists():
+        raise YonetimHatasi("Bu kart UID zaten tanımlı", "cakisma")
+    if hesap.kartlar.count() >= settings.MAKS_KART_SAYISI:
+        raise YonetimHatasi(f"Bir hesaba en fazla {settings.MAKS_KART_SAYISI} kart tanımlanabilir", "limit")
+    telefon = _telefon_gerekli(hesap.musteri.telefon, "İlk PIN müşterinin telefonuna iletilir; müşterinin telefonu kayıtlı değil")
+    ozeti = _ozet_kontrol(ham, telefon)
+    return {
+        "veri": {"hesap_no": hesap.hesap_no, "kart_uid": uid, "telefon_ozeti": ozeti},
+        "ozet": f"Kart tanımla: {uid} → hesap {hesap.hesap_no} ({hesap.musteri.ad}); ilk PIN {_maske(telefon)} numarasına SMS ile gider",
+        "gereken": _onay("KART_TANIMLA"),
+        "hedef": f"kart_tanimla:{uid}",
+    }
+
+
+def _uygula_kart_tanimla(veri):
+    hesap = Hesap.objects.select_related("musteri").get(hesap_no=veri["hesap_no"])
+    if Kart.objects.filter(uid=veri["kart_uid"]).exists() or Personel.objects.filter(kart_uid=veri["kart_uid"]).exists():
+        raise YonetimHatasi("Bu kart UID artık kullanımda", "cakisma")
+    pin = _rastgele_pin()
+    kart = Kart(uid=veri["kart_uid"], hesap=hesap)
+    kart.pin_ayarla(pin)
+    kart.save()
+    return {"kart_id": kart.id, "pin_ilet": (hesap.musteri, pin, "Kartınız tanımlandı")}
+
+
+def _hazirla_kart_pin_sifirla(ham):
+    kart = Kart.objects.select_related("hesap__musteri").filter(id=_int(ham.get("kart_id"), "Kart no")).first()
+    if kart is None:
+        raise YonetimHatasi("Kart bulunamadı", "hedef")
+    musteri = kart.hesap.musteri
+    telefon = _telefon_gerekli(musteri.telefon, "PIN müşterinin telefonuna iletilir; müşterinin telefonu kayıtlı değil")
+    ozeti = _ozet_kontrol(ham, telefon)
+    return {
+        "veri": {"kart_id": kart.id, "telefon_ozeti": ozeti},
+        "ozet": f"Müşteri PIN'ini sıfırla: kart {kart.uid} ({musteri.ad}); yeni PIN {_maske(telefon)} numarasına SMS ile gider",
+        "gereken": _onay("KART_PIN_SIFIRLA"),
+        "hedef": f"kart:{kart.id}",
+    }
+
+
+def _uygula_kart_pin_sifirla(veri):
+    kart = Kart.objects.select_for_update().get(id=veri["kart_id"])
+    pin = _rastgele_pin()
+    kart.pin_ayarla(pin)  # hatali deneme sayacini da sifirlar; bloke durumuna dokunmaz
+    kart.save(update_fields=["pin_hash", "hatali_deneme"])
+    return {"pin_ilet": (kart.hesap.musteri, pin, "PIN'iniz sıfırlandı")}
+
+
+def _hazirla_musteri_telefon(ham):
+    musteri = Musteri.objects.filter(id=_int(ham.get("musteri_id"), "Müşteri no")).first()
+    if musteri is None:
+        raise YonetimHatasi("Müşteri bulunamadı", "hedef")
+    yeni = _telefon_gerekli(ham.get("yeni_telefon"), "Yeni telefon")
+    if yeni == musteri.telefon:
+        raise YonetimHatasi("Telefon zaten bu değerde", "gecersiz")
+    eski = _maske(musteri.telefon) if musteri.telefon else "(kayıtlı değil)"
+    return {
+        "veri": {"musteri_id": musteri.id, "yeni_telefon": yeni, "eski_telefon": musteri.telefon},
+        # onaylayici YENI numarayi tam gorur (musteriyle dogrulamak icin), eskisini maskeli
+        "ozet": f"Müşteri telefonu: {musteri.ad}, {eski} → {yeni}",
+        "gereken": _onay("MUSTERI_TELEFON"),
+        "hedef": f"musteri:{musteri.id}",
+    }
+
+
+def _uygula_musteri_telefon(veri):
+    musteri = Musteri.objects.select_for_update().get(id=veri["musteri_id"])
+    if musteri.telefon != veri["eski_telefon"]:
+        raise YonetimHatasi("Müşterinin telefonu talepten sonra değişmiş", "durum_degisti")
+    musteri.telefon = veri["yeni_telefon"]
+    musteri.save(update_fields=["telefon"])
+    return {}
+
+
 ISLEYICILER = {
     T.PERSONEL_EKLE: (_hazirla_personel_ekle, _uygula_personel_ekle),
     T.PERSONEL_ROL: (_hazirla_personel_rol, _uygula_personel_rol),
@@ -314,6 +419,9 @@ ISLEYICILER = {
     T.BLOKE_KALDIR: (_hazirla_bloke_kaldir, _uygula_bloke_kaldir),
     T.GUNLUK_LIMIT: (_hazirla_gunluk_limit, _uygula_gunluk_limit),
     T.TERMINAL_DURUM: (_hazirla_terminal_durum, _uygula_terminal_durum),
+    T.KART_TANIMLA: (_hazirla_kart_tanimla, _uygula_kart_tanimla),
+    T.KART_PIN_SIFIRLA: (_hazirla_kart_pin_sifirla, _uygula_kart_pin_sifirla),
+    T.MUSTERI_TELEFON: (_hazirla_musteri_telefon, _uygula_musteri_telefon),
 }
 
 
@@ -383,15 +491,21 @@ def suresi_dolanlari_kapat():
 def _uygula(talep):
     """İşlemi uygular (transaction.atomic() içinde). PIN SMS'leri için bekleyen işleri döndürür."""
     personel_ilgili = talep.tur in PERSONEL_TURLERI
+    kart_ilgili = talep.tur in KART_TURLERI
     if personel_ilgili and personel_butunlugu.tutarli_mi() is False:
         raise YonetimHatasi(
             "Yetkili kayıtları son onaylı sürümden farklı (onaysız değişiklik). Önce incelenmeli.", "butunluk")
+    if kart_ilgili and kart_butunlugu.tutarli_mi() is False:
+        raise YonetimHatasi(
+            "Kart kayıtları son onaylı sürümden farklı (onaysız değişiklik). Önce incelenmeli.", "butunluk")
     veri = json.loads(talep.veri)
     hazirla, uygula = ISLEYICILER[talep.tur]
     hazirla(veri)  # durum talepten sonra degismis olabilir: yeniden dogrula
     sonuc = uygula(veri)
     if personel_ilgili:
         personel_butunlugu.goruntu_kaydet(f"yonetim_talebi #{talep.id}", talep_id=talep.id)
+    if kart_ilgili:
+        kart_butunlugu.goruntu_kaydet(f"yonetim_talebi #{talep.id}", talep_id=talep.id)
     return sonuc
 
 

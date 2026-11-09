@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from . import baglam, bildirim, ledger, personel_butunlugu, politika_degisikligi, rbac
+from . import baglam, bildirim, kart_butunlugu, ledger, personel_butunlugu, politika_degisikligi, rbac
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
                      Rol, uid_duzelt)
@@ -49,8 +49,11 @@ def kart_tipi(uid):
     personel = Personel.objects.filter(kart_uid=uid, aktif=True).first()
     if personel:
         return "BLOKE" if personel.bloke else "PERSONEL"
-    kart = Kart.objects.filter(uid=uid).first()
+    kart = Kart.objects.select_related("hesap").filter(uid=uid).first()
     if kart:
+        if kart_butunlugu.kart_dogrulandi_mi(kart) is False:  # onaysiz eklenmis/degistirilmis kart
+            kart_butunlugu.ihlal_kaydet(kart)
+            return "BLOKE"
         return "BLOKE" if kart.bloke else "MUSTERI"
     kayit_ekle("bilinmeyen_kart", {"uid": uid})
     return "BILINMIYOR"
@@ -86,6 +89,9 @@ def musteri_giris(uid, pin):
     if kart is None:
         kayit_ekle("bilinmeyen_kart", {"uid": uid})
         raise IslemHatasi("Kart tanımlı değil", "bilinmiyor")
+    if kart_butunlugu.kart_dogrulandi_mi(kart) is False:
+        kart_butunlugu.ihlal_kaydet(kart)
+        raise IslemHatasi("Kart doğrulanamadı; şubeye başvurun", "kart_butunluk")
     _pin_kontrol(kart, pin, uid)
     kayit_ekle("giris", {"uid": uid, "hesap_no": kart.hesap.hesap_no})
     token = signing.TimestampSigner(salt=TOKEN_TUZU).sign(str(kart.id))
