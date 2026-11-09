@@ -477,19 +477,24 @@ function ATMSimulatoru(arayuz) {
   }
 
   // ---------------------------------------------------------------- protokol gunlugu (PIN ve token maskeli)
-  function maskele(satir) {
+  // Yalnizca GIDEN satirlardaki PIN ve token maskelenir; gelen cevaplarda (ONAY|2|2|SURESI_DOLDU gibi) dokunulmaz.
+  // Tek istisna: GIRIS cevabindaki oturum token'i kisaltilir.
+  function maskele(yon, satir) {
     const p = satir.split("|");
     const k = p[0];
-    if (k === "PIN" && p.length > 2) p[2] = "****";
-    if (k === "ONAY" && p.length > 3) p[3] = "****";
-    if (k === "KASAAC" && p.length > 2) p[2] = "****";
-    if ((k === "BAKIYE" || k === "ISLEM") && p[1]) p[1] = p[1].slice(0, 6) + "…";
-    if (k === "GIRIS" && p[1]) p[1] = p[1].slice(0, 6) + "…";
+    if (yon === "→") {
+      if (k === "PIN" && p.length > 2) p[2] = "****";
+      if (k === "ONAY" && p.length > 3) p[3] = "****";
+      if (k === "KASAAC" && p.length > 2) p[2] = "****";
+      if ((k === "BAKIYE" || k === "ISLEM") && p[1]) p[1] = p[1].slice(0, 6) + "…";
+    } else if (k === "GIRIS" && p[1]) {
+      p[1] = p[1].slice(0, 6) + "…";
+    }
     return p.join("|");
   }
   function protokolYaz(yon, satir) {
     const liste = $("protokol");
-    const s = el("div", yon === "→" ? "giden" : "gelen", `${yon} ${maskele(satir)}`);
+    const s = el("div", yon === "→" ? "giden" : "gelen", `${yon} ${maskele(yon, satir)}`);
     liste.prepend(s);
     while (liste.children.length > 14) liste.removeChild(liste.lastChild);
   }

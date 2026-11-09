@@ -180,7 +180,8 @@ flowchart TD
 - Yatırma onaysız geçer ve günlük limite takılmaz.
 - **Günlük limit** (varsayılan 1.000.000 TL/hesap) bugünkü uygulanmış ve onay bekleyen çekme/havaleleri sayar.
 - Çekme için **kasada yeterli nakit** de gerekir (`seed_demo` kasaya 10.000.000 TL koyar).
-- Onaylar talep açıldıktan sonra `ONAY_PENCERESI_SN` (30 sn) içinde toplanmalı, yoksa talep düşer.
+- Onaylar talep açıldıktan sonra `ONAY_PENCERESI_SN` (varsayılan 30 sn) içinde toplanmalı, yoksa talep düşer. Demo/simülatör için
+  ortam değişkeniyle uzatılabilir (10–600 sn): PowerShell'de `$env:ONAY_PENCERESI_SN=120` yazıp `runserver`'ı o pencerede başlat.
 - Aynı yetkili iki kez sayılmaz. İşlemi başlatan kendi işlemini onaylayamaz. Herhangi bir yetkili reddedebilir.
 - **Mesai dışı** (09–18 dışı ve hafta sonu) onay isteyen işlemlerde **+1 onay** ve **bir üst rol** gerekir.
   Gece denerken fazladan onay istemesini istemiyorsan: `set MESAI_DISI_KURALI=0` (sonra `runserver`).

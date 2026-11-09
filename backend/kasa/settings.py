@@ -10,6 +10,15 @@ def _env_bool(ad, varsayilan):
     return os.environ.get(ad, "1" if varsayilan else "0") == "1"
 
 
+def _env_int(ad, varsayilan, en_az, en_fazla):
+    """Ortam degiskeninden tam sayi okur; gecersiz ya da aralik disiysa varsayilana doner."""
+    try:
+        deger = int(os.environ.get(ad, varsayilan))
+    except ValueError:
+        return varsayilan
+    return deger if en_az <= deger <= en_fazla else varsayilan
+
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "gelistirme-icin-gizli-anahtar-degistir")
 DEBUG = _env_bool("DJANGO_DEBUG", True)
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
@@ -82,7 +91,8 @@ KOPRU_API_ANAHTARI = os.environ.get("KOPRU_API_ANAHTARI", "gelistirme-kopru-anah
 LOG_HMAC_ANAHTARI = os.environ.get("LOG_HMAC_ANAHTARI", "gelistirme-log-anahtari")
 
 MAKS_PIN_DENEME = 3        # asilinca kart bloke olur
-ONAY_PENCERESI_SN = 30     # onaylarin toplanmasi icin sure
+# Onaylarin toplanma suresi (sn). Varsayilan 30; demo icin: $env:ONAY_PENCERESI_SN=120 (10-600 arasi gecerli)
+ONAY_PENCERESI_SN = _env_int("ONAY_PENCERESI_SN", 30, 10, 600)
 OTURUM_SURESI_SN = 120     # musteri oturum token'i omru
 
 # Mesai disinda (hafta sonu dahil) onay isteyen islemlerde +1 onay ve bir ust rol

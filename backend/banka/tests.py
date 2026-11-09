@@ -2685,3 +2685,21 @@ class SimulatorJsAkisTesti(unittest.TestCase):
         dosya = Path(__file__).resolve().parent.parent / "js_testleri" / "simulator_akis.test.js"
         sonuc = subprocess.run(["node", str(dosya)], capture_output=True, text=True, timeout=120, encoding="utf-8")
         self.assertEqual(sonuc.returncode, 0, sonuc.stdout + sonuc.stderr)
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class OnayPenceresiAyariTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def kalan(self):
+        token = simulator.isle("PIN|a0a0a001|1234", "ATM-01").split("|")[1]
+        talep = simulator.isle(f"ISLEM|{token}|C|10000||k{uuid.uuid4().hex[:6]}", "ATM-01").split("|")[1]
+        return int(simulator.isle(f"DURUM|{talep}", "ATM-01").split("|")[4])
+
+    def test_onay_penceresi_ayardan_gelir(self):
+        self.assertLessEqual(self.kalan(), 30)                       # varsayilan 30 sn
+        with override_settings(ONAY_PENCERESI_SN=120):
+            kalan = self.kalan()
+            self.assertGreater(kalan, 100)
+            self.assertLessEqual(kalan, 120)
