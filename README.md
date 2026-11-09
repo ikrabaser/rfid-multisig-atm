@@ -36,6 +36,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Çevrimdışı günlük kuyruğu** (store-and-forward) | köprü, `terminal.py` | sunucuyu kapatıp terminali dene |
 | **Bildirimler** (e-posta + SMS simülasyonu) | `bildirim.py` | talep açılınca yetkililere gider |
 | **Maker-checker**: politika değişikliği 2 farklı kullanıcının onayını ister, korkuluklar, onaysız değişiklik tespiti | `politika_degisikligi.py` | admin → Politika değişikliği talepleri |
+| **RBAC**: rol → yetki matrisi, admin grupları koddan, görev ayrımı denetimi | `rbac.py` | `python manage.py rbac_denetimi` |
+| **Hassas yönetim işlemleri için maker-checker** (yetkili ekleme, rol, PIN, bloke, limit, terminal) | `yonetim_talepleri.py` | admin → Yönetim talepleri |
+| **Yetkili bütünlüğü**: sahte yetkili/rol/PIN değişikliği veritabanından yapılırsa onaylar kapanır | `personel_butunlugu.py` | `python manage.py personel_goruntu_al` |
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
 
 ## Klasör yapısı
@@ -53,6 +56,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | `backend/banka/bildirim.py` | E-posta ve SMS (simülasyon) bildirimleri |
 | `backend/banka/baglam.py` | İsteğin terminalini log katmanına taşıyan bağlam |
 | `backend/banka/politika_degisikligi.py` | Maker-checker, korkuluklar, politika bütünlüğü (onaylı görüntü) |
+| `backend/banka/rbac.py` | Rol → yetki matrisi, admin grupları, görev ayrımı denetimi |
+| `backend/banka/yonetim_talepleri.py` | Hassas yönetim işlemleri için maker-checker (7 işlem türü) |
+| `backend/banka/personel_butunlugu.py` | Yetkili kümesinin onaylı görüntüsü ve sapma tespiti |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
 | `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
 | `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
@@ -82,9 +88,10 @@ admin panelinden (`/admin/`) gir.
 > mutabakat fark gösterirdi.
 
 > Mevcut veritabanın varsa silmene gerek yok: `makemigrations` yeni bir migration (`0003_...`) üretir, `migrate` uygular,
-> `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar, politika için onaylı başlangıç
-> görüntüsünü kaydeder ve maker-checker için 3 demo yönetim kullanıcısı (`politika_talep`, `politika_onay1`,
-> `politika_onay2`) ile 2 grup oluşturur; **şifreleri yalnızca ilk çalıştırmada ekrana yazar**, not al.
+> `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar, politika ve yetkili kümesi için
+> onaylı başlangıç görüntülerini kaydeder, RBAC gruplarını kurar ve 8 demo yönetim kullanıcısı oluşturur
+> (`politika_talep`, `politika_onay1-2`, `yonetim_talep`, `yonetim_onay1-3`, `denetci`);
+> **şifreleri yalnızca ilk çalıştırmada ekrana yazar**, not al.
 > Veritabanın eskiden kalmaysa ve politikaların varsa bir kez `python manage.py politika_goruntu_al` çalıştır.
 
 İkinci terminalde köprü:
@@ -211,7 +218,7 @@ stateDiagram-v2
 
 ## Kasa dairesini açma
 
-Bekleyen talep yokken **yetkili kartını** okut → `A:Kasa ac` → PIN. 3 onay gerekir ve en az biri müdür olmalıdır
+Bekleyen talep yokken **müdür yardımcısı ya da müdürün kartını** okut → `A:Kasa ac` → PIN (görevli rolünün bu yetkisi yok, bkz. RBAC). 3 onay gerekir ve en az biri müdür olmalıdır
 (`KASA_ACMA_GEREKEN_ONAY`, `KASA_ACMA_EN_AZ_ROL`). Diğer yetkililer kartlarını okutup onaylar; **talebi başlatan kendi
 talebini onaylayamaz**, bu yüzden onaylayabilecek başka yeterli yetkili yoksa talep hiç açılmaz (tek müdürün
 başlattığı talep sonsuza dek takılırdı). Son onayda sunucu `UYGULANDI` der ve terminal röleyi 5 sn çeker.
@@ -303,8 +310,9 @@ ONAY|1|b0b0b002|2222|E
 ONAY|1|b0b0b003|3333|E            <- 3 onay var ama müdür yok: BEKLIYOR, üst rol lazım
 ONAY|1|b0b0b005|5555|E            <- UYGULANDI
 
-KASAAC|b0b0b001|1111              <- BEKLE|2|3   (kasa dairesi açma talebi)
-ONAY|2|b0b0b002|2222|E            ... Burak, Cem, Elif onaylar; Ayşe kendi talebini onaylayamaz
+KASAAC|b0b0b003|3333              <- BEKLE|2|3   (kasa dairesi açma talebi; Cem müdür yrd.)
+ONAY|2|b0b0b001|1111|E            ... Ayşe, Burak, Elif onaylar; Cem kendi talebini onaylayamaz,
+                                      görevli (Ayşe) talebi başlatamaz (HATA|Bu rol kasa acma talebi baslatamaz)
 ```
 
 ## Terminaller ve imkânsız seyahat
@@ -460,6 +468,83 @@ sequenceDiagram
 - Elle ters kayıt (terminal hiç bildirmediyse) bilinçli olarak yok: tek kişinin yapacağı bir geri alma da dört göz
   isterdi. Belirsiz teslimler uyarı olarak görünür ve incelenir.
 
+## RBAC: roller ve yetkiler
+
+İki düzlem var ve ikisinde de "kim neyi yapabilir" tek yerde, kodda yazılıdır (`rbac.py`).
+
+**1. Terminal (kart) düzlemi: yetkililerin rolleri**
+
+| Yetki | Görevli | Müdür yrd. | Müdür |
+|---|:---:|:---:|:---:|
+| Çekme/havale talebini onaylama (`ISLEM_ONAYLA`) | ✓ | ✓ | ✓ |
+| Kasa açma talebini onaylama (`KASA_AC_ONAYLA`) | ✓ | ✓ | ✓ |
+| Kasa açma talebi **başlatma** (`KASA_AC_BASLAT`) | | ✓ | ✓ |
+
+Rol seviyesi hâlâ onay politikasında ("en az biri müdür") kullanılır; yetki matrisi ise eylemlere bakar. Yetkisi olmayan
+rolün isteği `rol_yetersiz` ile reddedilir ve `rbac_reddi` olarak loga yazılır.
+
+**2. Yönetim (admin) düzlemi: Django grupları**
+
+| Grup | Ne yapabilir |
+|---|---|
+| Politika Talep Eden / Politika Onaylayan | Onay politikasında değişiklik talep eder / onaylar |
+| Yönetim Talep Eden / Yönetim Onaylayan | Hassas yönetim işlemlerini (aşağıda) talep eder / onaylar |
+| Denetçi | Her şeyi **okur**, hiçbir şeyi değiştiremez |
+
+- Gruplar ve izinleri **koddadır** (`YONETIM_GRUPLARI`); `python manage.py rbac_kur` bunları admin'e uygular (idempotent,
+  bilinmeyen izin kodunda hata verir). Elle yapılan grup değişiklikleri `rbac_denetimi` ile yakalanır.
+- **Görev ayrımı (SoD):** Aynı kişi hem talep eden hem onaylayan olamaz (`politika_talep_et` ↔ `politika_onayla`,
+  `yonetim_talep_et` ↔ `yonetim_onayla`), denetçi hiçbir yazma iznine sahip olamaz.
+  `python manage.py rbac_denetimi` bunları denetler, ihlalde çıkış kodu 1 verir; superuser sayısını da uyarı olarak yazar
+  (superuser her izne sahiptir, günlük işlerde kullanma).
+
+## Hassas yönetim işlemleri (maker-checker)
+
+N-of-M onayın güvencesi, onaylayanların kim olduğuna bağlıdır. Yönetici tek başına sahte bir yetkili ekleyebilir, PIN'ini
+sıfırlayıp onay verebilir, bloke kartı açabilir ya da limiti yükseltebilirse bütün düzen boşa gider. Bu yüzden aşağıdaki
+işlemler admin'den **doğrudan yapılamaz** (ilgili alanlar salt okunur, ekleme/silme kapalı); "Yönetim talepleri" ile
+yapılır: bir kullanıcı talep açar, işlemin ağırlığına göre BAŞKA kullanıcılar onaylar, son onayda uygulanır.
+
+| İşlem | Onay sayısı | Korkuluk |
+|---|---|---|
+| Yetkili ekle | 2 (müdür ise 3) | Kart UID tekil, telefon zorunlu (ilk PIN oraya gider) |
+| Yetkili rolünü değiştir | yükseltme 2 (müdür yapma 3), düşürme 1 | En az 4 aktif yetkili ve en az 1 aktif müdür kalmalı |
+| Yetkiliyi aktif/pasif yap | aktif etme 2, pasif etme 1 | Aynı asgari küme kuralı |
+| Yetkili PIN'ini sıfırla | 2 | Telefon kayıtlı olmalı |
+| Bloke kaldır | yetkili 2, müşteri kartı 1 | Hedef gerçekten bloke olmalı |
+| Günlük limit değiştir | artırma 2, azaltma 1 | 0 < limit ≤ `HESAP_GUNLUK_LIMIT_AZAMI` (5.000.000 TL) |
+| Terminal aç/kapat | açma 2, kapatma 1 | — |
+
+Koruyucu yönler (rol düşürme, pasif yapma, limit azaltma, terminal kapatma) az onay, genişletici yönler çok onay ister.
+Onay sayıları `YONETIM_ONAY_SAYILARI` ayarındadır.
+
+- Politika değişikliğindeki kuralların aynısı geçerlidir: talep eden kendi talebini onaylayamaz, aynı kullanıcı iki kez
+  sayılmaz, herhangi bir onaylayan reddedebilir, talep 24 saatte düşer, aynı hedef için tek bekleyen talep olur
+  (ör. aynı yetkili için hem rol hem PIN talebi aynı anda açılamaz), gerekçe zorunludur. Her adım hash zincirine yazılır.
+- **PIN'ler asla talebe yazılmaz ve hiçbir kullanıcıya gösterilmez:** uygulama anında rastgele üretilir (aynı rakamlı ve
+  ardışık PIN'ler hariç) ve yetkilinin **kendi telefonuna** SMS ile iletilir. Simülasyonda SMS içeriği yalnızca
+  `banka.bildirim` log satırında görünür; bildirim kaydında ve panelde görünmez.
+- Bilinçli kapsam dışı: müşteri kartı tanımlama ve müşteri PIN'i admin'den hâlâ yapılabilir (gerçek bankada PIN mailer ve
+  HSM ile). Bu, bilinen bir açıktır, bkz. sıradaki fikirler.
+
+## Yetkili bütünlüğü
+
+Politika tablosunda olduğu gibi yetkili kümesi de veritabanından doğrudan değiştirilebilir. Bu yüzden her ONAYLI
+değişiklikte yetkili kümesinin özeti (kart UID, rol, aktiflik, PIN hash'inin özeti) hash zincirine yazılır. Küme bu
+görüntüden farklıysa (ör. veritabanına sahte müdür eklendi, bir yetkilinin rolü ya da PIN'i değiştirildi):
+
+- Çekme/havale **onayları ve kasa açma talepleri kapanır** (`butunluk` hatası), `personel_butunluk_ihlali` loga yazılır (saatte bir),
+- `gun_sonu_mutabakat` hata verir, panel kırmızı uyarı gösterir,
+- yetkili kümesini ilgilendiren yeni talepler uygulanmaz (tamper'ı meşrulaştırmamak için).
+
+Sistemin kendi güncellemeleri (3 yanlış PIN sonrası bloke, hatalı deneme sayacı) ve iletişim bilgileri özete girmez, yani
+yanlış alarm üretmez. `personel_goruntu_al` ilk kurulum içindir; küme farklıyken meşrulaştırmayı reddeder, bilerek
+yapılacaksa `--zorla` ister ve denetim kaydına işlenir.
+
+Dürüst sınırlar: Bloke durumunun veritabanından kaldırılması özete girmediği için bu yolla yakalanmaz (kalan açık; yalnızca
+yönetim yolu kapatıldı). Maker-checker kullanıcı yönetimi kadar güvenlidir: bir superuser ek kullanıcı oluşturup kendi
+talebini başka hesapla onaylatabilir; gerçek sistemde kullanıcı ve yetki yönetimi de aynı şekilde onaya bağlı olurdu.
+
 ## Hash zinciri
 
 Her kayıt: `HMAC-SHA256(anahtar, önceki_hash | sıra | zaman | olay | veri)`.
@@ -521,10 +606,12 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 
 ## Sıradaki fikirler
 
-1. Elle ters kayıt ve diğer hassas işlemler için de maker-checker (şu an yalnızca politika değişikliği korunuyor).
-2. Kullanıcı ve yetki yönetimini de onaya bağlamak.
-3. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
-4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
-5. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
-6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
-7. GitHub Actions ile her push'ta `python manage.py test`.
+1. Müşteri kartı tanımlama ve müşteri PIN'ini de onaya bağlamak (PIN mailer benzeri tek seferlik teslim).
+2. Bloke durumunu da log tabanlı doğrulamak (veritabanından bloke kaldırmayı yakalamak).
+3. Kullanıcı ve grup yönetimini de onaya bağlamak.
+4. Elle ters kayıt (dört göz ile).
+5. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
+6. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
+7. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
+8. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
+9. GitHub Actions ile her push'ta `python manage.py test`.
