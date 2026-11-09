@@ -41,6 +41,7 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Müşteri kartı ve PIN'i maker-checker'da**: kart tanımlama, PIN sıfırlama, telefon; PIN müşterinin telefonuna gider | `yonetim_talepleri.py` | admin → Yönetim talepleri |
 | **Kart bütünlüğü**: satır başına HMAC mührü, sahte/değiştirilmiş kart yalnızca kendisi kapanır, ölçeklenir | `kart_butunlugu.py` | `python manage.py kart_goruntu_al` |
 | **Bloke bütünlüğü**: veritabanından bloke kaldırma/ekleme log'dan türetilen beklenen durumla yakalanır | `bloke_butunlugu.py` | `python manage.py gun_sonu_mutabakat` |
+| **Web ATM simülatörü**: tarayıcıda sanal terminal (LCD, tuş takımı, kartlar) + canlı şerit; gerçek servisleri kullanır | `simulator.py`, `static/banka/simulator.js` | `http://127.0.0.1:8000/simulator/` |
 | **PIN gizliliği**: PIN yalnızca SMS sağlayıcıya verilir; log, veritabanı, panel ve e-postada görünmez | `sms.py` | `python manage.py sms_kutusu` |
 | **Yetkili bütünlüğü**: sahte yetkili/rol/PIN değişikliği veritabanından yapılırsa onaylar kapanır | `personel_butunlugu.py` | `python manage.py personel_goruntu_al` |
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
@@ -66,6 +67,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | `backend/banka/kart_butunlugu.py` | Kart satırı mührü (HMAC), onaylı özet ve kart başına O(1) doğrulama |
 | `backend/banka/bloke_butunlugu.py` | Bloke durumunu log'dan türetip veritabanıyla karşılaştırır |
 | `backend/banka/sms.py` | SMS sağlayıcı soyutlaması (dosya/bellek) ve simülasyon gelen kutusu |
+| `backend/banka/simulator.py` | Web ATM simülatörü: firmware satır protokolünü servislere çevirir, şerit verileri |
+| `backend/banka/static/banka/simulator.js` | Simülatörün ekran akışı (firmware'in JS karşılığı) ve tarayıcı bağlantısı |
+| `backend/js_testleri/simulator_akis.test.js` | Ekran akışının Node ile (sahte sunucuya karşı) testi |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
 | `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
 | `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
@@ -615,6 +619,53 @@ yapılacaksa `--zorla` ister ve denetim kaydına işlenir.
 
 Dürüst sınırlar: Maker-checker kullanıcı yönetimi kadar güvenlidir: bir superuser ek kullanıcı oluşturup kendi
 talebini başka hesapla onaylatabilir; gerçek sistemde kullanıcı ve yetki yönetimi de aynı şekilde onaya bağlı olurdu.
+
+## Web ATM simülatörü
+
+Arduino olmadan tüm akışı tarayıcıda görmek için: **`http://127.0.0.1:8000/simulator/`** (`runserver` açıkken, **superuser** ile
+giriş yapmış olman gerekir). Düz HTML + CSS + vanilla JavaScript'tir; ekstra paket ve derleme adımı yoktur.
+
+Ekranda üç bölüm vardır:
+
+- **Sanal terminal:** 16x2 LCD (firmware'deki metinlerle birebir), 4x4 tuş takımı (ekrandan ya da klavyeden: rakamlar,
+  `A`–`D`, `*`, `Enter` = `#`, `Backspace` = `D`, `Esc` = `*`), para LED'i, kasa kilidi göstergesi ve isteğe bağlı buzzer sesi.
+  Terminal meşgulken (sunucu cevabı beklerken, mesaj gösterirken) tuş ve kart donanımdaki gibi **yok sayılır**.
+- **Kartlar:** Müşteri ve yetkili kartları; bir karta tıklamak "kartı okutmak"tır. Terminal seçicisinden ATM-01/ATM-02'yi seçebilirsin
+  (aynı kartı iki terminalde kullanıp imkânsız seyahat alarmını görmek için).
+- **Canlı şerit:** Hesap bakiyeleri, bekleyen onaylar (oy çubuğuyla), defter hareketleri, son denetim kaydı olayları ve bütünlük
+  rozetleri (politika, yetkili, kart, anomali, zincir). Her 1,5 saniyede yenilenir. Altta **protokol günlüğü** satır satır
+  gönderilen ve gelen komutları gösterir (PIN ve token maskeli).
+
+Deneme senaryoları:
+
+1. **Küçük çekim:** müşteri kartı → PIN → `B` → tutar → `#` → `A` ile parayı al. `A`'ya basmazsan 8 sn sonra para geri çekilir ve
+   işlem **ters kaydedilir** (şeritte defter hareketlerinde ters satırlar görünür).
+2. **Onaylı çekim:** 10.000 TL üstünü çek → ekran "Onay 0/N" der → yetkili kartlarına tıkla → `A` → PIN. Oylar şeritte canlı görünür.
+3. **Kasa açma:** müdür yrd./müdür kartı (Cem, Deniz, Elif) → `A` → PIN → diğer yetkililer onaylar → kilit göstergesi 5 sn yanar.
+   Görevli kartıyla (Ayşe) denersen "Bu rol kasa acma talebi baslatam..." hatasını görürsün (RBAC).
+4. **Kuruş:** tutarda `C` ondalık noktasıdır (`1 0 0 C 5` → `100.5`).
+5. **📱 Telefonlar:** yeni kart/yetkili PIN'i gibi SMS'lerin geldiği simülasyon gelen kutusu (yalnızca dosya sağlayıcıdayken).
+
+**Nasıl çalışır:** Tarayıcıdaki sanal terminal, firmware'in konuştuğu **aynı satır protokolünü** (`KART|uid`, `PIN|uid|pin`, `ISLEM|...`)
+sunucuya yollar; sunucu bunları doğrudan servis katmanına çevirir (`simulator.py`) ve firmware'in beklediği cevap satırlarını döner.
+Yani simülatörde yaptığın her şey (defter, onay kuralları, bütünlük kontrolleri, hash zinciri, bildirimler) gerçek akışla birebir aynıdır.
+Köprü API anahtarı tarayıcıya **verilmez**; simülatör oturum açmış kullanıcıyla süreç içinde çalışır.
+
+**Güvenlik ve sınırlar:**
+
+- Yalnızca geliştirme içindir: `SIMULATOR_AKTIF` (varsayılan: `DEBUG`) kapalıysa tüm uçlar `404` verir. Yalnızca **superuser** kullanabilir,
+  çünkü gerçek para hareketi yaptırır (denetçi gibi salt okunur roller giremez). İstekler CSRF korumalıdır.
+- Kartların yanında **demo PIN ipucu** yalnızca `DEBUG` açıkken ve PIN değişmediği sürece gösterilir.
+- Simülatör donanımı taklit etmez: RFID okuma süresi, keypad sekmesi, LCD piksel fontu ve gerçek röle yoktur.
+- Gerçek bir ATM'deki gibi tek kullanıcı: bir oturum bitmeden başka kart okutulursa kart yok sayılır.
+
+JavaScript ekran akışı (12 senaryo: çekim, kuruş, yanlış PIN, onaylı çekim, kasa açma, ters kayıt, sunucu kopması...) Node ile test edilir:
+
+```bat
+node backend\js_testleri\simulator_akis.test.js
+```
+
+`python manage.py test` Node kuruluysa bunu da çalıştırır, kurulu değilse atlar.
 
 ## Hash zinciri
 
