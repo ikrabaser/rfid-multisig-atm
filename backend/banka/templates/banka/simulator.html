@@ -1,0 +1,82 @@
+{% load static %}<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web ATM Simülatörü</title>
+  <link rel="stylesheet" href="{% static 'banka/simulator.css' %}">
+</head>
+<body>
+<header class="ust">
+  <h1>Web ATM Simülatörü</h1>
+  <nav>
+    <a href="/">Panel</a>
+    <a href="/admin/">Yönetim</a>
+  </nav>
+  <div class="araclar">
+    <label>Terminal <select id="terminal"></select></label>
+    <label><input type="checkbox" id="ses"> Ses</label>
+    <button id="telefon-ac" type="button">📱 Telefonlar</button>
+    <button id="sifirla" type="button">Sıfırla</button>
+  </div>
+</header>
+
+<main class="duzen">
+  <section class="sol">
+    <div id="atm" class="atm">
+      <div class="marka"><span>MİNİ ATM · KASA</span><span>16×2 LCD</span></div>
+      <div class="cerceve">
+        <div class="lcd" aria-live="polite">
+          <div class="lcd-satir" id="lcd0"></div>
+          <div class="lcd-satir" id="lcd1"></div>
+        </div>
+      </div>
+      <div class="durum-satiri">
+        <span class="gosterge"><span class="led" id="led"></span> Para çıkışı</span>
+        <span class="gosterge"><span class="kilit-kutu" id="kilit"><span id="kilit-yazi">KİLİTLİ</span></span> Kasa kilidi</span>
+      </div>
+      <div class="mesaj" id="mesaj"></div>
+      <div class="tuslar" id="tuslar"></div>
+      <div class="yuva" title="Kart yuvası"></div>
+    </div>
+    <p class="kisayol">Klavye: rakamlar, <kbd>A</kbd>–<kbd>D</kbd>, <kbd>*</kbd>, <kbd>Enter</kbd> = <kbd>#</kbd>, <kbd>Backspace</kbd> = <kbd>D</kbd>, <kbd>Esc</kbd> = <kbd>*</kbd>. Tutarda <kbd>C</kbd> ondalık noktasıdır.</p>
+
+    <div class="protokol-kutusu">
+      <h2>Protokol günlüğü</h2>
+      <div id="protokol"></div>
+    </div>
+  </section>
+
+  <section class="orta">
+    <h2>Müşteri kartları</h2>
+    <div class="kart-liste" id="musteri-kartlari"></div>
+    <h2>Yetkili kartları</h2>
+    <div class="kart-liste" id="yetkili-kartlari"></div>
+    <p class="not" id="ipucu-notu" hidden>Demo PIN'leri yalnızca geliştirme modunda (DEBUG) ve PIN değişmediği sürece gösterilir.</p>
+
+    <div class="yardim">
+      <strong>Deneme senaryoları</strong>
+      <ol>
+        <li><b>Küçük çekim:</b> müşteri kartı → PIN → <kbd>B</kbd> → tutar → <kbd>#</kbd> → <kbd>A</kbd> ile parayı al. A'ya basmazsan 8 sn sonra para geri çekilir ve işlem ters kaydedilir.</li>
+        <li><b>Onaylı çekim:</b> 10.000 TL üstü çek → ekran "Onay 0/N" der → yetkili kartlarına tıkla → <kbd>A</kbd> → PIN. Sağdaki şeritte oylar canlı görünür.</li>
+        <li><b>Kasa açma:</b> müdür yrd. ya da müdür kartı (Cem, Deniz, Elif) → <kbd>A</kbd> → PIN → diğer yetkililer onaylar → kilit açılır.</li>
+        <li><b>İmkânsız seyahat:</b> aynı kartı önce ATM-01'de, sonra terminali ATM-02 yapıp kullan.</li>
+      </ol>
+    </div>
+  </section>
+
+  <aside class="sag" id="serit">
+    <h2>Canlı şerit</h2>
+    <div id="serit-icerik"></div>
+  </aside>
+</main>
+
+<div id="telefon" hidden>
+  <h2>📱 Telefonlar (SMS)</h2>
+  <div id="telefon-liste"></div>
+</div>
+
+{{ veri|json_script:"simulator-veri" }}
+<script src="{% static 'banka/simulator.js' %}"></script>
+</body>
+</html>

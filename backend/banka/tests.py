@@ -4,8 +4,11 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
+import unittest
 import uuid
+from pathlib import Path
 from decimal import Decimal
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -20,7 +23,7 @@ from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from . import (anomali, baglam, bildirim, bloke_butunlugu, kart_butunlugu, ledger, personel_butunlugu,
-               politika_degisikligi, rbac, services, sms, yonetim_talepleri)
+               politika_degisikligi, rbac, services, simulator, sms, yonetim_talepleri)
 from .hashlog import kayit_ekle, zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, OnayTalebi, Personel, Politika,
                      PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi, YonetimTalebi)
@@ -2489,3 +2492,196 @@ class KartMuhruTestleri(Yardimci, TestCase):
         self.assertEqual(yonetim_talepleri.oy_ver(t.id, c2, "ONAY").durum, "BASARISIZ")
         self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])      # PIN degismedi
         self.assertEqual(Bildirim.objects.filter(olay="pin_iletildi").count(), 0)
+
+
+# ====================================================================== web ATM simulatoru
+
+@override_settings(MESAI_DISI_KURALI=False)
+class SimulatorProtokolTestleri(Yardimci, TestCase):
+    """Simulatorun sunucu tarafi: firmware'in konustugu satir protokolu, dogrudan servislere cevrilir."""
+
+    def setUp(self):
+        self.hazirla()
+
+    def s(self, satir, terminal="ATM-01"):
+        return simulator.isle(satir, terminal)
+
+    def giris(self, uid="a0a0a001", pin="1234"):
+        return self.s(f"PIN|{uid}|{pin}").split("|")[1]
+
+    def test_kart_tipleri(self):
+        self.assertEqual(self.s("KART|a0a0a001"), "TIP|MUSTERI")
+        self.assertEqual(self.s("KART|b0b0b001"), "TIP|PERSONEL")
+        self.assertEqual(self.s("KART|ffffffff"), "TIP|BILINMIYOR")
+
+    def test_giris_ve_bakiye(self):
+        self.assertTrue(self.s("PIN|a0a0a001|0000").startswith("HATA|Yanlis PIN"))
+        cevap = self.s("PIN|a0a0a001|1234")
+        self.assertTrue(cevap.startswith("GIRIS|") and cevap.endswith("|Ali Yilmaz"))
+        self.assertEqual(self.s(f"BAKIYE|{cevap.split('|')[1]}"), "BAKIYE|1000000.00")
+
+    def test_kucuk_cekim_ve_teslim(self):
+        token = self.giris()
+        cevap = self.s(f"ISLEM|{token}|C|500||anahtar1")
+        self.assertRegex(cevap, r"^TAMAM\|999500\.00\|\d+$")
+        islem_no = cevap.split("|")[2]
+        self.assertEqual(self.s(f"TESLIM|{islem_no}|A"), "TESLIM|ALINDI")
+        cevap2 = self.s(f"ISLEM|{token}|C|700||anahtar2")
+        self.assertEqual(self.s(f"TESLIM|{cevap2.split('|')[2]}|H"), "TESLIM|GERI")      # para alinmadi: ters kayit
+        self.assertEqual(self.yenile(self.ali), Decimal("999500.00"))
+
+    def test_kurus_ve_idempotency(self):
+        token = self.giris()
+        self.assertRegex(self.s(f"ISLEM|{token}|C|100.5||k1"), r"^TAMAM\|999899\.50\|\d+$")
+        ilk = self.s(f"ISLEM|{token}|C|50||ayni")
+        ikinci = self.s(f"ISLEM|{token}|C|50||ayni")
+        self.assertEqual(ilk, ikinci)                                                       # ayni anahtar: ayni islem
+        self.assertEqual(self.yenile(self.ali), Decimal("999849.50"))
+
+    def test_onayli_cekim_ve_oylama(self):
+        token = self.giris()
+        bekle = self.s(f"ISLEM|{token}|C|10000||k1")
+        self.assertRegex(bekle, r"^BEKLE\|\d+\|1$")
+        talep = bekle.split("|")[1]
+        self.assertEqual(self.s("BEKLEYEN"), f"BEKLEYEN|{talep}|Cek|10000|0|1")
+        self.assertRegex(self.s(f"DURUM|{talep}"), rf"^DURUM\|0\|1\|BEKLIYOR\|\d+\|0\|CEKME\|\d+$")
+        self.assertTrue(self.s(f"ONAY|{talep}|b0b0b001|0000|E").startswith("HATA|Yanlis PIN"))
+        self.assertEqual(self.s(f"ONAY|{talep}|b0b0b001|1111|E"), "ONAY|1|1|UYGULANDI")
+        self.assertRegex(self.s(f"DURUM|{talep}"), r"^DURUM\|1\|1\|UYGULANDI\|0\|0\|CEKME\|\d+$")
+        self.assertEqual(self.s("BEKLEYEN"), "BEKLEYEN|YOK")
+        self.assertEqual(self.yenile(self.ali), Decimal("990000.00"))
+
+    def test_kasa_acma_protokolu(self):
+        self.assertRegex(self.s("KASAAC|b0b0b003|3333"), r"^BEKLE\|\d+\|3$")
+        self.assertEqual(self.s("KASAAC|b0b0b001|1111"), "HATA|Bu rol kasa acma talebi baslatam")  # 32 karaktere kesilir
+        self.assertRegex(self.s("BEKLEYEN"), r"^BEKLEYEN\|\d+\|Kasa\|ac\|0\|3$")
+
+    def test_turkce_karakterler_lcd_icin_asciiye_cevrilir(self):
+        Musteri.objects.filter(hesaplar__hesap_no="100001").update(ad="Şükrü İğdır")
+        self.assertTrue(self.s("PIN|a0a0a001|1234").endswith("|Sukru Igdir"))
+        self.assertEqual(simulator.ascii_yap("Yanlış PIN | tamam"), "Yanlis PIN   tamam")
+
+    def test_gecersiz_komutlar_ve_terminal(self):
+        self.assertEqual(self.s("BOZUK|x"), "HATA|Bilinmeyen komut")
+        self.assertEqual(self.s("PIN|a0a0a001"), "HATA|Gecersiz komut")
+        self.assertEqual(self.s("ISLEM|tok|Z|100"), "HATA|Gecersiz komut")
+        self.assertEqual(self.s("DURUM|abc"), "HATA|Gecersiz komut")
+        self.assertEqual(self.s("KART|a0a0a001", "ATM-99"), "HATA|Terminal tanimsiz ya da kapali")
+
+    def test_terminal_log_kayitlarina_yazilir(self):
+        self.s("PIN|a0a0a001|1234", "ATM-02")
+        giris = LogKaydi.objects.filter(olay_turu="giris").last()
+        self.assertEqual(json.loads(giris.veri)["terminal"], "ATM-02")
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_kart_butunlugu_simulatorde_de_gecerli(self):
+        kart = Kart(uid="e0e0e001", hesap=Hesap.objects.get(hesap_no="100002"))
+        kart.pin_ayarla("1111")
+        kart.save()  # dogrudan mudahale: muhursuz kart
+        self.assertEqual(self.s("KART|e0e0e001"), "TIP|BLOKE")
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class SimulatorGorunumTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.root = self.U.objects.create_superuser("root", "root@banka.example", "x")
+
+    def post(self, veri, client=None):
+        return (client or self.client).post("/simulator/komut/", data=json.dumps(veri), content_type="application/json")
+
+    def test_erisim_kurallari(self):
+        self.assertEqual(Client().get("/simulator/").status_code, 302)                 # giris yapmamis
+        for ad in ("denetci", "yonetim_talep"):                                        # staff ama superuser degil
+            self.client.force_login(self.U.objects.get(username=ad))
+            for yol in ("/simulator/", "/simulator/serit/", "/simulator/telefon/"):
+                self.assertEqual(self.client.get(yol).status_code, 403, (ad, yol))
+            self.assertEqual(self.post({"satir": "KART|a0a0a001"}).status_code, 403)
+        self.client.force_login(self.root)
+        self.assertEqual(self.client.get("/simulator/").status_code, 200)
+
+    def test_kapaliysa_hicbir_uc_yoktur(self):
+        self.client.force_login(self.root)
+        with override_settings(SIMULATOR_AKTIF=False):
+            for yol in ("/simulator/", "/simulator/serit/", "/simulator/telefon/"):
+                self.assertEqual(self.client.get(yol).status_code, 404, yol)
+            self.assertEqual(self.post({"satir": "KART|a0a0a001"}).status_code, 404)
+
+    def test_sayfa_ve_statik_dosyalar(self):
+        from django.contrib.staticfiles import finders
+        self.client.force_login(self.root)
+        r = self.client.get("/simulator/")
+        self.assertContains(r, "Web ATM Simülatörü")
+        self.assertContains(r, "simulator.js")
+        self.assertContains(r, "a0a0a001")      # musteri karti
+        self.assertContains(r, "b0b0b005")      # yetkili karti
+        self.assertContains(r, "ATM-02")
+        self.assertIsNotNone(finders.find("banka/simulator.js"))
+        self.assertIsNotNone(finders.find("banka/simulator.css"))
+
+    def test_demo_pin_ipuclari_yalniz_debug_ve_pin_degismediyse(self):
+        self.assertEqual({m["ipucu"] for m in simulator.sayfa_verisi()["musteriler"]}, {""})   # testlerde DEBUG kapali
+        with override_settings(DEBUG=True):
+            veri = simulator.sayfa_verisi()
+            self.assertEqual({m["uid"]: m["ipucu"] for m in veri["musteriler"]}, {"a0a0a001": "1234", "a0a0a002": "4321"})
+            self.assertEqual({y["uid"]: y["ipucu"] for y in veri["yetkililer"]}["b0b0b003"], "3333")
+            kart = Kart.objects.get(uid="a0a0a001")
+            kart.pin_ayarla("9999")
+            kart.save()
+            self.assertEqual({m["uid"]: m["ipucu"] for m in simulator.sayfa_verisi()["musteriler"]}["a0a0a001"], "")
+
+    def test_komut_ucu(self):
+        self.client.force_login(self.root)
+        r = self.post({"satir": "KART|a0a0a001", "terminal": "ATM-01"})
+        self.assertEqual((r.status_code, r.json()), (200, {"cevap": "TIP|MUSTERI"}))
+        self.assertEqual(self.client.get("/simulator/komut/").status_code, 405)
+        for kotu in ({}, {"satir": 5}, {"satir": "x" * 400}, {"satir": "KART|a", "terminal": "t" * 40}):
+            self.assertEqual(self.post(kotu).status_code, 400, kotu)
+        r = self.client.post("/simulator/komut/", data="{bozuk", content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_csrf_korumasi(self):
+        c = Client(enforce_csrf_checks=True)
+        c.force_login(self.root)
+        self.assertEqual(self.post({"satir": "KART|a0a0a001"}, client=c).status_code, 403)
+
+    def test_serit(self):
+        self.client.force_login(self.root)
+        self.client.post("/simulator/komut/", data=json.dumps({"satir": "PIN|a0a0a001|1234"}), content_type="application/json")
+        token = simulator.isle("PIN|a0a0a001|1234", "ATM-01").split("|")[1]
+        simulator.isle(f"ISLEM|{token}|C|10000||k1", "ATM-01")                       # onay bekleyen talep
+        v = self.client.get("/simulator/serit/").json()
+        self.assertEqual({h["hesap_no"]: h["bakiye"] for h in v["hesaplar"]}["100001"], "1000000.00")
+        self.assertEqual(len(v["bekleyenler"]), 1)
+        self.assertEqual((v["bekleyenler"][0]["verilen"], v["bekleyenler"][0]["gereken"]), (0, 1))
+        self.assertTrue(v["loglar"] and "olay" in v["loglar"][0])
+        self.assertTrue(any(l["olay"] == "giris" and "uid=a0a0a001" in l["ozet"] for l in v["loglar"]))
+        self.assertEqual(set(v["durumlar"]), {"politika", "personel", "kart"})
+        self.assertNotIn("zincir", v)
+        self.assertTrue(self.client.get("/simulator/serit/?zincir=1").json()["zincir"]["saglam"])
+
+    def test_telefon_ucu(self):
+        self.client.force_login(self.root)
+        self.assertEqual(self.client.get("/simulator/telefon/").json(), {"mesajlar": []})      # bellek saglayicisi
+        klasor = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, klasor, ignore_errors=True)
+        yol = os.path.join(klasor, "kutu.jsonl")
+        with override_settings(SMS_SAGLAYICI="banka.sms.DosyaSmsSaglayici", SMS_KUTUSU_DOSYASI=yol):
+            sms.gonder("+905550000001", "Merhaba. Yeni PIN'iniz: 4821")
+            mesajlar = self.client.get("/simulator/telefon/").json()["mesajlar"]
+        self.assertEqual([m["telefon"] for m in mesajlar], ["+905550000001"])
+
+    def test_panel_etkilenmedi(self):
+        self.client.force_login(self.root)
+        self.assertEqual(self.client.get("/").status_code, 200)
+
+
+@unittest.skipUnless(shutil.which("node"), "Node kurulu degil: JS akis testi atlandi")
+class SimulatorJsAkisTesti(unittest.TestCase):
+    """Tarayicidaki ekran akisi (JS), sahte sunucuya karsi Node ile sinanir. Windows'ta Node yoksa atlanir."""
+
+    def test_js_akis_testleri(self):
+        dosya = Path(__file__).resolve().parent.parent / "js_testleri" / "simulator_akis.test.js"
+        sonuc = subprocess.run(["node", str(dosya)], capture_output=True, text=True, timeout=120, encoding="utf-8")
+        self.assertEqual(sonuc.returncode, 0, sonuc.stdout + sonuc.stderr)
