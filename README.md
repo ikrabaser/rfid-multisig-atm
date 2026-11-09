@@ -637,6 +637,8 @@ Ekranda üç bölüm vardır:
   rozetleri (politika, yetkili, kart, anomali, zincir). Her 1,5 saniyede yenilenir. Altta **protokol günlüğü** satır satır
   gönderilen ve gelen komutları gösterir (PIN ve token maskeli).
 
+PIN ve tutar girişinde `D` son rakamı siler (PIN satırında `D:sil` ipucu görünür), `*` girişin tamamını iptal eder.
+
 Deneme senaryoları:
 
 1. **Küçük çekim:** müşteri kartı → PIN → `B` → tutar → `#` → `A` ile parayı al. `A`'ya basmazsan 8 sn sonra para geri çekilir ve

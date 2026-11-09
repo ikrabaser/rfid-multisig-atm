@@ -120,18 +120,25 @@ function ATMSimulatoru(arayuz) {
   }
 
   // ------------------------------------------------------------------ tus girisi
+  // PIN satiri: "PIN: ***    D:sil" (16 karakter; D tusu son rakami siler)
+  const pinSatiri = (yildiz) => ("PIN: " + yildiz).padEnd(11, " ") + "D:sil";
+
+  // 4 haneli PIN alir. D: son rakami siler, *: iptal (bos string), 20 sn zaman asimi.
   async function pinAl(baslik) {
     let pin = "";
-    let yildiz = "";
-    ekran(baslik, "PIN: ");
+    ekran(baslik, pinSatiri(""));
     const bitis = Date.now() + ms(20000);
     while (pin.length < 4) {
       const t = await tusBekleBitis(bitis, null);
       if (t === null) return "";
       if (t >= "0" && t <= "9") {
         pin += t;
-        yildiz += "*";
-        satirYaz(1, "PIN: " + yildiz);
+        satirYaz(1, pinSatiri("*".repeat(pin.length)));
+      } else if (t === "D") {
+        if (pin.length > 0) {
+          pin = pin.slice(0, -1);
+          satirYaz(1, pinSatiri("*".repeat(pin.length)));
+        }
       } else if (t === "*") {
         return "";
       }

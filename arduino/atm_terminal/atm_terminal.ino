@@ -190,10 +190,18 @@ bool kartOku(String &uid) {
 }
 
 // 4 haneli PIN alir. Bos string: iptal ya da zaman asimi.
+// PIN satiri: "PIN: ***    D:sil" (16 karakter; D tusu son rakami siler)
+String pinSatiri(const String &yildiz) {
+  String s = S("PIN: ") + yildiz;
+  while (s.length() < 11) s += ' ';
+  return s + S("D:sil");
+}
+
+// 4 haneli PIN alir. D: son rakami siler, *: iptal (bos string), 20 sn zaman asimi.
 String pinAl(const String &baslik) {
   String pin = "";
   String yildiz = "";
-  ekran(baslik, S("PIN: "));
+  ekran(baslik, pinSatiri(yildiz));
   unsigned long bas = millis();
   while (pin.length() < 4) {
     if (millis() - bas > 20000UL) return String();
@@ -202,7 +210,13 @@ String pinAl(const String &baslik) {
     if (t >= '0' && t <= '9') {
       pin += t;
       yildiz += '*';
-      satirYaz(1, S("PIN: ") + yildiz);
+      satirYaz(1, pinSatiri(yildiz));
+    } else if (t == 'D') {
+      if (pin.length() > 0) {
+        pin.remove(pin.length() - 1);
+        yildiz.remove(yildiz.length() - 1);
+        satirYaz(1, pinSatiri(yildiz));
+      }
     } else if (t == '*') {
       return String();
     }

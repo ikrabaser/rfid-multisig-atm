@@ -214,6 +214,23 @@ test("para alinmazsa zaman asiminda geri cekilir ve ters kaydedilir", async () =
   assert.equal(t.olay.bip.at(-1), false);
 });
 
+test("PIN girerken D son rakami siler (bos PIN'de etkisiz)", async () => {
+  const t = kur();
+  const satir = (n) => ("PIN: " + "*".repeat(n)).padEnd(11) + "D:sil";
+  await t.ekranda("Karti okutun");
+  await t.kart("a0a0a001");
+  await t.ekranda("PIN girin:");
+  await t.tuslar("D");                 // bos PIN'de silme: hicbir sey olmaz
+  await t.tuslar("129");               // yanlis rakam
+  await t.tuslar("D");                 // sil
+  await t.tuslar("34");                // dogrusu: 1234
+  await t.ekranda("Merhaba", "Ali Yilmaz");
+  const pinEkranlari = t.gecmis.filter((e) => e[0] === "PIN girin:").map((e) => e[1]);
+  assert.deepEqual(pinEkranlari, [satir(0), satir(1), satir(2), satir(3), satir(2), satir(3), satir(4)]);
+  assert.ok(t.sunucu.komutlar.includes("PIN|a0a0a001|1234"));
+  assert.equal(pinEkranlari[0].length, 16);
+});
+
 test("kurus: C tusu ondalik nokta, en fazla 2 hane, D geri siler", async () => {
   const t = kur();
   await musteriGiris(t);
