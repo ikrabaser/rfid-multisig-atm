@@ -1,10 +1,10 @@
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render
 
-from . import anomali, politika_degisikligi, services
+from . import anomali, personel_butunlugu, politika_degisikligi, services
 from .hashlog import zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi, PolitikaDegisikligi,
-                     Terminal)
+                     Terminal, YonetimTalebi)
 
 
 @staff_member_required
@@ -27,6 +27,12 @@ def panel(request):
             "baslangic_yok": ("kotu", "Politika için onaylı başlangıç görüntüsü yok (python manage.py politika_goruntu_al)."),
         }[politika_degisikligi.butunluk_durumu()],
         "politika_talepleri": PolitikaDegisikligi.objects.select_related("talep_eden")[:8],
+        "personel_durumu": {
+            "tutarli": ("ok", "Yetkili kayıtları son onaylı sürümle aynı."),
+            "tutarsiz": ("kotu", "YETKİLİ KAYITLARI ONAYLI SÜRÜMDEN FARKLI: onaylar ve kasa açma kapalı."),
+            "baslangic_yok": ("kotu", "Yetkili kayıtları için onaylı başlangıç görüntüsü yok (python manage.py personel_goruntu_al)."),
+        }[personel_butunlugu.durum()],
+        "yonetim_talepleri": YonetimTalebi.objects.select_related("talep_eden")[:8],
         "terminaller": Terminal.objects.all(),
     }
     return render(request, "banka/panel.html", baglam)

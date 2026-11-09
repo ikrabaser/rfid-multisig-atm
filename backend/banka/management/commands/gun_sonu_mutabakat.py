@@ -46,11 +46,16 @@ class Command(BaseCommand):
             sorunlar.append(f"Orijinaliyle uyuşmayan ters kayıtlar: {r['tutarsiz_ters_kayitlar']}")
         if r["tersi_olmayan_geri_alinanlar"]:
             sorunlar.append(f"Geri alındı işaretli ama ters kaydı olmayan işlemler: {r['tersi_olmayan_geri_alinanlar']}")
+        if r["personel"] == "tutarsiz":
+            sorunlar.append("Yetkili kayıtları son onaylı sürümden farklı (sahte yetkili / rol / PIN değişikliği olabilir)")
         if r["politika"] == "tutarsiz":
             sorunlar.append("Politika tablosu son onaylı sürümden farklı (onaysız değişiklik olabilir)")
         if r["belirsiz_teslimler"]:
             self.stdout.write(self.style.WARNING(
                 f"UYARI: Teslimi 10 dk'dan uzun süredir bildirilmeyen çekmeler: {r['belirsiz_teslimler']}"))
+        if r["personel"] == "baslangic_yok":
+            self.stdout.write(self.style.WARNING(
+                "UYARI: Yetkili kayıtları için onaylı başlangıç görüntüsü yok (python manage.py personel_goruntu_al)"))
         if r["politika"] == "baslangic_yok":
             self.stdout.write(self.style.WARNING(
                 "UYARI: Politika için onaylı başlangıç görüntüsü yok (python manage.py politika_goruntu_al)"))

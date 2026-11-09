@@ -144,3 +144,39 @@ def ters_kayit(ters):
     metin = (f"İşlem #{orijinal.id} ({tl(orijinal.tutar)}, hesap {orijinal.hesap.hesap_no}) ters kaydedildi. "
              f"Neden: {ters.ters_neden}. Terminal: {orijinal.terminal or '-'}.")
     return yetkililere_bildir("ters_kayit", konu, metin, en_az_rol=Rol.MUDUR_YRD)
+
+
+def yonetim_talebi_acildi(talep):
+    """Yönetim talebi: onay yetkisi olan kullanıcılara (talep sahibi hariç) e-posta."""
+    try:
+        from django.contrib.auth import get_user_model
+        konu = f"Yönetim talebi #{talep.id}"
+        metin = (f"{talep.talep_eden.get_username()} yönetim işlemi talep etti: {talep.ozet}. "
+                 f"{talep.gereken_onay} onay gerekli. Gerekçe: {talep.gerekce[:200]} "
+                 f"Yönetim panelinde inceleyin: /admin/banka/yonetimtalebi/")
+        sayi = 0
+        for u in get_user_model().objects.filter(is_active=True, is_staff=True).exclude(id=talep.talep_eden_id):
+            if u.email and u.has_perm("banka.yonetim_onayla"):
+                _eposta_kullaniciya(u.get_username(), u.email, "yonetim_talebi", konu, metin)
+                sayi += 1
+        return sayi
+    except Exception:
+        log.exception("Yonetim talebi bildirimi basarisiz")
+        return 0
+
+
+def pin_ilet(personel, pin, neden):
+    """Yeni PIN'i yetkilinin KENDİ telefonuna SMS ile iletir (simülasyon).
+
+    PIN hiçbir tabloda ve arayüzde görünmez; yalnızca "SMS sağlayıcıya gönderim" satırını temsil eden log
+    satırında geçer (gerçek bir sağlayıcıda mesaj içeriği doğrudan sağlayıcıya gider).
+    """
+    try:
+        log.info("SMS (simulasyon) -> %s: %s. Yeni PIN'iniz: %s", personel.telefon, neden, pin)
+        Bildirim.objects.create(
+            kanal=Bildirim.Kanal.SMS, durum=Bildirim.Durum.SIMULASYON, alici=personel.ad, adres=personel.telefon,
+            konu="Yeni PIN iletildi", metin=f"{neden}. Yeni PIN SMS ile iletildi (içerik kayıtlarda tutulmaz).",
+            olay="pin_iletildi",
+        )
+    except Exception:
+        log.exception("PIN iletimi kaydedilemedi")

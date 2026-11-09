@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from . import baglam, bildirim, ledger, politika_degisikligi
+from . import baglam, bildirim, ledger, personel_butunlugu, politika_degisikligi, rbac
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
                      Rol, uid_duzelt)
@@ -103,6 +103,13 @@ def _token_coz(token):
     if kart is None or kart.bloke:
         raise IslemHatasi("Oturum geçersiz", "oturum")
     return kart
+
+
+def personel_butunlugunu_dogrula():
+    """Yetkili kayıtları son onaylı sürümden farklıysa onaylar ve kasa açma KAPALI kalır."""
+    if personel_butunlugu.tutarli_mi() is False:
+        personel_butunlugu.ihlal_kaydet()
+        raise IslemHatasi("Yetkili kayıtları doğrulanamadı; işlem yapılamaz", "butunluk")
 
 
 def personel_dogrula(uid, pin):
@@ -487,7 +494,11 @@ def kasa_acma_baslat(uid, pin):
     Kural ayarlardan gelir (KASA_ACMA_GEREKEN_ONAY, KASA_ACMA_EN_AZ_ROL). Talebi baslatan
     kendi talebini onaylayamaz; bu yuzden onaylayabilecek yeterli baska yetkili de olmali.
     """
+    personel_butunlugunu_dogrula()
     personel = personel_dogrula(uid, pin)
+    if not rbac.yetki_var_mi(personel, rbac.Yetki.KASA_AC_BASLAT):
+        kayit_ekle("rbac_reddi", {"personel_id": personel.id, "yetki": rbac.Yetki.KASA_AC_BASLAT})
+        raise IslemHatasi("Bu rol kasa açma talebi başlatamaz", "rol_yetersiz")
     kasa = _kasa_hesabi()
     gereken = int(settings.KASA_ACMA_GEREKEN_ONAY)
     en_az = int(settings.KASA_ACMA_EN_AZ_ROL)
@@ -587,6 +598,7 @@ def onay_karar(talep_id, uid, pin, karar):
     """karar: 'ONAY' veya 'RED'. Sonuc ozet sozlugu; kural ihlali IslemHatasi."""
     karar = Onay.Karar.RED if str(karar).upper() in ("RED", "H") else Onay.Karar.ONAY
     talep_id = _talep_no(talep_id)
+    personel_butunlugunu_dogrula()
     personel = personel_dogrula(uid, pin)  # atomic disinda: hatali PIN sayaci kalici olsun
     hata = None
     kasa_acildi = None
@@ -598,7 +610,12 @@ def onay_karar(talep_id, uid, pin, karar):
 
         if not _suresi_dolduysa_kapat(talep) and talep.durum == OnayTalebi.Durum.BEKLIYOR:
             islem = talep.islem
-            if Onay.objects.filter(talep=talep, personel=personel).exists():
+            gerekli_yetki = (rbac.Yetki.KASA_AC_ONAYLA if islem.tur == Islem.Tur.KASA_ACMA
+                             else rbac.Yetki.ISLEM_ONAYLA)
+            if not rbac.yetki_var_mi(personel, gerekli_yetki):
+                kayit_ekle("rbac_reddi", {"talep_id": talep.id, "personel_id": personel.id, "yetki": gerekli_yetki})
+                hata = ("Bu rolün bu işlemi onaylama yetkisi yok", "rol_yetersiz")
+            elif Onay.objects.filter(talep=talep, personel=personel).exists():
                 kayit_ekle("onay_reddi_tekrar_oy", {"talep_id": talep.id, "personel_id": personel.id})
                 hata = ("Bu yetkili zaten oy kullandı", "tekrar")
             elif karar == Onay.Karar.ONAY and islem.baslatan_uid == personel.kart_uid:

@@ -456,3 +456,76 @@ class PolitikaDegisiklikOyu(models.Model):
 
     def __str__(self):
         return f"{self.kullanici} → {self.karar} (talep #{self.talep_id})"
+
+
+class YonetimTalebi(models.Model):
+    """Hassas yönetim işlemi için talep (maker-checker / dört göz).
+
+    Yetkili ekleme, rol/aktiflik değişikliği, PIN sıfırlama, bloke kaldırma, günlük limit ve terminal
+    durumu doğrudan admin'den değiştirilemez; bir kullanıcı talep açar, işlemin ağırlığına göre 1-3
+    BAŞKA kullanıcı onaylar, son onayda uygulanır. `veri` normalleştirilmiş JSON'dur ve SIR İÇERMEZ.
+    """
+
+    class Tur(models.TextChoices):
+        PERSONEL_EKLE = "PERSONEL_EKLE", "Yetkili ekle"
+        PERSONEL_ROL = "PERSONEL_ROL", "Yetkili rolünü değiştir"
+        PERSONEL_DURUM = "PERSONEL_DURUM", "Yetkiliyi aktif/pasif yap"
+        PERSONEL_PIN_SIFIRLA = "PERSONEL_PIN_SIFIRLA", "Yetkili PIN'ini sıfırla"
+        BLOKE_KALDIR = "BLOKE_KALDIR", "Bloke kaldır"
+        GUNLUK_LIMIT = "GUNLUK_LIMIT", "Günlük limiti değiştir"
+        TERMINAL_DURUM = "TERMINAL_DURUM", "Terminali aç/kapat"
+
+    class Durum(models.TextChoices):
+        BEKLIYOR = "BEKLIYOR", "Bekliyor"
+        UYGULANDI = "UYGULANDI", "Uygulandı"
+        REDDEDILDI = "REDDEDILDI", "Reddedildi"
+        IPTAL = "IPTAL", "İptal edildi"
+        SURESI_DOLDU = "SURESI_DOLDU", "Süresi doldu"
+        BASARISIZ = "BASARISIZ", "Uygulanamadı"
+
+    tur = models.CharField(max_length=20, choices=Tur.choices)
+    veri = models.TextField()
+    ozet = models.CharField(max_length=200)
+    hedef = models.CharField(max_length=60, help_text="Aynı hedef için tek bekleyen talep olabilsin diye")
+    gerekce = models.TextField("Gerekçe")
+    talep_eden = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="yonetim_taleplerim"
+    )
+    gereken_onay = models.PositiveSmallIntegerField()
+    durum = models.CharField(max_length=12, choices=Durum.choices, default=Durum.BEKLIYOR)
+    son_tarih = models.DateTimeField()
+    olusturma = models.DateTimeField(auto_now_add=True)
+    kapanma = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Yönetim talebi"
+        verbose_name_plural = "Yönetim talepleri"
+        ordering = ["-id"]
+        permissions = [
+            ("yonetim_talep_et", "Hassas yönetim işlemi talep edebilir (maker)"),
+            ("yonetim_onayla", "Hassas yönetim işlemini onaylayabilir (checker)"),
+        ]
+
+    def __str__(self):
+        return f"Yönetim talebi #{self.id} ({self.get_tur_display()}) [{self.durum}]"
+
+
+class YonetimOyu(models.Model):
+    class Karar(models.TextChoices):
+        ONAY = "ONAY", "Onay"
+        RED = "RED", "Red"
+
+    talep = models.ForeignKey(YonetimTalebi, on_delete=models.PROTECT, related_name="oylar")
+    kullanici = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="yonetim_oylarim")
+    karar = models.CharField(max_length=5, choices=Karar.choices)
+    zaman = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Yönetim oyu"
+        verbose_name_plural = "Yönetim oyları"
+        constraints = [
+            models.UniqueConstraint(fields=["talep", "kullanici"], name="yonetim_her_kullanici_bir_oy"),
+        ]
+
+    def __str__(self):
+        return f"{self.kullanici} → {self.karar} (talep #{self.talep_id})"

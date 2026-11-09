@@ -118,3 +118,17 @@ POLITIKA_MAKS_ONAY = 5
 
 # Ters kayit: nakit cekmede para teslimi bu sure icinde bildirilmelidir
 TESLIM_PENCERESI_SN = 120
+
+# Hassas yonetim islemleri (maker-checker): gereken BASKA onaylayici sayisi. Koruyucu yonler az, genisletici yonler cok onay ister.
+YONETIM_ONAY_SAYILARI = {
+    "PERSONEL_EKLE": 2, "PERSONEL_EKLE_MUDUR": 3,
+    "PERSONEL_ROL_YUKSELT": 2, "PERSONEL_ROL_YUKSELT_MUDUR": 3, "PERSONEL_ROL_DUSUR": 1,
+    "PERSONEL_AKTIF_ET": 2, "PERSONEL_PASIF_ET": 1,
+    "PERSONEL_PIN_SIFIRLA": 2,
+    "BLOKE_KALDIR_PERSONEL": 2, "BLOKE_KALDIR_KART": 1,
+    "GUNLUK_LIMIT_ARTIR": 2, "GUNLUK_LIMIT_AZALT": 1,
+    "TERMINAL_AKTIF_ET": 2, "TERMINAL_PASIF_ET": 1,
+}
+YONETIM_TALEP_SURE_SAAT = 24
+YONETIM_MIN_AKTIF_YETKILI = 4                      # 3 onay + talebi baslatan (kasa acma) icin
+HESAP_GUNLUK_LIMIT_AZAMI = Decimal("5000000")      # hicbir hesabin gunluk limiti bunu asamaz

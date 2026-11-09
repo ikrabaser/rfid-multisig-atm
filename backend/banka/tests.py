@@ -1,12 +1,14 @@
 import datetime
 import io
 import json
+import re
 import uuid
 from decimal import Decimal
 from unittest import mock
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
@@ -14,11 +16,13 @@ from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from . import anomali, baglam, bildirim, ledger, politika_degisikligi, services
+from . import (anomali, baglam, bildirim, ledger, personel_butunlugu, politika_degisikligi, rbac, services,
+               yonetim_talepleri)
 from .hashlog import kayit_ekle, zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Politika,
-                     PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi)
+                     PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi, YonetimTalebi)
 from .politika_degisikligi import PolitikaHatasi
+from .yonetim_talepleri import YonetimHatasi
 from .services import IslemHatasi
 
 # seed_demo verisi: Ali 100001 (a0a0a001/1234), Zeynep 100002 (a0a0a002/4321)
@@ -131,6 +135,7 @@ class BankaTestleri(TestCase):
         p = Personel(ad="Ali (aynı kart)", kart_uid="a0a0a001", rol=Rol.MUDUR)
         p.pin_ayarla("9999")
         p.save()
+        personel_butunlugu.goruntu_kaydet("test: ayni kartli yetkili")  # dogrudan DB eklemesi onaysiz sayilirdi
         s = services.islem_baslat(self.giris(), "CEKME", "10000")
         with self.assertRaises(IslemHatasi) as e:
             services.onay_karar(s["talep_id"], "a0a0a001", "9999", "ONAY")
@@ -504,9 +509,9 @@ class KasaAcmaTestleri(Yardimci, TestCase):
         self.hazirla()
 
     def test_uc_onay_ve_mudur_sarti(self):
-        t = services.kasa_acma_baslat(*self.AYSE)
+        t = services.kasa_acma_baslat(*self.CEM)  # baslatan: mudur yardimcisi
         self.assertEqual(t["gereken"], 3)
-        for kisi in (self.BURAK, self.CEM):
+        for kisi in (self.AYSE, self.BURAK):
             services.onay_karar(t["talep_id"], kisi[0], kisi[1], "ONAY")
         sonuc = services.onay_karar(t["talep_id"], *self.DENIZ, "ONAY")  # 3 onay, mudur yok
         self.assertEqual(sonuc["durum"], "BEKLIYOR")
@@ -518,10 +523,17 @@ class KasaAcmaTestleri(Yardimci, TestCase):
         self.assertEqual(HesapHareketi.objects.count(), 0)  # para hareketi yok
         self.assertTrue(zinciri_dogrula()["saglam"])
 
-    def test_baslatan_kendi_talebini_onaylayamaz(self):
-        t = services.kasa_acma_baslat(*self.AYSE)
+    def test_gorevli_kasa_acma_baslatamaz(self):
         with self.assertRaises(IslemHatasi) as e:
-            services.onay_karar(t["talep_id"], *self.AYSE, "ONAY")
+            services.kasa_acma_baslat(*self.AYSE)  # gorevli: KASA_AC_BASLAT yetkisi yok
+        self.assertEqual(e.exception.kod, "rol_yetersiz")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="rbac_reddi").exists())
+        self.assertEqual(OnayTalebi.objects.count(), 0)
+
+    def test_baslatan_kendi_talebini_onaylayamaz(self):
+        t = services.kasa_acma_baslat(*self.CEM)
+        with self.assertRaises(IslemHatasi) as e:
+            services.onay_karar(t["talep_id"], *self.CEM, "ONAY")
         self.assertEqual(e.exception.kod, "kendi_islemi")
 
     def test_baslatan_tek_mudurse_baslatamaz(self):
@@ -540,7 +552,7 @@ class KasaAcmaTestleri(Yardimci, TestCase):
         self.assertEqual(e.exception.kod, "tur")
 
     def test_sure_dolarsa_kasa_acilmaz(self):
-        t = services.kasa_acma_baslat(*self.AYSE)
+        t = services.kasa_acma_baslat(*self.CEM)
         OnayTalebi.objects.filter(id=t["talep_id"]).update(
             son_tarih=timezone.now() - datetime.timedelta(seconds=1))
         sonuc = services.onay_karar(t["talep_id"], *self.BURAK, "ONAY")
@@ -640,7 +652,7 @@ class YeniApiTestleri(Yardimci, TestCase):
         self.assertEqual(Islem.objects.filter(anahtar="http-1").count(), 1)
 
     def test_kasa_ac_ucu(self):
-        r = self.post("/api/kasa-ac/", {"uid": "b0b0b001", "pin": "1111"}).json()
+        r = self.post("/api/kasa-ac/", {"uid": "b0b0b003", "pin": "3333"}).json()
         self.assertTrue(r["ok"])
         self.assertEqual((r["durum"], r["gereken"]), ("onay_bekliyor", 3))
         t = self.post("/api/talep/", {"talep_id": r["talep_id"]}).json()
@@ -897,14 +909,14 @@ class BildirimTestleri(Yardimci, TestCase):
         self.assertEqual(Bildirim.objects.count(), 0)
 
     def test_kasa_acma_talebinde_baslatan_haric(self):
-        services.kasa_acma_baslat("b0b0b001", "1111")
+        services.kasa_acma_baslat("b0b0b003", "3333")
         self.assertEqual(len(mail.outbox), 4)
-        self.assertNotIn("ayse@banka.example", [a for m in mail.outbox for a in m.to])
+        self.assertNotIn("cem@banka.example", [a for m in mail.outbox for a in m.to])
         self.assertTrue(mail.outbox[0].subject.startswith("Kasa dairesi açma talebi"))
 
     def test_kasa_acilinca_mudur_yrd_ve_ustune_bilgi(self):
-        t = services.kasa_acma_baslat("b0b0b001", "1111")
-        for uid, pin in (("b0b0b002", "2222"), ("b0b0b003", "3333"), ("b0b0b004", "4444"), ("b0b0b005", "5555")):
+        t = services.kasa_acma_baslat("b0b0b003", "3333")
+        for uid, pin in (("b0b0b001", "1111"), ("b0b0b002", "2222"), ("b0b0b004", "4444"), ("b0b0b005", "5555")):
             services.onay_karar(t["talep_id"], uid, pin, "ONAY")
         acilis = self.konulu("Kasa dairesi açıldı")
         self.assertEqual(sorted(a for m in acilis for a in m.to),
@@ -1426,3 +1438,533 @@ class PolitikaAdminTestleri(Yardimci, TestCase):
         r = self.client.get("/")
         self.assertContains(r, "Politika bütünlüğü")
         self.assertContains(r, "son onaylı sürümle aynı")
+
+
+# ====================================================================== RBAC
+
+@override_settings(MESAI_DISI_KURALI=False)
+class RbacTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+
+    def personel(self, uid):
+        return Personel.objects.get(kart_uid=uid)
+
+    def test_rol_yetki_matrisi(self):
+        Y = rbac.Yetki
+        self.assertEqual(rbac.ROL_YETKILERI[Rol.GOREVLI], {Y.ISLEM_ONAYLA, Y.KASA_AC_ONAYLA})
+        self.assertIn(Y.KASA_AC_BASLAT, rbac.ROL_YETKILERI[Rol.MUDUR_YRD])
+        self.assertIn(Y.KASA_AC_BASLAT, rbac.ROL_YETKILERI[Rol.MUDUR])
+        self.assertFalse(rbac.yetki_var_mi(self.personel("b0b0b001"), Y.KASA_AC_BASLAT))   # gorevli
+        self.assertTrue(rbac.yetki_var_mi(self.personel("b0b0b003"), Y.KASA_AC_BASLAT))    # mudur yrd.
+        self.assertTrue(rbac.yetki_var_mi(self.personel("b0b0b001"), Y.ISLEM_ONAYLA))
+
+    def test_yetkisi_olmayan_rol_onay_veremez(self):
+        s = services.islem_baslat(self.giris(), "CEKME", "10000")
+        with mock.patch.dict(rbac.ROL_YETKILERI, {Rol.GOREVLI: set()}):
+            with self.assertRaises(IslemHatasi) as e:
+                services.onay_karar(s["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(e.exception.kod, "rol_yetersiz")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="rbac_reddi").exists())
+        self.assertEqual(services.talep_durumu(s["talep_id"])["verilen"], 0)
+
+    def test_gruplar_koddan_kurulur(self):
+        for ad, kodlar in rbac.YONETIM_GRUPLARI.items():
+            self.assertEqual(set(Group.objects.get(name=ad).permissions.values_list("codename", flat=True)), set(kodlar))
+        denetci = Group.objects.get(name="Denetçi")
+        self.assertFalse(denetci.permissions.exclude(codename__startswith="view_").exists())
+
+    def test_kur_idempotent_ve_bilinmeyen_izni_reddeder(self):
+        once = {g.name: g.permissions.count() for g in Group.objects.all()}
+        rbac.kur()
+        self.assertEqual({g.name: g.permissions.count() for g in Group.objects.all()}, once)
+        with mock.patch.dict(rbac.YONETIM_GRUPLARI, {"Deneme": ["yok_boyle_bir_izin"]}):
+            with self.assertRaises(ValueError):
+                rbac.kur()
+
+    def test_denetim_temiz(self):
+        r = rbac.denetim()
+        self.assertTrue(r["saglam"])
+        self.assertEqual(r["superuserlar"], [])
+        self.assertEqual(r["grupsuz_yonetim_kullanicilari"], [])
+
+    def test_gorev_ayrimi_ihlali_yakalanir(self):
+        kullanici = self.U.objects.get(username="yonetim_talep")
+        kullanici.groups.add(Group.objects.get(name="Yönetim Onaylayan"))  # hem maker hem checker
+        r = rbac.denetim()
+        self.assertFalse(r["saglam"])
+        self.assertEqual([i["kullanici"] for i in r["gorev_ayrimi_ihlalleri"]], ["yonetim_talep"])
+
+    def test_denetci_yazma_izni_yakalanir(self):
+        self.U.objects.get(username="denetci").groups.add(Group.objects.get(name="Yönetim Talep Eden"))
+        r = rbac.denetim()
+        self.assertFalse(r["saglam"])
+        self.assertEqual([i["kullanici"] for i in r["denetci_yazma_izinleri"]], ["denetci"])
+
+    def test_superuser_uyari_olarak_raporlanir(self):
+        self.U.objects.create_superuser("root", "root@banka.example", "x")
+        r = rbac.denetim()
+        self.assertEqual(r["superuserlar"], ["root"])
+        self.assertTrue(r["saglam"])  # ihlal degil, uyari
+
+    def test_rbac_denetimi_komutu(self):
+        cikti = io.StringIO()
+        call_command("rbac_denetimi", stdout=cikti)
+        self.assertIn("RBAC denetimi temiz", cikti.getvalue())
+        self.U.objects.get(username="yonetim_talep").groups.add(Group.objects.get(name="Yönetim Onaylayan"))
+        with self.assertRaises(SystemExit):
+            call_command("rbac_denetimi", stdout=io.StringIO(), stderr=io.StringIO())
+
+    def test_denetci_hicbir_sey_degistiremez(self):
+        self.client.force_login(self.U.objects.get(username="denetci"))
+        self.assertEqual(self.client.get("/admin/banka/logkaydi/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/banka/islem/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/banka/yonetimtalebi/add/").status_code, 403)
+        self.assertEqual(self.client.get("/admin/banka/politikadegisikligi/add/").status_code, 403)
+        ayse = self.personel("b0b0b001")
+        self.assertEqual(self.client.get(f"/admin/banka/personel/{ayse.id}/change/").status_code, 200)  # salt okunur gorunum
+        self.assertEqual(self.client.post(f"/admin/banka/personel/{ayse.id}/change/", {"ad": "x"}).status_code, 403)
+
+
+# ====================================================================== hassas yonetim islemleri (maker-checker)
+
+GEREKCE = "Operasyonel gerekçe: vardiya planı gereği değişiklik"
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class YonetimTalepleriTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.maker = self.U.objects.get(username="yonetim_talep")
+        self.c1, self.c2, self.c3 = (self.U.objects.get(username=f"yonetim_onay{i}") for i in (1, 2, 3))
+
+    def personel(self, uid):
+        return Personel.objects.get(kart_uid=uid)
+
+    def talep(self, tur, ham, kullanici=None):
+        return yonetim_talepleri.talep_olustur(kullanici or self.maker, tur, ham, GEREKCE)
+
+    def oy(self, t, *kullanicilar, karar="ONAY"):
+        for k in kullanicilar:
+            t = yonetim_talepleri.oy_ver(t.id, k, karar)
+        return t
+
+    def ekle_ham(self, **ek):
+        ham = {"ad": "Fatma Demir", "kart_uid": "B0B0B006", "rol": 1, "eposta": "fatma@banka.example",
+               "telefon": "+905550000006"}
+        ham.update(ek)
+        return ham
+
+    # ------------------------------------------------------------ yetkili ekleme
+
+    def test_yetkili_ekleme_akisi_ve_pin_yalniz_smsle_gider(self):
+        t = self.talep("PERSONEL_EKLE", self.ekle_ham())
+        self.assertEqual(t.gereken_onay, 2)
+        self.assertEqual(self.oy(t, self.c1).durum, "BEKLIYOR")
+        self.assertFalse(Personel.objects.filter(kart_uid="b0b0b006").exists())  # henuz yok
+        with self.assertLogs("banka.bildirim", level="INFO") as kayit:
+            t = self.oy(t, self.c2)
+        self.assertEqual(t.durum, "UYGULANDI")
+        yeni = self.personel("b0b0b006")
+        self.assertEqual((yeni.ad, yeni.rol, yeni.aktif), ("Fatma Demir", 1, True))
+        pin = re.search(r"Yeni PIN'iniz: (\d{4})", "\n".join(kayit.output)).group(1)
+        self.assertEqual(services.personel_dogrula("b0b0b006", pin).id, yeni.id)  # SMS'teki PIN calisiyor
+        # PIN talepte, bildirim kaydinda ya da panelde saklanmaz
+        self.assertNotIn(f"PIN'iniz: {pin}", YonetimTalebi.objects.get(id=t.id).veri)
+        self.assertEqual(set(json.loads(t.veri)), {"ad", "kart_uid", "rol", "eposta", "telefon"})
+        sms = Bildirim.objects.get(olay="pin_iletildi")
+        self.assertNotIn(pin, sms.metin)
+        self.assertEqual(sms.adres, "+905550000006")
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")  # onayli degisiklik yeni goruntu aldi
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_mudur_eklemek_uc_onay_ister(self):
+        t = self.talep("PERSONEL_EKLE", self.ekle_ham(rol=3))
+        self.assertEqual(t.gereken_onay, 3)
+        self.assertEqual(self.oy(t, self.c1, self.c2).durum, "BEKLIYOR")
+        self.assertEqual(self.oy(t, self.c3).durum, "UYGULANDI")
+
+    def test_yetkili_ekleme_dogrulamalari(self):
+        kotuler = [
+            self.ekle_ham(ad="A"), self.ekle_ham(kart_uid="xyz"), self.ekle_ham(kart_uid="b0b0b001"),
+            self.ekle_ham(kart_uid="a0a0a001"), self.ekle_ham(rol=9), self.ekle_ham(telefon=""),
+            self.ekle_ham(eposta="bozuk"),
+        ]
+        for ham in kotuler:
+            with self.assertRaises(YonetimHatasi, msg=str(ham)):
+                self.talep("PERSONEL_EKLE", ham)
+        self.assertEqual(YonetimTalebi.objects.count(), 0)
+
+    # ------------------------------------------------------------ rol ve aktiflik
+
+    def test_rol_yukseltmek_iki_onay_ister(self):
+        ayse = self.personel("b0b0b001")
+        t = self.talep("PERSONEL_ROL", {"personel_id": ayse.id, "yeni_rol": 2})
+        self.assertEqual(t.gereken_onay, 2)
+        self.assertEqual(self.oy(t, self.c1, self.c2).durum, "UYGULANDI")
+        self.assertEqual(self.personel("b0b0b001").rol, 2)
+        mudur_yap = self.talep("PERSONEL_ROL", {"personel_id": self.personel("b0b0b002").id, "yeni_rol": 3})
+        self.assertEqual(mudur_yap.gereken_onay, 3)
+
+    def test_rol_dusurmek_tek_onay_ister_ve_yetkiyi_kaldirir(self):
+        cem = self.personel("b0b0b003")
+        t = self.talep("PERSONEL_ROL", {"personel_id": cem.id, "yeni_rol": 1})
+        self.assertEqual(t.gereken_onay, 1)
+        self.assertEqual(self.oy(t, self.c1).durum, "UYGULANDI")
+        with self.assertRaises(IslemHatasi) as e:  # artik gorevli: kasa acma baslatamaz (RBAC)
+            services.kasa_acma_baslat("b0b0b003", "3333")
+        self.assertEqual(e.exception.kod, "rol_yetersiz")
+
+    def test_son_muduru_dusuremezsin(self):
+        elif_ = self.personel("b0b0b005")
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("PERSONEL_ROL", {"personel_id": elif_.id, "yeni_rol": 2})
+        self.assertEqual(e.exception.kod, "gecersiz_degisiklik")
+        self.assertIn("müdür", e.exception.mesaj)
+
+    def test_en_az_aktif_yetkili_korunur(self):
+        t = self.talep("PERSONEL_DURUM", {"personel_id": self.personel("b0b0b001").id, "aktif": "pasif"})
+        self.assertEqual(t.gereken_onay, 1)
+        self.assertEqual(self.oy(t, self.c1).durum, "UYGULANDI")
+        with self.assertRaises(YonetimHatasi) as e:  # 5 -> 4 oldu; bir daha dusurmek asgarinin altina iner
+            self.talep("PERSONEL_DURUM", {"personel_id": self.personel("b0b0b002").id, "aktif": "pasif"})
+        self.assertEqual(e.exception.kod, "gecersiz_degisiklik")
+
+    def test_pasif_yetkili_giris_yapamaz_ve_aktif_etmek_iki_onay_ister(self):
+        ayse = self.personel("b0b0b001")
+        self.oy(self.talep("PERSONEL_DURUM", {"personel_id": ayse.id, "aktif": False}), self.c1)
+        with self.assertRaises(IslemHatasi) as e:
+            services.personel_dogrula("b0b0b001", "1111")
+        self.assertEqual(e.exception.kod, "yetkisiz")
+        t = self.talep("PERSONEL_DURUM", {"personel_id": ayse.id, "aktif": True})
+        self.assertEqual(t.gereken_onay, 2)
+        self.assertEqual(self.oy(t, self.c1, self.c2).durum, "UYGULANDI")
+        self.assertEqual(services.personel_dogrula("b0b0b001", "1111").id, ayse.id)
+
+    # ------------------------------------------------------------ PIN ve bloke
+
+    def test_pin_sifirlama(self):
+        burak = self.personel("b0b0b002")
+        t = self.talep("PERSONEL_PIN_SIFIRLA", {"personel_id": burak.id})
+        self.assertEqual(t.gereken_onay, 2)
+        self.oy(t, self.c1)
+        with self.assertLogs("banka.bildirim", level="INFO") as kayit:
+            self.assertEqual(self.oy(t, self.c2).durum, "UYGULANDI")
+        pin = re.search(r"Yeni PIN'iniz: (\d{4})", "\n".join(kayit.output)).group(1)
+        with self.assertRaises(IslemHatasi):
+            services.personel_dogrula("b0b0b002", "2222")  # eski PIN artik gecmez
+        self.assertEqual(services.personel_dogrula("b0b0b002", pin).id, burak.id)
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")
+
+    def test_pin_sifirlamak_icin_telefon_gerekir(self):
+        Personel.objects.filter(kart_uid="b0b0b002").update(telefon="")
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("PERSONEL_PIN_SIFIRLA", {"personel_id": self.personel("b0b0b002").id})
+        self.assertEqual(e.exception.kod, "telefon")
+
+    def test_musteri_karti_blokesi_tek_onayla_kalkar(self):
+        for _ in range(3):
+            with self.assertRaises(IslemHatasi):
+                services.musteri_giris("a0a0a001", "0000")
+        self.assertEqual(services.kart_tipi("a0a0a001"), "BLOKE")
+        kart = Kart.objects.get(uid="a0a0a001")
+        t = self.talep("BLOKE_KALDIR", {"hedef": "kart", "id": kart.id})
+        self.assertEqual(t.gereken_onay, 1)
+        self.assertEqual(self.oy(t, self.c1).durum, "UYGULANDI")
+        self.assertEqual(services.kart_tipi("a0a0a001"), "MUSTERI")
+        self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])
+
+    def test_yetkili_blokesi_iki_onayla_kalkar_ve_butunlugu_bozmaz(self):
+        for _ in range(3):
+            with self.assertRaises(IslemHatasi):
+                services.personel_dogrula("b0b0b001", "0000")
+        self.assertEqual(services.kart_tipi("b0b0b001"), "BLOKE")
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")  # sistemin kendi bloke etmesi sapma sayilmaz
+        t = self.talep("BLOKE_KALDIR", {"hedef": "personel", "id": self.personel("b0b0b001").id})
+        self.assertEqual(t.gereken_onay, 2)
+        self.assertEqual(self.oy(t, self.c1, self.c2).durum, "UYGULANDI")
+        self.assertEqual(services.kart_tipi("b0b0b001"), "PERSONEL")
+
+    def test_bloke_degilse_talep_acilamaz(self):
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("BLOKE_KALDIR", {"hedef": "kart", "id": Kart.objects.get(uid="a0a0a001").id})
+        self.assertEqual(e.exception.kod, "gecersiz")
+        with self.assertRaises(YonetimHatasi):
+            self.talep("BLOKE_KALDIR", {"hedef": "baska", "id": 1})
+
+    # ------------------------------------------------------------ limit ve terminal
+
+    def test_gunluk_limit_artirmak_iki_azaltmak_tek_onay(self):
+        artir = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "2000000"})
+        self.assertEqual(artir.gereken_onay, 2)
+        self.oy(artir, self.c1, self.c2)
+        self.assertEqual(Hesap.objects.get(hesap_no="100001").gunluk_limit, Decimal("2000000.00"))
+        azalt = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"})
+        self.assertEqual(azalt.gereken_onay, 1)
+        self.assertEqual(self.oy(azalt, self.c1).durum, "UYGULANDI")
+        self.assertEqual(Hesap.objects.get(hesap_no="100001").gunluk_limit, Decimal("500000.00"))
+
+    def test_gunluk_limit_korkuluklari(self):
+        for yeni in ("6000000", "0", "-5", "abc", "1000000"):  # azami asimi, gecersiz, ayni deger
+            with self.assertRaises(YonetimHatasi, msg=yeni):
+                self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": yeni})
+        with self.assertRaises(YonetimHatasi):
+            self.talep("GUNLUK_LIMIT", {"hesap_no": "900000", "yeni_limit": "100"})  # kasa hesabi musteri degil
+
+    def test_terminal_kapatmak_tek_acmak_iki_onay(self):
+        t = self.talep("TERMINAL_DURUM", {"kod": "ATM-02", "aktif": False})
+        self.assertEqual(t.gereken_onay, 1)
+        self.assertEqual(self.oy(t, self.c1).durum, "UYGULANDI")
+        r = Client().post("/api/kart/", data=json.dumps({"uid": "a0a0a001"}), content_type="application/json",
+                          headers={"X-Kopru-Anahtari": "gelistirme-kopru-anahtari", "X-Terminal-Id": "ATM-02"})
+        self.assertEqual(r.status_code, 403)
+        ac = self.talep("TERMINAL_DURUM", {"kod": "ATM-02", "aktif": True})
+        self.assertEqual(ac.gereken_onay, 2)
+        self.assertEqual(self.oy(ac, self.c1, self.c2).durum, "UYGULANDI")
+        self.assertTrue(Terminal.objects.get(kod="ATM-02").aktif)
+
+    # ------------------------------------------------------------ maker-checker kurallari
+
+    def test_talep_eden_kendi_talebini_onaylayamaz(self):
+        root = self.U.objects.create_superuser("root", "root@banka.example", "x")
+        t = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"}, kullanici=root)
+        with self.assertRaises(YonetimHatasi) as e:
+            yonetim_talepleri.oy_ver(t.id, root, "ONAY")
+        self.assertEqual(e.exception.kod, "kendi_talebi")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="yonetim_onay_reddi_kendi_talebi").exists())
+
+    def test_ayni_onaylayan_iki_kez_sayilmaz(self):
+        t = self.talep("PERSONEL_EKLE", self.ekle_ham())
+        self.oy(t, self.c1)
+        with self.assertRaises(YonetimHatasi) as e:
+            self.oy(t, self.c1)
+        self.assertEqual(e.exception.kod, "tekrar")
+        self.assertEqual(YonetimTalebi.objects.get(id=t.id).oylar.count(), 1)
+
+    def test_yetkisiz_kullanici(self):
+        t = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"})
+        dis = self.U.objects.create_user("dis", is_staff=True)
+        politika_onaylayan = self.U.objects.get(username="politika_onay1")  # baska alanin onaylayicisi
+        for kullanici in (self.maker, dis, politika_onaylayan):
+            with self.assertRaises(YonetimHatasi) as e:
+                yonetim_talepleri.oy_ver(t.id, kullanici, "ONAY")
+            self.assertEqual(e.exception.kod, "yetki")
+        for kullanici in (dis, politika_onaylayan, self.c1):  # onaylayicilar talep de acamaz
+            with self.assertRaises(YonetimHatasi) as e:
+                self.talep("GUNLUK_LIMIT", {"hesap_no": "100002", "yeni_limit": "100"}, kullanici=kullanici)
+            self.assertEqual(e.exception.kod, "yetki")
+
+    def test_red_sure_ve_iptal(self):
+        t = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"})
+        self.assertEqual(self.oy(t, self.c1, karar="RED").durum, "REDDEDILDI")
+        self.assertEqual(self.oy(t, self.c2).durum, "REDDEDILDI")  # kapali talep
+        self.assertEqual(Hesap.objects.get(hesap_no="100001").gunluk_limit, Decimal("1000000.00"))
+
+        t2 = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"})
+        YonetimTalebi.objects.filter(id=t2.id).update(son_tarih=timezone.now() - datetime.timedelta(seconds=1))
+        self.assertEqual(self.oy(t2, self.c1).durum, "SURESI_DOLDU")
+
+        t3 = self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "400000"})
+        with self.assertRaises(YonetimHatasi) as e:
+            yonetim_talepleri.iptal(t3.id, self.c1)
+        self.assertEqual(e.exception.kod, "yetki")
+        self.assertEqual(yonetim_talepleri.iptal(t3.id, self.maker).durum, "IPTAL")
+
+    def test_ayni_hedef_icin_cakisan_talep(self):
+        ayse = self.personel("b0b0b001")
+        self.talep("PERSONEL_ROL", {"personel_id": ayse.id, "yeni_rol": 2})
+        with self.assertRaises(YonetimHatasi) as e:  # farkli tur ama ayni hedef
+            self.talep("PERSONEL_PIN_SIFIRLA", {"personel_id": ayse.id})
+        self.assertEqual(e.exception.kod, "cakisan")
+
+    def test_gerekce_ve_tur_zorunlu(self):
+        with self.assertRaises(YonetimHatasi) as e:
+            yonetim_talepleri.talep_olustur(self.maker, "GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "1"}, "kısa")
+        self.assertEqual(e.exception.kod, "gerekce")
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep("YOK", {})
+        self.assertEqual(e.exception.kod, "tur")
+
+    def test_talep_acilinca_onaylayicilara_eposta_gider(self):
+        self.talep("GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"})
+        alicilar = sorted(a for m in mail.outbox if m.subject.startswith("Yönetim talebi") for a in m.to)
+        self.assertEqual(alicilar, ["yonetim_onay1@banka.example", "yonetim_onay2@banka.example",
+                                    "yonetim_onay3@banka.example"])
+
+    def test_olaylar_zincire_yazilir(self):
+        self.oy(self.talep("PERSONEL_EKLE", self.ekle_ham()), self.c1, self.c2)
+        olaylar = list(LogKaydi.objects.values_list("olay_turu", flat=True))
+        for beklenen in ("yonetim_talebi", "yonetim_onayi", "yonetim_talebi_uygulandi"):
+            self.assertIn(beklenen, olaylar)
+        self.assertEqual(olaylar.count("personel_goruntusu"), 2)  # seed + bu degisiklik
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+
+# ====================================================================== yetkili (personel) butunlugu
+
+@override_settings(MESAI_DISI_KURALI=False)
+class PersonelButunluguTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+
+    def bekleyen(self, tutar="10000"):
+        return services.islem_baslat(self.giris(), "CEKME", tutar)
+
+    def test_baslangic_tutarli(self):
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")
+
+    def test_sahte_yetkili_eklenirse_onaylar_ve_kasa_acma_kapanir(self):
+        s = self.bekleyen()
+        sahte = Personel(ad="Sahte", kart_uid="c0c0c001", rol=Rol.MUDUR)
+        sahte.pin_ayarla("9999")
+        sahte.save()  # dogrudan veritabani mudahalesi
+        self.assertEqual(personel_butunlugu.durum(), "tutarsiz")
+        with self.assertRaises(IslemHatasi) as e:
+            services.onay_karar(s["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(e.exception.kod, "butunluk")
+        with self.assertRaises(IslemHatasi) as e:
+            services.kasa_acma_baslat("b0b0b003", "3333")
+        self.assertEqual(e.exception.kod, "butunluk")
+        self.assertEqual(LogKaydi.objects.filter(olay_turu="personel_butunluk_ihlali").count(), 1)  # saatte bir
+        rapor = ledger.mutabakat()
+        self.assertFalse(rapor["saglam"])
+        self.assertEqual(rapor["personel"], "tutarsiz")
+        self.assertTrue(zinciri_dogrula()["saglam"])  # mudahale gorunur kaldi, log bozulmadi
+
+    def test_rol_pin_ve_aktiflik_degisiklikleri_yakalanir(self):
+        degisiklikler = [
+            lambda: Personel.objects.filter(kart_uid="b0b0b001").update(rol=3),
+            lambda: Personel.objects.filter(kart_uid="b0b0b001").update(aktif=False),
+            lambda: Personel.objects.filter(kart_uid="b0b0b001").update(pin_hash="uydurma-hash"),
+            lambda: Personel.objects.filter(kart_uid="b0b0b001").update(kart_uid="d0d0d001"),
+        ]
+        for degistir in degisiklikler:
+            with transaction.atomic():
+                degistir()
+                self.assertEqual(personel_butunlugu.durum(), "tutarsiz")
+                transaction.set_rollback(True)
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")
+
+    def test_sistemin_kendi_guncellemeleri_ve_iletisim_bilgisi_bozmaz(self):
+        Personel.objects.filter(kart_uid="b0b0b001").update(bloke=True, hatali_deneme=2)
+        Personel.objects.filter(kart_uid="b0b0b002").update(eposta="yeni@banka.example", telefon="+905559999999", ad="Yeni Ad")
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")
+
+    def test_tutarsizken_personel_degisikligi_uygulanmaz_ama_digerleri_uygulanir(self):
+        Personel.objects.filter(kart_uid="b0b0b001").update(rol=3)  # onaysiz mudahale
+        maker = self.U.objects.get(username="yonetim_talep")
+        c1, c2 = self.U.objects.get(username="yonetim_onay1"), self.U.objects.get(username="yonetim_onay2")
+        burak = Personel.objects.get(kart_uid="b0b0b002")
+        t = yonetim_talepleri.talep_olustur(maker, "PERSONEL_ROL", {"personel_id": burak.id, "yeni_rol": 2}, GEREKCE)
+        yonetim_talepleri.oy_ver(t.id, c1, "ONAY")
+        self.assertEqual(yonetim_talepleri.oy_ver(t.id, c2, "ONAY").durum, "BASARISIZ")
+        self.assertEqual(Personel.objects.get(kart_uid="b0b0b002").rol, 1)
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="yonetim_talebi_uygulanamadi").exists())
+        # yetkili kumesini ilgilendirmeyen bir talep (limit) yine uygulanir
+        limit = yonetim_talepleri.talep_olustur(maker, "GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"}, GEREKCE)
+        self.assertEqual(yonetim_talepleri.oy_ver(limit.id, c1, "ONAY").durum, "UYGULANDI")
+
+    def test_goruntu_al_komutu(self):
+        cikti = io.StringIO()
+        call_command("personel_goruntu_al", stdout=cikti)
+        self.assertIn("zaten", cikti.getvalue())
+        Personel.objects.filter(kart_uid="b0b0b001").update(rol=3)
+        with self.assertRaises(SystemExit):  # onaysiz degisikligi sessizce mesrulastirmaz
+            call_command("personel_goruntu_al", stdout=io.StringIO(), stderr=io.StringIO())
+        call_command("personel_goruntu_al", "--zorla", stdout=io.StringIO())
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="personel_goruntusu", veri__contains="--zorla").exists())
+
+    def test_onayli_goruntu_yoksa_zorlama_yapilmaz(self):
+        LogKaydi.objects.filter(olay_turu="personel_goruntusu").delete()
+        self.assertEqual(personel_butunlugu.durum(), "baslangic_yok")
+        s = self.bekleyen()
+        self.assertEqual(services.onay_karar(s["talep_id"], "b0b0b001", "1111", "ONAY")["durum"], "UYGULANDI")
+        self.assertEqual(ledger.mutabakat()["personel"], "baslangic_yok")
+
+
+# ====================================================================== admin: dogrudan duzenleme kapali
+
+@override_settings(MESAI_DISI_KURALI=False)
+class YonetimAdminTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+        self.U = get_user_model()
+        self.root = self.U.objects.create_superuser("root", "root@banka.example", "x")
+
+    def test_yetkili_ekleme_rol_ve_silme_admin_den_yapilamaz(self):
+        self.client.force_login(self.root)
+        self.assertEqual(self.client.get("/admin/banka/personel/add/").status_code, 403)
+        ayse = Personel.objects.get(kart_uid="b0b0b001")
+        self.assertEqual(self.client.post(f"/admin/banka/personel/{ayse.id}/delete/", {"post": "yes"}).status_code, 403)
+        r = self.client.post(f"/admin/banka/personel/{ayse.id}/change/", {
+            "ad": "Ayşe Yeni", "eposta": "ayse@banka.example", "telefon": "+905550000001",
+            "rol": "3", "aktif": "", "bloke": "on", "kart_uid": "ffffffff",   # salt okunur alanlar yok sayilir
+        })
+        self.assertEqual(r.status_code, 302)
+        ayse.refresh_from_db()
+        self.assertEqual((ayse.ad, ayse.rol, ayse.aktif, ayse.bloke, ayse.kart_uid), ("Ayşe Yeni", 1, True, False, "b0b0b001"))
+        self.assertEqual(personel_butunlugu.durum(), "tutarli")
+
+    def test_bakiye_ve_limit_admin_den_degismez(self):
+        self.client.force_login(self.root)
+        hesap = Hesap.objects.get(hesap_no="100001")
+        r = self.client.post(f"/admin/banka/hesap/{hesap.id}/change/", {
+            "musteri": hesap.musteri_id, "hesap_no": "100001", "bakiye": "99999999", "gunluk_limit": "99999999",
+            "acilis_bakiyesi": "99999999", "tur": "KASA",
+        })
+        self.assertEqual(r.status_code, 302)
+        hesap.refresh_from_db()
+        self.assertEqual((hesap.bakiye, hesap.gunluk_limit, hesap.tur), (Decimal("1000000.00"), Decimal("1000000.00"), "MUSTERI"))
+
+    def test_terminal_durumu_ve_kart_blokesi_admin_den_degismez(self):
+        self.client.force_login(self.root)
+        t = Terminal.objects.get(kod="ATM-02")
+        self.client.post(f"/admin/banka/terminal/{t.id}/change/", {"kod": "ATM-02", "ad": "Yeni", "enlem": "41.0", "boylam": "28.9"})
+        t.refresh_from_db()
+        self.assertTrue(t.aktif)  # aktif alani formda yok: kapatilamaz
+        kart = Kart.objects.get(uid="a0a0a001")
+        Kart.objects.filter(id=kart.id).update(bloke=True, hatali_deneme=3)
+        r = self.client.post(f"/admin/banka/kart/{kart.id}/change/", {"uid": "a0a0a001", "hesap": kart.hesap_id, "yeni_pin": "", "bloke": ""})
+        self.assertEqual(r.status_code, 302)
+        kart.refresh_from_db()
+        self.assertTrue(kart.bloke)  # bloke yalnizca talep-onay ile kalkar
+
+    def test_yonetim_talebi_formu(self):
+        self.client.force_login(self.U.objects.get(username="yonetim_talep"))
+        self.assertEqual(self.client.get("/admin/banka/yonetimtalebi/add/").status_code, 200)
+        veri = {"tur": "PERSONEL_EKLE", "gerekce": "Yeni vardiya yetkilisi eklenmesi", "ad": "Fatma Demir",
+                "kart_uid": "b0b0b006", "deger": "1", "eposta": "fatma@banka.example", "telefon": "+905550000006",
+                "hedef_no": "", "hedef_turu": "", "_save": "Kaydet"}
+        r = self.client.post("/admin/banka/yonetimtalebi/add/", veri)
+        self.assertEqual(r.status_code, 302)
+        t = YonetimTalebi.objects.get()
+        self.assertEqual((t.tur, t.durum, t.gereken_onay), ("PERSONEL_EKLE", "BEKLIYOR", 2))
+        self.assertFalse(Personel.objects.filter(kart_uid="b0b0b006").exists())  # henuz uygulanmadi
+        kotu = self.client.post("/admin/banka/yonetimtalebi/add/", {**veri, "kart_uid": "b0b0b007", "deger": "9"})
+        self.assertEqual(kotu.status_code, 200)
+        self.assertContains(kotu, "Rol 1")
+        self.assertEqual(YonetimTalebi.objects.count(), 1)
+
+    def test_onay_admin_aksiyonuyla_verilir_ve_talep_eden_aksiyonu_gormez(self):
+        maker = self.U.objects.get(username="yonetim_talep")
+        t = yonetim_talepleri.talep_olustur(maker, "GUNLUK_LIMIT", {"hesap_no": "100001", "yeni_limit": "500000"}, GEREKCE)
+        self.client.force_login(maker)
+        self.assertNotContains(self.client.get("/admin/banka/yonetimtalebi/"), 'value="onayla"')
+        c1 = self.U.objects.get(username="yonetim_onay1")
+        self.client.force_login(c1)
+        self.assertContains(self.client.get("/admin/banka/yonetimtalebi/"), 'value="onayla"')
+        r = self.client.post("/admin/banka/yonetimtalebi/", {"action": "onayla", "_selected_action": [t.id], "index": "0"})
+        self.assertEqual(r.status_code, 302)
+        t.refresh_from_db()
+        self.assertEqual(t.durum, "UYGULANDI")
+        self.assertEqual(Hesap.objects.get(hesap_no="100001").gunluk_limit, Decimal("500000.00"))
+
+    def test_panel_yetkili_butunlugu_bolumu(self):
+        self.client.force_login(self.root)
+        r = self.client.get("/")
+        self.assertContains(r, "Yetkili bütünlüğü")
+        self.assertContains(r, "Yetkili kayıtları son onaylı sürümle aynı")

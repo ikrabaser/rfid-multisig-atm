@@ -41,6 +41,18 @@
     {% endfor %}
   </table>
 
+  <h2>Yetkili bütünlüğü ve yönetim talepleri</h2>
+  <div class="{{ personel_durumu.0 }}">{{ personel_durumu.1 }}</div>
+  <table>
+    <tr><th>Talep</th><th>İşlem</th><th>Özet</th><th>Durum</th><th>Talep eden</th><th>Son tarih</th></tr>
+    {% for t in yonetim_talepleri %}
+      <tr><td>#{{ t.id }}</td><td>{{ t.get_tur_display }}</td><td>{{ t.ozet }}</td>
+          <td>{{ t.get_durum_display }}</td><td>{{ t.talep_eden }}</td><td>{{ t.son_tarih|date:"d.m H:i" }}</td></tr>
+    {% empty %}
+      <tr><td colspan="6">Yönetim talebi yok.</td></tr>
+    {% endfor %}
+  </table>
+
   <h2>Anomali uyarıları (son 24 saat)</h2>
   {% if anomaliler %}
     <table>

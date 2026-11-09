@@ -2,12 +2,11 @@ import secrets
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from banka import politika_degisikligi
-
+from banka import personel_butunlugu, politika_degisikligi, rbac
 from banka.models import Hesap, Kart, Musteri, Personel, Politika, Rol, Terminal
 
 # DEMO verisi. UID'ler sahte; admin panelinden kendi kartlarının UID'si ile değiştir.
@@ -40,15 +39,18 @@ POLITIKALAR = [
 ]
 
 
-# Politika degisikligi (maker-checker) icin yonetim kullanicilari: 1 talep eden + 2 onaylayan
-GRUPLAR = {
-    "Politika Talep Eden": ["politika_talep_et", "view_politikadegisikligi", "view_politika"],
-    "Politika Onaylayan": ["politika_onayla", "view_politikadegisikligi", "view_politika"],
-}
+# Yonetim (admin) kullanicilari: rol -> grup eslemesi rbac.py'deki tanimlardan gelir.
+# Maker-checker icin talep edenler ve onaylayanlar FARKLI kisilerdir (gorev ayrimi); 3 onay gerektiren
+# islemler (ornegin mudur ekleme) icin 3 onaylayan tanimlidir.
 YONETIM_KULLANICILARI = [
     ("politika_talep", "Politika Talep Eden"),
     ("politika_onay1", "Politika Onaylayan"),
     ("politika_onay2", "Politika Onaylayan"),
+    ("yonetim_talep", "Yönetim Talep Eden"),
+    ("yonetim_onay1", "Yönetim Onaylayan"),
+    ("yonetim_onay2", "Yönetim Onaylayan"),
+    ("yonetim_onay3", "Yönetim Onaylayan"),
+    ("denetci", "Denetçi"),
 ]
 
 
@@ -56,9 +58,7 @@ class Command(BaseCommand):
     help = "Demo müşteri, personel ve politika verisini oluşturur (varsa dokunmaz)."
 
     def _yonetim_kullanicilari(self):
-        for grup_adi, izinler in GRUPLAR.items():
-            grup, _ = Group.objects.get_or_create(name=grup_adi)
-            grup.permissions.set(Permission.objects.filter(content_type__app_label="banka", codename__in=izinler))
+        rbac.kur()
         Kullanici = get_user_model()
         for ad, grup_adi in YONETIM_KULLANICILARI:
             if Kullanici.objects.filter(username=ad).exists():
@@ -115,6 +115,9 @@ class Command(BaseCommand):
         if politika_degisikligi.goruntu_tutarli_mi() is None:
             politika_degisikligi.goruntu_kaydet("seed_demo")
             self.stdout.write("Politika onaylı başlangıç görüntüsü kaydedildi.")
+        if personel_butunlugu.tutarli_mi() is None:
+            personel_butunlugu.goruntu_kaydet("seed_demo")
+            self.stdout.write("Yetkili kayıtları için onaylı başlangıç görüntüsü kaydedildi.")
         self._yonetim_kullanicilari()
 
         self.stdout.write(self.style.SUCCESS("Demo verisi hazır. PIN'ler demo içindir, gerçek kullanımda değiştir."))
