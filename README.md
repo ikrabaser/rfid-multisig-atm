@@ -38,6 +38,8 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Maker-checker**: politika değişikliği 2 farklı kullanıcının onayını ister, korkuluklar, onaysız değişiklik tespiti | `politika_degisikligi.py` | admin → Politika değişikliği talepleri |
 | **RBAC**: rol → yetki matrisi, admin grupları koddan, görev ayrımı denetimi | `rbac.py` | `python manage.py rbac_denetimi` |
 | **Hassas yönetim işlemleri için maker-checker** (yetkili ekleme, rol, PIN, bloke, limit, terminal) | `yonetim_talepleri.py` | admin → Yönetim talepleri |
+| **Müşteri kartı ve PIN'i maker-checker'da**: kart tanımlama, PIN sıfırlama, telefon; PIN müşterinin telefonuna gider | `yonetim_talepleri.py` | admin → Yönetim talepleri |
+| **Kart bütünlüğü**: sahte/değiştirilmiş kart yalnızca kendisi kapanır | `kart_butunlugu.py` | `python manage.py kart_goruntu_al` |
 | **Yetkili bütünlüğü**: sahte yetkili/rol/PIN değişikliği veritabanından yapılırsa onaylar kapanır | `personel_butunlugu.py` | `python manage.py personel_goruntu_al` |
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
 
@@ -59,6 +61,7 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | `backend/banka/rbac.py` | Rol → yetki matrisi, admin grupları, görev ayrımı denetimi |
 | `backend/banka/yonetim_talepleri.py` | Hassas yönetim işlemleri için maker-checker (7 işlem türü) |
 | `backend/banka/personel_butunlugu.py` | Yetkili kümesinin onaylı görüntüsü ve sapma tespiti |
+| `backend/banka/kart_butunlugu.py` | Müşteri kartlarının onaylı listesi ve kart başına doğrulama |
 | `backend/banka/api.py` | Köprünün konuştuğu JSON API |
 | `backend/https_sunucu.py` | Geliştirme için HTTPS sunucusu |
 | `backend/banka/tests.py` | Politika, onay, defter, idempotency, limit, anomali, kasa açma, zincir testleri |
@@ -90,7 +93,8 @@ admin panelinden (`/admin/`) gir.
 > Mevcut veritabanın varsa silmene gerek yok: `makemigrations` yeni bir migration (`0003_...`) üretir, `migrate` uygular,
 > `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar, politika ve yetkili kümesi için
 > onaylı başlangıç görüntülerini kaydeder, RBAC gruplarını kurar ve 8 demo yönetim kullanıcısı oluşturur
-> (`politika_talep`, `politika_onay1-2`, `yonetim_talep`, `yonetim_onay1-3`, `denetci`);
+> (`politika_talep`, `politika_onay1-2`, `yonetim_talep`, `yonetim_onay1-3`, `denetci`), demo müşterilere sahte
+> telefon numarası atar (PIN'ler oraya SMS ile gider) ve kart listesi için de onaylı başlangıç görüntüsü kaydeder;
 > **şifreleri yalnızca ilk çalıştırmada ekrana yazar**, not al.
 > Veritabanın eskiden kalmaysa ve politikaların varsa bir kez `python manage.py politika_goruntu_al` çalıştır.
 
@@ -514,6 +518,9 @@ yapılır: bir kullanıcı talep açar, işlemin ağırlığına göre BAŞKA ku
 | Bloke kaldır | yetkili 2, müşteri kartı 1 | Hedef gerçekten bloke olmalı |
 | Günlük limit değiştir | artırma 2, azaltma 1 | 0 < limit ≤ `HESAP_GUNLUK_LIMIT_AZAMI` (5.000.000 TL) |
 | Terminal aç/kapat | açma 2, kapatma 1 | — |
+| Müşteriye kart tanımla | 2 | Kart UID tekil, hesap başına en fazla 3 kart, müşterinin telefonu kayıtlı olmalı |
+| Müşteri kartının PIN'ini sıfırla | 2 | Müşterinin telefonu kayıtlı olmalı |
+| Müşteri telefonunu değiştir | 2 | Onaylayıcı yeni numarayı tam, eskisini maskeli görür |
 
 Koruyucu yönler (rol düşürme, pasif yapma, limit azaltma, terminal kapatma) az onay, genişletici yönler çok onay ister.
 Onay sayıları `YONETIM_ONAY_SAYILARI` ayarındadır.
@@ -524,8 +531,31 @@ Onay sayıları `YONETIM_ONAY_SAYILARI` ayarındadır.
 - **PIN'ler asla talebe yazılmaz ve hiçbir kullanıcıya gösterilmez:** uygulama anında rastgele üretilir (aynı rakamlı ve
   ardışık PIN'ler hariç) ve yetkilinin **kendi telefonuna** SMS ile iletilir. Simülasyonda SMS içeriği yalnızca
   `banka.bildirim` log satırında görünür; bildirim kaydında ve panelde görünmez.
-- Bilinçli kapsam dışı: müşteri kartı tanımlama ve müşteri PIN'i admin'den hâlâ yapılabilir (gerçek bankada PIN mailer ve
-  HSM ile). Bu, bilinen bir açıktır, bkz. sıradaki fikirler.
+- **Müşteri kartı ve PIN'i de bu mekanizmanın içindedir** (aşağıda "Müşteri kartları ve PIN'leri").
+
+## Müşteri kartları ve PIN'leri
+
+Yetkililer korunuyordu ama bir yönetici admin'den müşteriye bilinen PIN'li bir kart tanımlayıp parayı çekebilirdi. Bu açık
+şöyle kapatıldı:
+
+- **Admin'de Kart salt okunurdur** (ekleme, değiştirme, silme kapalı; PIN hash'i bile görünmez). Müşterinin telefonu da
+  salt okunurdur. Üç talep türü vardır: **Müşteriye kart tanımla**, **Müşteri kartının PIN'ini sıfırla**, **Müşteri
+  telefonunu değiştir** (hepsi 2 onay). Bloke kaldırma zaten talep ile yapılıyordu.
+- **PIN kimse tarafından bilinmez ve gösterilmez:** uygulama anında rastgele üretilir ve **müşterinin kayıtlı
+  telefonuna** SMS ile gider (simülasyon; gerçek bankada PIN mailer/HSM). Talep, bildirim kaydı, panel ve log PIN içermez.
+- **Telefon, hesap ele geçirmenin kapısıdır, o yüzden kendisi de maker-checker'dadır:** yeni numara onaylayıcıya
+  **tam**, eski numara maskeli gösterilir (müşteriyle doğrulansın diye). PIN talebi açıldıktan sonra numara
+  değişirse talep **uygulanmaz** (talepte telefonun özeti saklanır), yani PIN yeni numaraya sızdırılamaz.
+- **Kart bütünlüğü (kart başına):** Her onaylı kart değişikliğinde kart listesi (UID, hesap no, PIN hash özeti) hash
+  zincirine yazılır. Terminalde bir kart okutulunca ya da giriş yapılınca kartın satırı bu listede aranır; veritabanına
+  doğrudan eklenmiş, PIN'i değiştirilmiş ya da başka hesaba taşınmış bir kart **doğrulanamaz** ve "bloke" gibi davranır
+  (`kart_butunluk_ihlali` loga yazılır, anomali taraması `butunluk_ihlali` olarak işaretler). Yetkililerden farkı:
+  yalnızca ilgili kart kapanır, **diğer müşteriler etkilenmez**. Kartlarla ilgili yeni talepler ise liste tutarsızken
+  uygulanmaz. `kart_goruntu_al` ilk kurulum içindir, tutarsızken meşrulaştırmayı reddeder, `--zorla` ister.
+
+Dürüst sınırlar: Bloke durumu özete girmediği için veritabanından bloke kaldırma yakalanmaz. Kart listesi log'a satır satır
+yazıldığından çok büyük bankalarda bu yöntem ölçeklenmez (orada Merkle ağacı ya da HSM kullanılır). SMS simülasyonunda PIN
+yalnızca `banka.bildirim` log satırında görünür.
 
 ## Yetkili bütünlüğü
 
@@ -606,10 +636,10 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 
 ## Sıradaki fikirler
 
-1. Müşteri kartı tanımlama ve müşteri PIN'ini de onaya bağlamak (PIN mailer benzeri tek seferlik teslim).
-2. Bloke durumunu da log tabanlı doğrulamak (veritabanından bloke kaldırmayı yakalamak).
-3. Kullanıcı ve grup yönetimini de onaya bağlamak.
-4. Elle ters kayıt (dört göz ile).
+1. Bloke durumunu da log tabanlı doğrulamak (veritabanından bloke kaldırmayı yakalamak).
+2. Kullanıcı ve grup yönetimini de onaya bağlamak.
+3. Elle ters kayıt (dört göz ile).
+4. Müşteri PIN'ini müşterinin kendisinin değiştirmesi (terminalde, eski PIN ile).
 5. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
 6. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
 7. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
