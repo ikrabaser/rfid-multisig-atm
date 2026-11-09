@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 
 from . import politika_degisikligi, yonetim_talepleri
-from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, Onay,
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, Onay,
                      OnayTalebi, Personel, Politika, PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol,
                      Terminal, TerminalGunlukKaydi, YonetimOyu, YonetimTalebi)
 from .politika_degisikligi import PolitikaHatasi
@@ -90,8 +90,8 @@ class SadeceOkunur(admin.ModelAdmin):
 
 @admin.register(Islem)
 class IslemAdmin(SadeceOkunur):
-    list_display = ("id", "tur", "tutar", "hesap", "durum", "teslim", "terminal", "olusturma")
-    list_filter = ("tur", "durum")
+    list_display = ("id", "tur", "tutar", "hesap", "durum", "teslim", "dagitim_plani", "terminal", "olusturma")
+    list_filter = ("tur", "durum", "teslim")
 
 
 @admin.register(OnayTalebi)
@@ -119,8 +119,15 @@ class HesapHareketiAdmin(SadeceOkunur):
 @admin.register(Terminal)
 class TerminalAdmin(admin.ModelAdmin):
     """Açık/kapalı durumu yalnızca 'Yönetim talepleri → Terminali aç/kapat' ile değişir."""
-    list_display = ("kod", "ad", "enlem", "boylam", "aktif")
-    readonly_fields = ("aktif",)
+    list_display = ("kod", "ad", "enlem", "boylam", "aktif", "nakit_dagitimi")
+    readonly_fields = ("aktif", "nakit_dagitimi")
+
+
+@admin.register(Kaset)
+class KasetAdmin(SadeceOkunur):
+    """Stok yalnızca servis katmanı ve 'kaset_doldur' komutuyla değişir (hash zincirine yazılır)."""
+    list_display = ("terminal", "nominal", "adet", "rezerve", "kullanilabilir", "iade_kutusu")
+    list_filter = ("terminal",)
 
 
 @admin.register(TerminalGunlukKaydi)

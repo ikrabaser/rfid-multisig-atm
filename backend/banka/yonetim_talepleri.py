@@ -33,6 +33,7 @@ from django.utils import timezone
 
 from . import bildirim, bloke_butunlugu, kart_butunlugu, personel_butunlugu
 from .hashlog import kayit_ekle
+from .kilit import zincir_kilidi
 from .models import Hesap, Kart, Musteri, Personel, Rol, Terminal, YonetimOyu, YonetimTalebi, uid_duzelt
 
 T = YonetimTalebi.Tur
@@ -458,6 +459,7 @@ def talep_kaydet(talep, kullanici, ham):
     talep.durum = YonetimTalebi.Durum.BEKLIYOR
     talep.son_tarih = timezone.now() + timedelta(hours=settings.YONETIM_TALEP_SURE_SAAT)
     with transaction.atomic():
+        zincir_kilidi()
         talep.save()
         kayit_ekle("yonetim_talebi", {
             "talep_id": talep.id, "tur": talep.tur, "ozet": talep.ozet, "hedef": talep.hedef,
@@ -491,6 +493,7 @@ def suresi_dolanlari_kapat():
         durum=YonetimTalebi.Durum.BEKLIYOR, son_tarih__lt=timezone.now()
     ).values_list("id", flat=True):
         with transaction.atomic():
+            zincir_kilidi()
             _suresi_dolduysa_kapat(YonetimTalebi.objects.select_for_update().get(id=talep_id))
 
 
@@ -528,6 +531,7 @@ def oy_ver(talep_id, kullanici, karar):
     Durum = YonetimTalebi.Durum
     hata, sonradan = None, []
     with transaction.atomic():
+        zincir_kilidi()
         talep = YonetimTalebi.objects.select_for_update().filter(id=talep_id).first()
         if talep is None:
             raise YonetimHatasi("Talep bulunamadı", "yok")
@@ -569,6 +573,7 @@ def oy_ver(talep_id, kullanici, karar):
 def iptal(talep_id, kullanici):
     """Yalnızca talep sahibi, bekleyen talebini geri çekebilir."""
     with transaction.atomic():
+        zincir_kilidi()
         talep = YonetimTalebi.objects.select_for_update().filter(id=talep_id).first()
         if talep is None:
             raise YonetimHatasi("Talep bulunamadı", "yok")

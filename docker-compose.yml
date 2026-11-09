@@ -1,0 +1,24 @@
+# Yerel PostgreSQL (geliştirme). Kullanım:  docker compose up -d
+# Varsayılan bağlantı ayarları backend/kasa/settings.py ile aynıdır (db: kasa, kullanıcı: kasa, parola: kasa).
+# GERÇEK ortamda parolayı değiştir ve portu dışarı açma.
+services:
+  db:
+    image: postgres:16
+    container_name: kasa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kasa
+      POSTGRES_USER: kasa
+      POSTGRES_PASSWORD: kasa
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - kasa-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kasa -d kasa"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  kasa-pgdata:

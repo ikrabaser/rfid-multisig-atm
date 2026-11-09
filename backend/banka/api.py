@@ -99,4 +99,4 @@ def terminal_gunlugu(g):
 
 @kopru_endpoint
 def teslim(g):
-    return services.teslim_bildir(g.get("islem_id"), g.get("durum"))
+    return services.teslim_bildir(g.get("islem_id"), g.get("durum"), g.get("verilen"))

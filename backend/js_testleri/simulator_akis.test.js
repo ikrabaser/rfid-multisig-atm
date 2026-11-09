@@ -28,12 +28,26 @@ function sahteSunucu() {
     b0b0b003: { ad: "Cem", rol: 2, pin: "3333" }, b0b0b004: { ad: "Deniz", rol: 2, pin: "4444" },
     b0b0b005: { ad: "Elif", rol: 3, pin: "5555" },
   };
-  const s = { bakiye: 1000000, komutlar: [], kapali: false, gecikme: 0, talepler: {}, sonTalep: 0, sonIslem: 0, islemler: {} };
+  const s = { bakiye: 1000000, komutlar: [], kapali: false, gecikme: 0, talepler: {}, sonTalep: 0, sonIslem: 0, islemler: {},
+              anahtarlar: {}, yanitKaybi: false, dagiticiKapali: false };
+
+  // Basit banknot plani (200/100/50/20, acgozlu): sunucudaki gercek algoritmanin yerine yalnizca bicim icin
+  function planYap(tutar) {
+    const parca = [];
+    let kalan = tutar;
+    for (const n of [200, 100, 50, 20]) {
+      const adet = Math.floor(kalan / n);
+      if (adet) parca.push(`${n}x${adet}`);
+      kalan -= adet * n;
+    }
+    return parca.join("+");
+  }
+  const planTutari = (plan) => plan.split("+").filter(Boolean).reduce((t, p) => t + p.split("x").map(Number).reduce((a, b) => a * b), 0);
 
   function uygula(t) {
     if (t.tur === "CEKME") {
       s.bakiye -= t.tutar;
-      s.islemler[t.islemNo] = { tutar: t.tutar, teslim: "BEKLIYOR" };
+      s.islemler[t.islemNo] = { tutar: t.tutar, teslim: "BEKLIYOR", plan: planYap(t.tutar) };
     }
   }
 
@@ -42,6 +56,7 @@ function sahteSunucu() {
     if (s.kapali) throw new Error("sunucu kapali");
     if (s.gecikme) await uyu(s.gecikme);
     const p = satir.split("|");
+    if (p[0] === "ISLEM" && p[5] && s.anahtarlar[p[5]]) return s.anahtarlar[p[5]];   // idempotency: ayni anahtar, ayni sonuc
     switch (p[0]) {
       case "KART":
         if (musteriler[p[1]]) return musteriler[p[1]].bloke ? "TIP|BLOKE" : "TIP|MUSTERI";
@@ -61,8 +76,12 @@ function sahteSunucu() {
           s.talepler[id] = { id, tur: "CEKME", tutar, gereken: 2, verilen: 0, oy: new Set(), baslatan: "musteri", durum: "BEKLIYOR", islemNo };
           return `BEKLE|${id}|2`;
         }
+        if (p[2] === "C" && s.dagiticiKapali) return hata("Para dagitici arizali");
         uygula({ tur: "CEKME", tutar, islemNo });
-        return `TAMAM|${s.bakiye.toFixed(2)}|${islemNo}`;
+        const cevap = `TAMAM|${s.bakiye.toFixed(2)}|${islemNo}|${p[2] === "C" ? planYap(tutar) : ""}`;
+        if (p[5]) s.anahtarlar[p[5]] = cevap;
+        if (s.yanitKaybi) { s.yanitKaybi = false; throw new Error("cevap kayboldu"); }   // islem YAPILDI, cevap ulasmadi
+        return cevap;
       }
       case "KASAAC": {
         const y = yetkililer[p[1]];
@@ -80,7 +99,7 @@ function sahteSunucu() {
       case "DURUM": {
         const t = s.talepler[p[1]];
         if (!t) return hata("Talep bulunamadi");
-        return `DURUM|${t.verilen}|${t.gereken}|${t.durum}|25|0|${t.tur}|${t.islemNo}`;
+        return `DURUM|${t.verilen}|${t.gereken}|${t.durum}|25|0|${t.tur}|${t.islemNo}|${t.tur === "CEKME" ? planYap(t.tutar) : ""}`;
       }
       case "ONAY": {
         const t = s.talepler[p[1]];
@@ -102,10 +121,19 @@ function sahteSunucu() {
       case "TESLIM": {
         const i = s.islemler[p[1]];
         if (!i) return hata("Islem bulunamadi");
-        if (p[2] === "A") { i.teslim = "ALINDI"; return "TESLIM|ALINDI"; }
-        s.bakiye += i.tutar;
+        if (p[2] === "A") { i.teslim = "ALINDI"; return "TESLIM|ALINDI|0.00"; }
+        if (p[2] === "K") {                       // eksik verildi: yalniz fark iade edilir, dagitici kapanir
+          const verilen = planTutari(p[3] || "");
+          const iade = i.tutar - verilen;
+          s.bakiye += iade;
+          i.teslim = "KISMI";
+          s.dagiticiKapali = true;
+          return `TESLIM|KISMI|${iade.toFixed(2)}`;
+        }
+        s.bakiye += i.tutar;                      // H (alinmadi) ya da S (sikisti): tam iade
         i.teslim = "GERI_ALINDI";
-        return "TESLIM|GERI";
+        if (p[2] === "S") s.dagiticiKapali = true;
+        return `TESLIM|GERI|${i.tutar.toFixed(2)}`;
       }
       default:
         return hata("Bilinmeyen komut");
@@ -115,8 +143,9 @@ function sahteSunucu() {
 }
 
 // ---------------------------------------------------------------- test duzenegi
-function kur() {
+function kur(secenek = {}) {
   const sunucu = sahteSunucu();
+  const dagiticiCagrilari = [];
   const gecmis = [];
   const olay = { led: [], kilit: [], bip: [] };
   let ekran = ["", ""];
@@ -129,6 +158,9 @@ function kur() {
     bip: (v) => olay.bip.push(v),
     komut: (s) => sunucu.komut(s),
     rastgele: () => "abc123def456",
+    dagitici: secenek.dagitici
+      ? async (plan, tutar) => { dagiticiCagrilari.push({ plan, tutar }); return secenek.dagitici(plan, tutar); }
+      : undefined,
   });
   sim.baslat();
 
@@ -160,7 +192,7 @@ function kur() {
   const kart = (uid) => gonder({ tur: "kart", uid });
   async function tuslar(metin) { for (const t of metin) await gonder({ tur: "tus", tus: t }); }
 
-  return { sim, sunucu, olay, gecmis, ekranda, gonder, kart, tuslar, ekran: () => ekran.slice() };
+  return { sim, sunucu, olay, gecmis, ekranda, gonder, kart, tuslar, dagiticiCagrilari, ekran: () => ekran.slice() };
 }
 
 // Musteri girisi + menuye kadar
@@ -432,6 +464,114 @@ test("havale: 6 haneli hesap no sonra tutar; bakiye gosterimi", async () => {
   await t.tuslar("250#");
   await t.ekranda("Isleniyor");
   assert.ok(t.sunucu.komutlar.some((k) => k === "ISLEM|tok123456|H|250|100002|abc123def456"));
+});
+
+// ---------------------------------------------------------------- para dagitici: stok plani, sikisma, eksik verme, baglanti kopmasi
+async function cekimBaslat(t, tutar) {
+  await musteriGiris(t);
+  await t.tuslar("B");
+  await t.ekranda("Tutar (C:. #:ok)");
+  await t.tuslar(tutar + "#");
+}
+
+test("dagitici: plan TAMAM cevabindan gelir ve dagiticiya verilir (normal akis degismez)", async () => {
+  const t = kur({ dagitici: async () => ({ durum: "TAMAM" }) });
+  await cekimBaslat(t, "2000");
+  await t.ekranda("Para sayiliyor", "2000 TL");
+  await t.ekranda("Parayi alin", "A: Aldim");
+  assert.deepEqual(t.dagiticiCagrilari, [{ plan: "200x10", tutar: "2000" }]);
+  await t.tuslar("A");
+  await t.ekranda("Islem tamam", "Bak: 998000.00");
+  assert.ok(t.sunucu.komutlar.includes("TESLIM|1|A"));
+});
+
+test("para sikisirsa: LED yanmaz, S bildirilir, tam iade, ekranda 'Hesaba iade'", async () => {
+  const t = kur({ dagitici: async () => ({ durum: "SIKISTI" }) });
+  await cekimBaslat(t, "2000");
+  await t.ekranda("Para sayiliyor");
+  await t.ekranda("Para sikisti!", "Bekleyin...");
+  await t.ekranda("Para sikisti", "Hesaba iade");
+  assert.ok(t.sunucu.komutlar.includes("TESLIM|1|S"));
+  assert.equal(t.sunucu.bakiye, 1000000);
+  assert.deepEqual(t.olay.led, []);                                  // para hic cikmadi
+  assert.equal(t.sunucu.dagiticiKapali, true);
+  await t.ekranda("A:Bakiye B:Cek");                                  // oturum menuye doner; "Islem tamam" gosterilmez
+  assert.ok(!t.gecmis.some((e) => e[0].startsWith("Islem tamam")));
+});
+
+test("eksik verilirse: verilen banknotlar K ile bildirilir, yalniz fark iade edilir", async () => {
+  const t = kur({ dagitici: async () => ({ durum: "EKSIK", verilen: "200x9", verilenTutar: 1800 }) });
+  await cekimBaslat(t, "2000");
+  await t.ekranda("Parayi alin", "A:Aldim 1800 TL");
+  await t.tuslar("A");
+  await t.ekranda("Eksik verildi", "200.00 TL iade");
+  assert.ok(t.sunucu.komutlar.includes("TESLIM|1|K|200x9"));
+  assert.equal(t.sunucu.bakiye, 1000000 - 1800);
+  assert.ok(!t.gecmis.some((e) => e[0].startsWith("Islem tamam")));
+});
+
+test("eksik verildi ama musteri almadi: hepsi geri cekilir, tam iade (H)", async () => {
+  const t = kur({ dagitici: async () => ({ durum: "EKSIK", verilen: "200x9", verilenTutar: 1800 }) });
+  await cekimBaslat(t, "2000");
+  await t.ekranda("Parayi alin", "A:Aldim 1800 TL");
+  // A'ya basilmaz
+  await t.ekranda("Para alinmadi", "Islem iptal");
+  assert.ok(t.sunucu.komutlar.includes("TESLIM|1|H"));
+  assert.equal(t.sunucu.bakiye, 1000000);
+});
+
+test("baglanti kopmasi: sonuc bildirilemez, TESLIM gonderilmez, para operator sayimina kadar tutulur", async () => {
+  const t = kur({ dagitici: async () => ({ durum: "BAGLANTI_YOK" }) });
+  await cekimBaslat(t, "2000");
+  await t.ekranda("Parayi alin");
+  await t.tuslar("A");
+  await t.ekranda("Baglanti koptu", "Sonuc belirsiz");
+  await t.ekranda("A:Bakiye B:Cek");
+  assert.ok(!t.sunucu.komutlar.some((k) => k.startsWith("TESLIM|")));
+  assert.equal(t.sunucu.bakiye, 1000000 - 2000);                      // otomatik iade YOK
+});
+
+test("islem cevabi kaybolursa: ayni anahtarla yeniden denenir, para bir kez cekilir", async () => {
+  const t = kur();
+  await musteriGiris(t);
+  await t.tuslar("B");
+  await t.ekranda("Tutar (C:. #:ok)");
+  t.sunucu.yanitKaybi = true;                                         // sunucu islemi yapar, cevap terminale ulasmaz
+  await t.tuslar("1000#");
+  await t.ekranda("Tekrar deneniyor");
+  await t.ekranda("Parayi alin");
+  await t.tuslar("A");
+  await t.ekranda("Islem tamam", "Bak: 999000.00");
+  const islemler = t.sunucu.komutlar.filter((k) => k.startsWith("ISLEM|"));
+  assert.equal(islemler.length, 2);
+  assert.equal(islemler[0], islemler[1]);                              // ayni anahtar, ayni satir
+  assert.equal(t.sunucu.bakiye, 1000000 - 1000);                       // ikinci kez dusmedi
+});
+
+test("onayli cekimde de dagiticiya DURUM'dan gelen plan verilir", async () => {
+  const t = kur({ dagitici: async () => ({ durum: "TAMAM" }) });
+  await cekimBaslat(t, "10000");
+  await t.ekranda("Onay 0/2");
+  for (const [uid, pin] of [["b0b0b001", "1111"], ["b0b0b002", "2222"]]) {
+    await t.kart(uid);
+    await t.ekranda("A:Onayla");
+    await t.tuslar("A");
+    await t.ekranda("Yetkili PIN:");
+    await t.tuslar(pin);
+    await t.ekranda("Oyunuz alindi");
+  }
+  await t.ekranda("Parayi alin");
+  assert.deepEqual(t.dagiticiCagrilari, [{ plan: "200x50", tutar: "10000" }]);
+  await t.tuslar("A");
+  assert.equal(t.sunucu.bakiye, 990000);
+});
+
+test("dagitici kapaliyken sunucu hatasi ekranda gosterilir", async () => {
+  const t = kur();
+  t.sunucu.dagiticiKapali = true;
+  await cekimBaslat(t, "1000");
+  await t.ekranda("Para dagitici ar", "izali");
+  assert.equal(t.sunucu.bakiye, 1000000);
 });
 
 // ---------------------------------------------------------------- calistir

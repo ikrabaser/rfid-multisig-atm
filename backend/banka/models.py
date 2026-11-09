@@ -159,6 +159,8 @@ class Islem(models.Model):
         BEKLIYOR = "BEKLIYOR", "Teslim bekleniyor"
         ALINDI = "ALINDI", "Para alındı"
         GERI_ALINDI = "GERI_ALINDI", "Geri alındı (ters kayıt)"
+        KISMI = "KISMI", "Eksik verildi (fark iade edildi)"
+        BELIRSIZ = "BELIRSIZ", "Teslim belirsiz (operatör sayımı bekliyor)"
 
     class Durum(models.TextChoices):
         HAZIR = "HAZIR", "Hazır"
@@ -186,6 +188,15 @@ class Islem(models.Model):
         verbose_name="Ters kaydedilen işlem",
     )
     ters_neden = models.CharField(max_length=20, blank=True, default="")
+    dagitim_plani = models.CharField(
+        "Dağıtım planı", max_length=80, blank=True, default="",
+        help_text="Nakit çekmede planlanan banknotlar, örn. 200x8+100x2",
+    )
+    verilen_plani = models.CharField("Fiilen verilen banknotlar", max_length=80, blank=True, default="")
+    iade_tutari = models.DecimalField(
+        "Ters kayıtla iade edilen", max_digits=14, decimal_places=2, default=Decimal("0.00"),
+        help_text="Eksik vermede yalnızca fark; tam iadede 0 (işlem tutarı ters kaydın kendisindedir).",
+    )
     olusturma = models.DateTimeField(auto_now_add=True)
     tamamlanma = models.DateTimeField(null=True, blank=True)
 
@@ -330,6 +341,10 @@ class Terminal(models.Model):
     enlem = models.FloatField(null=True, blank=True)
     boylam = models.FloatField(null=True, blank=True)
     aktif = models.BooleanField(default=True)
+    nakit_dagitimi = models.BooleanField(
+        "Para dağıtıcı açık", default=True,
+        help_text="Sıkışma/eksik verme sonrası otomatik kapanır; teknik servisten sonra 'dagitici_ac' komutuyla açılır.",
+    )
 
     class Meta:
         verbose_name = "Terminal"
@@ -338,6 +353,37 @@ class Terminal(models.Model):
 
     def __str__(self):
         return f"{self.kod} ({self.ad})"
+
+
+class Kaset(models.Model):
+    """Terminaldeki banknot kaseti (banknot cinsi başına bir satır).
+
+    adet        : kasette duran banknot (rezerve edilenler DAHİL)
+    rezerve     : planlanmış ama teslim sonucu henüz gelmemiş banknot (kullanılabilir = adet - rezerve)
+    iade_kutusu : geri çekilen ya da sıkışan banknot (kasete geri konmaz; teknik servis sayar)
+    Stok yalnızca servis katmanı ve yönetim komutlarıyla (kaset_doldur) değişir, admin'den değil.
+    """
+
+    terminal = models.ForeignKey(Terminal, on_delete=models.PROTECT, related_name="kasetler")
+    nominal = models.PositiveSmallIntegerField("Banknot değeri (TL)")
+    adet = models.PositiveIntegerField("Kasetteki banknot", default=0)
+    rezerve = models.PositiveIntegerField("Rezerve", default=0)
+    iade_kutusu = models.PositiveIntegerField("Geri çekilen / sıkışan", default=0)
+
+    class Meta:
+        verbose_name = "Kaset"
+        verbose_name_plural = "Kasetler"
+        ordering = ["terminal_id", "-nominal"]
+        constraints = [
+            models.UniqueConstraint(fields=["terminal", "nominal"], name="kaset_terminal_nominal_tekil"),
+            models.CheckConstraint(condition=models.Q(adet__gte=models.F("rezerve")), name="kaset_rezerve_stogu_asamaz"),
+        ]
+
+    def kullanilabilir(self):
+        return self.adet - self.rezerve
+
+    def __str__(self):
+        return f"{self.terminal.kod} · {self.nominal} TL × {self.adet}"
 
 
 class TerminalGunlukKaydi(models.Model):

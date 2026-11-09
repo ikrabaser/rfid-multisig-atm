@@ -62,12 +62,27 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "kasa.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+def _veritabani():
+    """Varsayilan PostgreSQL. Hizli yerel deneme icin DB_ENGINE=sqlite (esz amanlilik testleri atlanir).
+
+    Baglanti: POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_HOST / POSTGRES_PORT.
+    Varsayilanlar docker-compose.yml ile uyumludur; GERCEK ortamda parolayi degistir.
+    """
+    if os.environ.get("DB_ENGINE", "postgresql").lower() == "sqlite":
+        return {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "kasa"),
+        "USER": os.environ.get("POSTGRES_USER", "kasa"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "kasa"),
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        # Kilit beklemesi sonsuza gitmesin; yarim kalan islem kilit tutmasin
+        "OPTIONS": {"options": "-c lock_timeout=10000 -c idle_in_transaction_session_timeout=60000"},
     }
-}
+
+
+DATABASES = {"default": _veritabani()}
 
 LANGUAGE_CODE = "tr"
 TIME_ZONE = "Europe/Istanbul"
@@ -126,8 +141,14 @@ POLITIKA_ONAYSIZ_AZAMI_TUTAR = Decimal("10000")   # onaysiz (0 onay) aralik en f
 POLITIKA_EN_UST_ARALIK_MIN_ONAY = 2      # en yuksek tutar araligi en az bu kadar onay istemeli
 POLITIKA_MAKS_ONAY = 5
 
-# Ters kayit: nakit cekmede para teslimi bu sure icinde bildirilmelidir
-TESLIM_PENCERESI_SN = 120
+# Ters kayit: nakit cekmede para teslimi bu sure icinde bildirilmelidir. Gecerse teslim "belirsiz" olur
+# ve operator sayimiyla cozulur (otomatik iade yok). Demo icin: $env:TESLIM_PENCERESI_SN=15
+TESLIM_PENCERESI_SN = _env_int("TESLIM_PENCERESI_SN", 120, 10, 3600)
+
+# ATM'in dagittigi banknotlar (TL), buyukten kucuge. En kucuk birimin (ebob) katlari cekilebilir.
+BANKNOT_NOMINALLERI = (200, 100, 50, 20)
+# Bir banknot cinsinden kullanilabilir adet bu sayinin altina inerse anomali uyarisi verilir
+KASET_UYARI_ESIGI = 100
 
 # Hassas yonetim islemleri (maker-checker): gereken BASKA onaylayici sayisi. Koruyucu yonler az, genisletici yonler cok onay ister.
 YONETIM_ONAY_SAYILARI = {

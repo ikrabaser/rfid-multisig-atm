@@ -11,14 +11,14 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Q, Sum
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 
-from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, ledger, personel_butunlugu, politika_degisikligi,
-               rbac)
+from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kilit, ledger, nakit, personel_butunlugu,
+               politika_degisikligi, rbac)
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
-                     Rol, uid_duzelt)
+                     Rol, Terminal, uid_duzelt)
 
 TOKEN_TUZU = "banka.musteri-oturumu"
 MUSTERI_ISLEMLERI = {"CEKME", "YATIRMA", "HAVALE"}
@@ -65,30 +65,43 @@ def kart_tipi(uid):
 def _pin_kontrol(nesne, pin, kimlik):
     """Kart veya Personel icin PIN'i dener; sayac ve bloke mantigi burada.
 
-    Atomic blogun DISINDA cagrilmali (hatali deneme sayaci geri alinmasin).
+    Sayac guncellemesi SATIR KILIDI altinda yapilir: PostgreSQL'de ayni karta es zamanli yanlis denemeler
+    sayaci ezemez, yani "3 yanlis PIN'de bloke" siniri paralel isteklerle asilamaz. Agir hash hesabi kilit
+    DISINDA yapilir. Hatalar kilit blogunun DISINDA firlatilir (hatali deneme sayaci ve log geri alinmasin).
     """
-    if not nesne.bloke and bloke_butunlugu.beklenen_bloke_mu(
-            "kart" if isinstance(nesne, Kart) else "personel", nesne.id, kimlik):
-        # log bloke diyor, veritabani degil: bloke alani onaysiz sifirlanmis, kapali kal
-        bloke_butunlugu.ihlal_kaydet(kimlik, "kaldirilmis")
-        raise IslemHatasi("Kart bloke edildi", "bloke")
-    if nesne.bloke:
-        kayit_ekle("bloke_kart_denemesi", {"kimlik": kimlik})
-        raise IslemHatasi("Kart bloke edildi", "bloke")
-    if nesne.pin_dogru_mu(pin):
-        if nesne.hatali_deneme:
-            nesne.hatali_deneme = 0
-            nesne.save(update_fields=["hatali_deneme"])
-        return
-    nesne.hatali_deneme += 1
-    kalan = max(0, settings.MAKS_PIN_DENEME - nesne.hatali_deneme)
-    if kalan == 0:
-        nesne.bloke = True
-    nesne.save(update_fields=["hatali_deneme", "bloke"])
-    kayit_ekle("pin_hatali", {"kimlik": kimlik, "kalan_hak": kalan, "bloke": nesne.bloke})
-    if nesne.bloke:
-        raise IslemHatasi("PIN hatalı, kart bloke edildi", "bloke", kalan_hak=0)
-    raise IslemHatasi(f"Yanlış PIN, kalan hak: {kalan}", "pin", kalan_hak=kalan)
+    tur = "kart" if isinstance(nesne, Kart) else "personel"
+    dogru = nesne.pin_dogru_mu(pin)
+    hata = None
+    with transaction.atomic():
+        kilit.zincir_kilidi()
+        taze = type(nesne).objects.select_for_update().get(pk=nesne.pk)
+        if taze.pin_hash != nesne.pin_hash:  # bu arada PIN degisti: guncel hash'e gore yeniden dene
+            dogru = taze.pin_dogru_mu(pin)
+        if not taze.bloke and bloke_butunlugu.beklenen_bloke_mu(tur, taze.id, kimlik):
+            # log bloke diyor, veritabani degil: bloke alani onaysiz sifirlanmis, kapali kal
+            bloke_butunlugu.ihlal_kaydet(kimlik, "kaldirilmis")
+            hata = ("Kart bloke edildi", "bloke", {})
+        elif taze.bloke:
+            kayit_ekle("bloke_kart_denemesi", {"kimlik": kimlik})
+            hata = ("Kart bloke edildi", "bloke", {})
+        elif dogru:
+            if taze.hatali_deneme:
+                taze.hatali_deneme = 0
+                taze.save(update_fields=["hatali_deneme"])
+        else:
+            taze.hatali_deneme += 1
+            kalan = max(0, settings.MAKS_PIN_DENEME - taze.hatali_deneme)
+            if kalan == 0:
+                taze.bloke = True
+            taze.save(update_fields=["hatali_deneme", "bloke"])
+            kayit_ekle("pin_hatali", {"kimlik": kimlik, "kalan_hak": kalan, "bloke": taze.bloke})
+            if taze.bloke:
+                hata = ("PIN hatalı, kart bloke edildi", "bloke", {"kalan_hak": 0})
+            else:
+                hata = (f"Yanlış PIN, kalan hak: {kalan}", "pin", {"kalan_hak": kalan})
+    nesne.hatali_deneme, nesne.bloke = taze.hatali_deneme, taze.bloke
+    if hata:
+        raise IslemHatasi(hata[0], hata[1], **hata[2])
 
 
 def musteri_giris(uid, pin):
@@ -224,7 +237,7 @@ def gunluk_toplam(hesap, an=None):
         tur__in=[Islem.Tur.CEKME, Islem.Tur.HAVALE],
         durum__in=[Islem.Durum.UYGULANDI, Islem.Durum.ONAY_BEKLIYOR],
         olusturma__gte=gun_basi,
-    ).exclude(teslim=Islem.Teslim.GERI_ALINDI).aggregate(t=Sum("tutar"))["t"]
+    ).exclude(teslim=Islem.Teslim.GERI_ALINDI).aggregate(t=Sum(F("tutar") - F("iade_tutari")))["t"]
     return toplam or Decimal("0.00")
 
 
@@ -238,7 +251,8 @@ def _islem_sonucu(islem, tekrar=False):
     if islem.durum in (Islem.Durum.UYGULANDI, Islem.Durum.BASARISIZ):
         hesap = Hesap.objects.get(id=islem.hesap_id)
         return {"durum": "uygulandi", "islem_id": islem.id, "bakiye": para(hesap.bakiye),
-                "basarili": islem.durum == Islem.Durum.UYGULANDI, "tekrar": tekrar}
+                "basarili": islem.durum == Islem.Durum.UYGULANDI, "tekrar": tekrar,
+                "dagitim": islem.dagitim_plani}
     if islem.durum == Islem.Durum.ONAY_BEKLIYOR:
         return {"durum": "onay_bekliyor", "talep_id": islem.talep.id, "islem_id": islem.id,
                 "gereken": islem.talep.gereken_onay, "tekrar": tekrar}
@@ -262,23 +276,62 @@ def _tekrar_istegi(islem, tur, tutar, hedef_hesap_no):
     return _islem_sonucu(islem, tekrar=True)
 
 
+def _islem_kontrolleri(hesap, tur, tutar):
+    """Hesap satiri KILITLIYKEN: bakiye, nakit, limit, banknot stogu ve onay politikasi.
+
+    (hata, gereken_onay, en_az_rol) dondurur. hata None ya da (mesaj, kod, ekstra). Red logu burada yazilir;
+    cagiran, hatayi atomic bloktan CIKTIKTAN sonra firlatir ki log geri alinmasin.
+    """
+    gereken, en_az = 0, int(Rol.GOREVLI)
+    if tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE):
+        if hesap.bakiye < tutar:
+            kayit_ekle("islem_reddi_bakiye", {"hesap_no": hesap.hesap_no, "tur": tur, "tutar": para(tutar)})
+            return ("Yetersiz bakiye", "bakiye", {}), gereken, en_az
+        if tur == Islem.Tur.CEKME and _kasa_hesabi().bakiye < tutar:
+            kayit_ekle("islem_reddi_nakit", {"hesap_no": hesap.hesap_no, "tutar": para(tutar)})
+            return ("ATM'de yeterli nakit yok", "nakit", {}), gereken, en_az
+        kullanilan = gunluk_toplam(hesap)
+        if kullanilan + tutar > hesap.gunluk_limit:
+            kalan = max(Decimal("0.00"), hesap.gunluk_limit - kullanilan)
+            kayit_ekle("islem_reddi_limit", {"hesap_no": hesap.hesap_no, "tutar": para(tutar),
+                                             "kalan_limit": para(kalan)})
+            return ("Günlük limit aşıldı", "limit", {"kalan_limit": para(kalan)}), gereken, en_az
+        if tur == Islem.Tur.CEKME:
+            try:  # banknot stogu: tutar eldeki banknotlarla verilebilir mi? (rezerve etmez; asil rezerve _uygula'da)
+                nakit.plan_uret(baglam.terminal(), tutar, rezerve=False)
+            except nakit.NakitHatasi as e:
+                kayit_ekle("islem_reddi_banknot", {"hesap_no": hesap.hesap_no, "tutar": para(tutar),
+                                                   "neden": e.kod, "terminal": nakit.terminal_kodu(baglam.terminal())})
+                return (e.mesaj, e.kod, {}), gereken, en_az
+        try:
+            gereken, en_az = gerekli_onay(tutar)
+        except IslemHatasi as e:
+            return (e.mesaj, e.kod, e.ekstra), 0, en_az
+    elif tur == Islem.Tur.YATIRMA:
+        _kasa_hesabi()
+    return None, gereken, en_az
+
+
+@kilit.yeniden_dene
 def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
     """Musteri islemi baslatir.
 
     anahtar (idempotency): ayni (hesap, anahtar) ciftiyle gelen tekrar istek yeni islem
     olusturmaz, ilk islemin sonucunu dondurur. Ag kopup istek iki kez gelse bile para
     iki kez cekilmez.
+
+    Es zamanlilik: bakiye, gunluk limit ve banknot stogu kontrolleri, hesap satiri ve zincir kilidi
+    ALTINDA yapilir (kilit.py). Ayni hesaptan es zamanli iki istek, kontrolleri ic ice gecemez.
     """
     kart = _token_coz(token)
-    hesap = kart.hesap
     tur = (tur or "").upper()
     if tur not in MUSTERI_ISLEMLERI:
         raise IslemHatasi("Geçersiz işlem türü", "tur")
     tutar = _tutar_coz(tutar)
     anahtar = _anahtar_coz(anahtar)
 
-    if anahtar:
-        onceki = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
+    if anahtar:  # hizli yol: ayni anahtar daha once islendiyse eski sonucu dondur
+        onceki = Islem.objects.select_related("hedef_hesap").filter(hesap=kart.hesap, anahtar=anahtar).first()
         if onceki:
             return _tekrar_istegi(onceki, tur, tutar, hedef_hesap_no)
 
@@ -287,63 +340,57 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
         hedef = Hesap.objects.filter(hesap_no=(hedef_hesap_no or "").strip(), tur=Hesap.Tur.MUSTERI).first()
         if hedef is None:
             raise IslemHatasi("Hedef hesap bulunamadı", "hedef")
-        if hedef.id == hesap.id:
+        if hedef.id == kart.hesap_id:
             raise IslemHatasi("Kendi hesabınıza havale olmaz", "hedef")
 
-    gereken, en_az = 0, int(Rol.GOREVLI)
-    if tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE):
-        hesap.refresh_from_db()
-        if hesap.bakiye < tutar:
-            kayit_ekle("islem_reddi_bakiye", {"hesap_no": hesap.hesap_no, "tur": tur, "tutar": para(tutar)})
-            raise IslemHatasi("Yetersiz bakiye", "bakiye")
-        if tur == Islem.Tur.CEKME and _kasa_hesabi().bakiye < tutar:
-            kayit_ekle("islem_reddi_nakit", {"hesap_no": hesap.hesap_no, "tutar": para(tutar)})
-            raise IslemHatasi("ATM'de yeterli nakit yok", "nakit")
-        kullanilan = gunluk_toplam(hesap)
-        if kullanilan + tutar > hesap.gunluk_limit:
-            kalan = max(Decimal("0.00"), hesap.gunluk_limit - kullanilan)
-            kayit_ekle("islem_reddi_limit", {"hesap_no": hesap.hesap_no, "tutar": para(tutar),
-                                             "kalan_limit": para(kalan)})
-            raise IslemHatasi("Günlük limit aşıldı", "limit", kalan_limit=para(kalan))
-        gereken, en_az = gerekli_onay(tutar)
-    elif tur == Islem.Tur.YATIRMA:
-        _kasa_hesabi()
-
+    hata, tekrar, talep, islem, hesap = None, None, None, None, None
     with transaction.atomic():
-        try:
-            with transaction.atomic():
-                islem = Islem.objects.create(
-                    hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar,
-                    baslatan_uid=kart.uid, anahtar=anahtar, terminal=baglam.terminal(),
-                )
-        except IntegrityError:
-            # Ayni anahtarla es zamanli ikinci istek: ilk islemin sonucunu ver
-            onceki = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
-            if onceki is None:
-                raise
-            return _tekrar_istegi(onceki, tur, tutar, hedef_hesap_no)
+        kilit.zincir_kilidi()
+        hesap = Hesap.objects.select_for_update().get(id=kart.hesap_id)
+        if anahtar:  # kilit altinda tekrar bak: es zamanli ayni anahtarli istek az once tamamlanmis olabilir
+            tekrar = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
+        if tekrar is None:
+            hata, gereken, en_az = _islem_kontrolleri(hesap, tur, tutar)
+            if hata is None:
+                try:
+                    with transaction.atomic():
+                        islem = Islem.objects.create(
+                            hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar,
+                            baslatan_uid=kart.uid, anahtar=anahtar, terminal=baglam.terminal(),
+                        )
+                except IntegrityError:
+                    tekrar = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
+                    if tekrar is None:
+                        raise
+                if tekrar is None:
+                    if gereken == 0:
+                        _uygula(islem)
+                        hesap.refresh_from_db()
+                    else:
+                        talep = OnayTalebi.objects.create(
+                            islem=islem,
+                            gereken_onay=gereken,
+                            en_az_rol=en_az,
+                            son_tarih=simdi() + timedelta(seconds=settings.ONAY_PENCERESI_SN),
+                        )
+                        islem.durum = Islem.Durum.ONAY_BEKLIYOR
+                        islem.save(update_fields=["durum"])
+                        kayit_ekle("talep_acildi", {
+                            "talep_id": talep.id, "islem_id": islem.id, "tur": tur, "tutar": para(tutar),
+                            "hesap_no": hesap.hesap_no, "gereken_onay": gereken, "en_az_rol": en_az,
+                        })
 
-        if gereken == 0:
-            _uygula(islem)
-            hesap.refresh_from_db()
-            return {"durum": "uygulandi", "islem_id": islem.id, "bakiye": para(hesap.bakiye),
-                    "basarili": islem.durum == Islem.Durum.UYGULANDI, "tekrar": False}
-
-        talep = OnayTalebi.objects.create(
-            islem=islem,
-            gereken_onay=gereken,
-            en_az_rol=en_az,
-            son_tarih=simdi() + timedelta(seconds=settings.ONAY_PENCERESI_SN),
-        )
-        islem.durum = Islem.Durum.ONAY_BEKLIYOR
-        islem.save(update_fields=["durum"])
-        kayit_ekle("talep_acildi", {
-            "talep_id": talep.id, "islem_id": islem.id, "tur": tur, "tutar": para(tutar),
-            "hesap_no": hesap.hesap_no, "gereken_onay": gereken, "en_az_rol": en_az,
-        })
+    if tekrar is not None:
+        return _tekrar_istegi(tekrar, tur, tutar, hedef_hesap_no)
+    if hata:
+        raise IslemHatasi(hata[0], hata[1], **hata[2])
+    if talep is None:
+        return {"durum": "uygulandi", "islem_id": islem.id, "bakiye": para(hesap.bakiye),
+                "basarili": islem.durum == Islem.Durum.UYGULANDI, "tekrar": False,
+                "dagitim": islem.dagitim_plani}
     bildirim.talep_acildi(talep)  # commit sonrasi; hata verirse islemi bozmaz
     return {"durum": "onay_bekliyor", "talep_id": talep.id, "islem_id": islem.id,
-            "gereken": gereken, "tekrar": False}
+            "gereken": talep.gereken_onay, "tekrar": False}
 
 
 def _uygula(islem):
@@ -381,6 +428,13 @@ def _uygula(islem):
         if kaynak.bakiye < tutar:
             basarisizlik = "yetersiz bakiye"
 
+    plan = None
+    if basarisizlik is None and islem.tur == Islem.Tur.CEKME:
+        try:  # banknotlari REZERVE et (kilit altinda); verilemiyorsa para hic hareket etmez
+            plan = nakit.plan_uret(islem.terminal, islem.tutar, rezerve=True)
+        except nakit.NakitHatasi as e:
+            basarisizlik = f"banknot: {e.mesaj}"
+
     if basarisizlik:
         islem.durum = Islem.Durum.BASARISIZ
         islem.tamamlanma = simdi()
@@ -409,22 +463,34 @@ def _uygula(islem):
     islem.tamamlanma = simdi()
     if islem.tur == Islem.Tur.CEKME:
         islem.teslim = Islem.Teslim.BEKLIYOR  # paranin fiilen verilmesi terminalden bildirilecek
-    islem.save(update_fields=["durum", "tamamlanma", "teslim"])
+        islem.dagitim_plani = nakit.plan_yaz(plan or {})
+    islem.save(update_fields=["durum", "tamamlanma", "teslim", "dagitim_plani"])
     kayit_ekle("islem_uygulandi", {
         "islem_id": islem.id, "tur": islem.tur, "tutar": para(tutar),
         "hesap_no": kaynak.hesap_no, "yeni_bakiye": para(kaynak.bakiye),
-        "hedef_hesap_id": islem.hedef_hesap_id,
+        "hedef_hesap_id": islem.hedef_hesap_id, "dagitim": islem.dagitim_plani,
     })
     return True
 
 
 # ------------------------------------------------------------------ ters kayit / teslim
 
-def _ters_kayit_uygula(orijinal, neden):
-    """Nakit cekmeyi, orijinal satirlara DOKUNMADAN, ters borc/alacak satirlariyla geri alir.
+TESLIM_BILDIRIMLERI = {"ALINDI", "ALINMADI", "ARIZA", "SIKISTI", "EKSIK"}
+TERS_NEDENI = {"ALINMADI": "MUSTERI_ALMADI", "ARIZA": "PARA_VERILMEDI", "SIKISTI": "DAGITICI_SIKISTI"}
+HEDEF_TESLIM = {"ALINDI": Islem.Teslim.ALINDI, "ALINMADI": Islem.Teslim.GERI_ALINDI,
+                "ARIZA": Islem.Teslim.GERI_ALINDI, "SIKISTI": Islem.Teslim.GERI_ALINDI,
+                "EKSIK": Islem.Teslim.KISMI}
 
-    transaction.atomic() ICINDE ve `orijinal` kilitliyken cagrilir.
+
+def _ters_kayit_uygula(orijinal, neden, tutar=None, teslim=None):
+    """Nakit cekmeyi (tamamen ya da `tutar` kadar), orijinal satirlara DOKUNMADAN, ters borc/alacak
+    satirlariyla geri alir. Eksik vermede yalniz verilmeyen fark iade edilir.
+
+    transaction.atomic() ICINDE ve `orijinal` kilitliyken cagrilir. Cagiran, `orijinal.verilen_plani` ve
+    `orijinal.iade_tutari` alanlarini gerekiyorsa once ayarlar; burada birlikte kaydedilir.
     """
+    tutar = orijinal.tutar if tutar is None else tutar
+    teslim = Islem.Teslim.GERI_ALINDI if teslim is None else teslim
     kasa = _kasa_hesabi()
     idler = sorted({orijinal.hesap_id, kasa.id})
     kilitli = {h.id: h for h in Hesap.objects.select_for_update().filter(id__in=idler).order_by("id")}
@@ -432,45 +498,151 @@ def _ters_kayit_uygula(orijinal, neden):
     Y = HesapHareketi.Yon
 
     ters = Islem.objects.create(
-        hesap=orijinal.hesap, tur=Islem.Tur.TERS_KAYIT, tutar=orijinal.tutar,
+        hesap=orijinal.hesap, tur=Islem.Tur.TERS_KAYIT, tutar=tutar,
         baslatan_uid=orijinal.baslatan_uid, ters_islem=orijinal, ters_neden=neden,
         terminal=baglam.terminal(),
     )
-    ledger.hareket_ekle(ters, musteri, Y.ALACAK, orijinal.tutar)
-    ledger.hareket_ekle(ters, kasa, Y.BORC, orijinal.tutar)
+    ledger.hareket_ekle(ters, musteri, Y.ALACAK, tutar)
+    ledger.hareket_ekle(ters, kasa, Y.BORC, tutar)
     kasa.save(update_fields=["bakiye"])
     musteri.save(update_fields=["bakiye"])
 
     ters.durum = Islem.Durum.UYGULANDI
     ters.tamamlanma = simdi()
     ters.save(update_fields=["durum", "tamamlanma"])
-    orijinal.teslim = Islem.Teslim.GERI_ALINDI
-    orijinal.save(update_fields=["teslim"])
+    orijinal.teslim = teslim
+    orijinal.save(update_fields=["teslim", "verilen_plani", "iade_tutari"])
     kayit_ekle("ters_kayit", {
-        "orijinal_islem_id": orijinal.id, "ters_islem_id": ters.id, "tutar": para(orijinal.tutar),
-        "neden": neden, "hesap_no": musteri.hesap_no, "yeni_bakiye": para(musteri.bakiye),
+        "orijinal_islem_id": orijinal.id, "ters_islem_id": ters.id, "tutar": para(tutar),
+        "orijinal_tutar": para(orijinal.tutar), "neden": neden, "hesap_no": musteri.hesap_no,
+        "yeni_bakiye": para(musteri.bakiye),
     })
     return ters
 
 
-def teslim_bildir(islem_id, durum):
+def _stok_isle(islem, planlanan, verilen, kutuya, kasete_geri=None):
+    """Dagitim sonucunu kaset stoguna isler. Tutarsizlik teslim sonucunu ENGELLEMEZ, loga yazilir."""
+    try:
+        uyarilar = nakit.sonuclandir(islem.terminal, planlanan, verilen, kutuya, kasete_geri or {})
+    except nakit.NakitHatasi as e:
+        uyarilar = [e.mesaj]
+    if uyarilar:
+        kayit_ekle("kaset_tutarsiz", {"islem_id": islem.id, "uyarilar": uyarilar[:5]})
+
+
+def _teslim_alindi(islem, planlanan, olay="teslim_onayi"):
+    islem.teslim = Islem.Teslim.ALINDI
+    islem.verilen_plani = islem.dagitim_plani
+    islem.save(update_fields=["teslim", "verilen_plani"])
+    _stok_isle(islem, planlanan, verilen=planlanan, kutuya={})
+    kayit_ekle(olay, {"islem_id": islem.id})
+
+
+def _belirsiz_isaretle(islem):
+    """Teslim penceresi gecmis ve sonuc gelmemis cekmeyi BELIRSIZ yapar (islem kilitliyken)."""
+    if (islem.teslim == Islem.Teslim.BEKLIYOR and islem.tamamlanma
+            and simdi() - islem.tamamlanma > timedelta(seconds=settings.TESLIM_PENCERESI_SN)):
+        islem.teslim = Islem.Teslim.BELIRSIZ
+        islem.save(update_fields=["teslim"])
+        kayit_ekle("teslim_belirsiz_isaretlendi", {"islem_id": islem.id, "terminal": islem.terminal})
+
+
+def _dagitici_kapat(islem, neden):
+    kod = nakit.terminal_kodu(islem.terminal)
+    Terminal.objects.filter(kod=kod).update(nakit_dagitimi=False)
+    kayit_ekle("dagitici_kapandi", {"terminal": kod, "islem_id": islem.id, "neden": neden})
+
+
+def _teslim_cevabi(islem):
+    T = Islem.Teslim
+    if islem.teslim == T.ALINDI:
+        sonuc, iade = "ALINDI", Decimal("0.00")
+    elif islem.teslim == T.GERI_ALINDI:
+        sonuc, iade = "GERI", islem.tutar
+    elif islem.teslim == T.KISMI:
+        sonuc, iade = "KISMI", islem.iade_tutari
+    else:
+        sonuc, iade = islem.teslim, Decimal("0.00")
+    return {"teslim": sonuc, "islem_id": islem.id, "iade": para(iade)}
+
+
+def _teslim_uygula(islem, durum, verilen_plan):
+    """Teslim bildirimini, islem KILITLIYKEN isler. (hata, ters_kayit, dagitici_kapatma_nedeni) dondurur."""
+    T = Islem.Teslim
+    planlanan = nakit.plan_coz(islem.dagitim_plani)
+    _belirsiz_isaretle(islem)
+
+    if islem.teslim == T.BELIRSIZ:
+        if durum == "ALINDI":
+            # Gec gelen "para alindi": paranin gittigini dogrular, hicbir parayi geri vermez; guvenle kabul edilir
+            _teslim_alindi(islem, planlanan, olay="teslim_gec_onay")
+            return None, None, None
+        kayit_ekle("teslim_sure_asimi", {"islem_id": islem.id, "bildirilen": durum})
+        return ("Teslim bildirimi için süre geçti", "sure"), None, None
+
+    hedef = HEDEF_TESLIM[durum]
+    if islem.teslim != T.BEKLIYOR:  # son durum zaten kayitli: ayni bildirim tekrari sorunsuz, celiskisi reddedilir
+        ayni = islem.teslim == hedef and (hedef != T.KISMI or nakit.plan_yaz(verilen_plan or {}) == islem.verilen_plani)
+        if ayni:
+            return None, None, None
+        kayit_ekle("teslim_celiskisi", {"islem_id": islem.id, "kayitli": islem.teslim, "bildirilen": durum})
+        return ("Bu işlemin teslim durumu zaten kayıtlı", "celiski"), None, None
+
+    if durum == "ALINDI":
+        _teslim_alindi(islem, planlanan)
+        return None, None, None
+
+    if durum == "EKSIK":
+        verilen_tutar = nakit.plan_tutari(verilen_plan or {})
+        if (not verilen_plan or not nakit.plan_icinde_mi(verilen_plan, planlanan)
+                or not (0 < verilen_tutar < islem.tutar)):
+            kayit_ekle("teslim_gecersiz_eksik", {"islem_id": islem.id, "bildirilen": nakit.plan_yaz(verilen_plan or {})})
+            return ("Geçersiz eksik verme bildirimi", "plan"), None, None
+        iade = islem.tutar - Decimal(verilen_tutar)
+        _stok_isle(islem, planlanan, verilen=verilen_plan, kutuya=nakit.plan_cikar(planlanan, verilen_plan))
+        islem.verilen_plani = nakit.plan_yaz(verilen_plan)
+        islem.iade_tutari = iade
+        ters = _ters_kayit_uygula(islem, "EKSIK_VERILDI", tutar=iade, teslim=T.KISMI)
+        return None, ters, "EKSIK"
+
+    # ALINMADI (zaman asimi, para geri cekildi) / ARIZA (para verilmedi) / SIKISTI: tam iade, banknotlar iade kutusuna
+    _stok_isle(islem, planlanan, verilen={}, kutuya=planlanan)
+    ters = _ters_kayit_uygula(islem, TERS_NEDENI[durum])
+    return None, ters, ("SIKISTI" if durum == "SIKISTI" else None)
+
+
+@kilit.yeniden_dene
+def teslim_bildir(islem_id, durum, verilen=None):
     """Terminal, nakit cekmede paranin fiilen teslim edilip edilmedigini bildirir (dagitici/sensor olayi).
 
-    durum: ALINDI (para alindi) | ALINMADI (zaman asimi, para geri cekildi) | ARIZA (dagitici hatasi).
-    ALINMADI ve ARIZA, islemi ters kaydeder. Ayni bildirim tekrarlanirsa ayni sonuc doner (idempotent).
-    Yalnizca islemi baslatan terminal, TESLIM_PENCERESI_SN icinde bildirebilir.
+    durum:
+      ALINDI   para alindi
+      ALINMADI zaman asimi: para geri cekildi        -> tam ters kayit, banknotlar iade kutusuna
+      ARIZA    dagitici hatasi, para verilmedi        -> tam ters kayit
+      SIKISTI  banknotlar sikisti, para verilmedi     -> tam ters kayit + dagitici KAPANIR
+      EKSIK    eksik verildi; `verilen` = fiilen verilen banknotlar ("200x8+100x1") -> yalniz fark iade + dagitici KAPANIR
+
+    Ayni bildirim tekrarlanirsa ayni sonuc doner (idempotent). Yalnizca islemi baslatan terminal,
+    TESLIM_PENCERESI_SN icinde bildirebilir; sure gecerse teslim "belirsiz" olur: sadece "para alindi" gec de
+    kabul edilir (hicbir parayi geri vermez), iade gerektiren bildirimler operator sayimina (nakit_coz) kalir.
     """
     durum = str(durum).upper()
-    if durum not in ("ALINDI", "ALINMADI", "ARIZA"):
+    if durum not in TESLIM_BILDIRIMLERI:
         raise IslemHatasi("Geçersiz teslim durumu", "teslim")
     try:
         islem_id = int(islem_id)
     except (TypeError, ValueError):
         raise IslemHatasi("İşlem bulunamadı", "yok")
+    verilen_plan = None
+    if durum == "EKSIK":
+        try:
+            verilen_plan = nakit.plan_coz(verilen)
+        except nakit.NakitHatasi as e:
+            raise IslemHatasi(e.mesaj, e.kod)
 
-    T = Islem.Teslim
-    hata, ters = None, None
+    hata, ters, kapat, cevap = None, None, None, None
     with transaction.atomic():
+        kilit.zincir_kilidi()
         islem = Islem.objects.select_for_update().select_related("hesap").filter(id=islem_id).first()
         if islem is None or islem.tur != Islem.Tur.CEKME or islem.durum != Islem.Durum.UYGULANDI:
             hata = ("İşlem bulunamadı ya da teslim bildirilemez", "yok")
@@ -479,29 +651,160 @@ def teslim_bildir(islem_id, durum):
             hata = ("Teslimi yalnızca işlemi başlatan terminal bildirebilir", "terminal")
         elif not islem.teslim:
             hata = ("Bu işlem için teslim takibi yok", "yok")
-        elif islem.teslim == T.BEKLIYOR:
-            if simdi() - islem.tamamlanma > timedelta(seconds=settings.TESLIM_PENCERESI_SN):
-                kayit_ekle("teslim_sure_asimi", {"islem_id": islem.id, "bildirilen": durum})
-                hata = ("Teslim bildirimi için süre geçti", "sure")
-            elif durum == "ALINDI":
-                islem.teslim = T.ALINDI
-                islem.save(update_fields=["teslim"])
-                kayit_ekle("teslim_onayi", {"islem_id": islem.id})
-            else:
-                ters = _ters_kayit_uygula(islem, "MUSTERI_ALMADI" if durum == "ALINMADI" else "PARA_VERILMEDI")
-        elif (islem.teslim == T.ALINDI) != (durum == "ALINDI"):
-            kayit_ekle("teslim_celiskisi", {"islem_id": islem.id, "kayitli": islem.teslim, "bildirilen": durum})
-            hata = ("Bu işlemin teslim durumu zaten kayıtlı", "celiski")
-        sonuc = "GERI" if islem and islem.teslim == T.GERI_ALINDI else "ALINDI"
+        else:
+            hata, ters, kapat = _teslim_uygula(islem, durum, verilen_plan)
+            if kapat:
+                _dagitici_kapat(islem, kapat)
+            if hata is None:
+                cevap = _teslim_cevabi(islem)
     if hata:
         raise IslemHatasi(*hata)
     if ters:
         bildirim.ters_kayit(ters)  # commit sonrasi
-    return {"teslim": sonuc, "islem_id": islem.id}
+    if kapat:
+        bildirim.dagitici_arizasi(islem, kapat)
+    return cevap
+
+
+def belirsizleri_isaretle():
+    """Teslim penceresi gecmis, sonucu gelmemis nakit cekmeleri BELIRSIZ yapar (terminal coktu / baglanti koptu).
+
+    Para OTOMATIK iade edilmez: musteri parayi almis olabilir, iade cift odeme olurdu. Operator kasetleri
+    sayar ve nakit_coz ile sonuclandirir.
+    """
+    esik = simdi() - timedelta(seconds=settings.TESLIM_PENCERESI_SN)
+    idler = list(Islem.objects.filter(
+        tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, teslim=Islem.Teslim.BEKLIYOR, tamamlanma__lt=esik,
+    ).values_list("id", flat=True))
+    for islem_id in idler:
+        with transaction.atomic():
+            kilit.zincir_kilidi()
+            islem = Islem.objects.select_for_update().filter(id=islem_id).first()
+            if islem is not None:
+                _belirsiz_isaretle(islem)
+    return len(idler)
+
+
+NAKIT_COZUM_SONUCLARI = {"VERILDI", "VERILMEDI", "KISMI"}
+
+
+@kilit.yeniden_dene
+def nakit_coz(islem_id, sonuc, yapan, neden, verilen=None):
+    """Teslimi BELIRSIZ kalan nakit cekmeyi, operator kasetleri/kasayi SAYDIKTAN sonra sonuclandirir.
+
+    sonuc: VERILDI (para musteriye gitti) | VERILMEDI (hic dagitilmadi; banknotlar kasette) |
+           KISMI (verilen = fiilen cikan banknotlar, fark iade edilir; kalanlar iade kutusuna).
+    yapan ve neden (en az 5 karakter) zorunludur ve hash zincirine yazilir. Bu, dort goz (maker-checker)
+    akisina baglanabilecek tek noktadir.
+    """
+    sonuc = str(sonuc).upper()
+    if sonuc not in NAKIT_COZUM_SONUCLARI:
+        raise IslemHatasi("Geçersiz sonuç", "sonuc")
+    yapan, neden = (yapan or "").strip(), (neden or "").strip()
+    if len(yapan) < 2 or len(neden) < 5:
+        raise IslemHatasi("Yapan ve neden (en az 5 karakter) gerekli", "gerekce")
+    try:
+        islem_id = int(islem_id)
+    except (TypeError, ValueError):
+        raise IslemHatasi("İşlem bulunamadı", "yok")
+    verilen_plan = None
+    if sonuc == "KISMI":
+        try:
+            verilen_plan = nakit.plan_coz(verilen)
+        except nakit.NakitHatasi as e:
+            raise IslemHatasi(e.mesaj, e.kod)
+
+    T = Islem.Teslim
+    hata, ters, cevap = None, None, None
+    with transaction.atomic():
+        kilit.zincir_kilidi()
+        islem = Islem.objects.select_for_update().select_related("hesap").filter(id=islem_id).first()
+        if islem is None or islem.tur != Islem.Tur.CEKME or islem.durum != Islem.Durum.UYGULANDI or not islem.teslim:
+            hata = ("İşlem bulunamadı ya da nakit çekme değil", "yok")
+        else:
+            _belirsiz_isaretle(islem)
+            if islem.teslim == T.BEKLIYOR:
+                hata = ("Teslim hâlâ bekleniyor; süre dolunca çözülebilir", "bekliyor")
+            elif islem.teslim != T.BELIRSIZ:
+                hata = ("Bu işlem zaten sonuçlanmış", "sonuclanmis")
+        if hata is None:
+            planlanan = nakit.plan_coz(islem.dagitim_plani)
+            if sonuc == "VERILDI":
+                _teslim_alindi(islem, planlanan, olay="teslim_operator_onayi")
+            elif sonuc == "VERILMEDI":
+                _stok_isle(islem, planlanan, verilen={}, kutuya={}, kasete_geri=planlanan)
+                ters = _ters_kayit_uygula(islem, "OPERATOR_VERILMEDI")
+            else:
+                verilen_tutar = nakit.plan_tutari(verilen_plan or {})
+                if (not verilen_plan or not nakit.plan_icinde_mi(verilen_plan, planlanan)
+                        or not (0 < verilen_tutar < islem.tutar)):
+                    hata = ("Geçersiz eksik verme bildirimi", "plan")
+                else:
+                    iade = islem.tutar - Decimal(verilen_tutar)
+                    _stok_isle(islem, planlanan, verilen=verilen_plan,
+                               kutuya=nakit.plan_cikar(planlanan, verilen_plan))
+                    islem.verilen_plani = nakit.plan_yaz(verilen_plan)
+                    islem.iade_tutari = iade
+                    ters = _ters_kayit_uygula(islem, "OPERATOR_KISMI", tutar=iade, teslim=T.KISMI)
+            if hata is None:
+                kayit_ekle("nakit_cozuldu", {"islem_id": islem.id, "sonuc": sonuc, "yapan": yapan[:60],
+                                             "neden": neden[:200], "verilen": islem.verilen_plani})
+                cevap = _teslim_cevabi(islem)
+    if hata:
+        raise IslemHatasi(*hata)
+    if ters:
+        bildirim.ters_kayit(ters)
+    return cevap
+
+
+@kilit.yeniden_dene
+def dagitici_ac(terminal_kodu, yapan, neden):
+    """Teknik servis para dagiticiyi kontrol ettikten sonra terminalin nakit dagitimini yeniden acar."""
+    yapan, neden = (yapan or "").strip(), (neden or "").strip()
+    if len(yapan) < 2 or len(neden) < 5:
+        raise IslemHatasi("Yapan ve neden (en az 5 karakter) gerekli", "gerekce")
+    hata = None
+    with transaction.atomic():
+        kilit.zincir_kilidi()
+        t = Terminal.objects.select_for_update().filter(kod=nakit.terminal_kodu(terminal_kodu)).first()
+        if t is None:
+            hata = ("Terminal bulunamadı", "terminal")
+        else:
+            t.nakit_dagitimi = True
+            t.save(update_fields=["nakit_dagitimi"])
+            kayit_ekle("dagitici_acildi", {"terminal": t.kod, "yapan": yapan[:60], "neden": neden[:200]})
+    if hata:
+        raise IslemHatasi(*hata)
+    return {"terminal": t.kod, "nakit_dagitimi": True}
+
+
+@kilit.yeniden_dene
+def kaset_doldur(terminal_kodu, nominal, adet, yapan, iade_kutusunu_bosalt=False):
+    """Fiziksel sayim/dolum sonrasi kasetteki banknot sayisini ayarlar (hash zincirine yazilir)."""
+    yapan = (yapan or "").strip()
+    if len(yapan) < 2:
+        raise IslemHatasi("Yapan gerekli", "gerekce")
+    hata, sonuc = None, None
+    with transaction.atomic():
+        kilit.zincir_kilidi()
+        try:
+            eski, yeni = nakit.kaset_ayarla(terminal_kodu, nominal, adet, iade_kutusunu_bosalt)
+        except nakit.NakitHatasi as e:
+            hata = (e.mesaj, e.kod)
+        else:
+            kod = nakit.terminal_kodu(terminal_kodu)
+            kayit_ekle("kaset_ayarlandi", {"terminal": kod, "nominal": int(nominal), "yapan": yapan[:60],
+                                           "eski_adet": eski[0], "yeni_adet": yeni[0],
+                                           "iade_kutusu_once": eski[1], "iade_kutusu_sonra": yeni[1]})
+            sonuc = {"terminal": kod, "nominal": int(nominal), "eski_adet": eski[0], "yeni_adet": yeni[0]}
+    if hata:
+        raise IslemHatasi(*hata)
+    return sonuc
 
 
 # ------------------------------------------------------------------ kasa dairesi
 
+@kilit.yeniden_dene
 def kasa_acma_baslat(uid, pin):
     """Yetkili, kasa dairesini acmak icin onay talebi baslatir.
 
@@ -522,6 +825,7 @@ def kasa_acma_baslat(uid, pin):
         raise IslemHatasi("Yeterli yetkili yok", "yetkili_yok")
 
     with transaction.atomic():
+        kilit.zincir_kilidi()
         islem = Islem.objects.create(
             hesap=kasa, tur=Islem.Tur.KASA_ACMA, tutar=Decimal("0.00"),
             baslatan_uid=personel.kart_uid, durum=Islem.Durum.ONAY_BEKLIYOR,
@@ -566,6 +870,7 @@ def _ozet(talep):
         "islem_id": talep.islem_id,
         "tur": talep.islem.tur,
         "tutar": para(talep.islem.tutar),
+        "dagitim": talep.islem.dagitim_plani,
         "durum": talep.durum,
         "verilen": verilen,
         "gereken": talep.gereken_onay,
@@ -582,15 +887,20 @@ def _talep_no(talep_id):
         raise IslemHatasi("Talep bulunamadı", "yok")
 
 
+@kilit.yeniden_dene
 def talep_durumu(talep_id):
+    """Talebin durumu. Okuma KILITSIZDIR (terminal saniyede bir sorar); yalnizca suresi dolmus bir talebi
+    kapatmak icin zincir ve satir kilidi alinir."""
     talep_id = _talep_no(talep_id)
-    with transaction.atomic():
-        talep = (OnayTalebi.objects.select_for_update().select_related("islem")
-                 .filter(id=talep_id).first())
-        if talep is None:
-            raise IslemHatasi("Talep bulunamadı", "yok")
-        _suresi_dolduysa_kapat(talep)
-        return _ozet(talep)
+    talep = OnayTalebi.objects.select_related("islem").filter(id=talep_id).first()
+    if talep is None:
+        raise IslemHatasi("Talep bulunamadı", "yok")
+    if talep.durum == OnayTalebi.Durum.BEKLIYOR and simdi() > talep.son_tarih:
+        with transaction.atomic():
+            kilit.zincir_kilidi()
+            talep = OnayTalebi.objects.select_for_update().select_related("islem").get(id=talep_id)
+            _suresi_dolduysa_kapat(talep)
+    return _ozet(talep)
 
 
 def suresi_dolanlari_kapat():
@@ -598,6 +908,7 @@ def suresi_dolanlari_kapat():
         durum=OnayTalebi.Durum.BEKLIYOR, son_tarih__lt=simdi()
     ).values_list("id", flat=True):
         talep_durumu(talep_id)
+    belirsizleri_isaretle()
 
 
 def bekleyen_talep():
@@ -608,6 +919,7 @@ def bekleyen_talep():
     return _ozet(talep) if talep else None
 
 
+@kilit.yeniden_dene
 def onay_karar(talep_id, uid, pin, karar):
     """karar: 'ONAY' veya 'RED'. Sonuc ozet sozlugu; kural ihlali IslemHatasi."""
     karar = Onay.Karar.RED if str(karar).upper() in ("RED", "H") else Onay.Karar.ONAY
@@ -617,6 +929,7 @@ def onay_karar(talep_id, uid, pin, karar):
     hata = None
     kasa_acildi = None
     with transaction.atomic():
+        kilit.zincir_kilidi()
         talep = (OnayTalebi.objects.select_for_update().select_related("islem")
                  .filter(id=talep_id).first())
         if talep is None:

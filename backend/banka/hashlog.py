@@ -16,7 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from . import baglam
+from . import baglam, kilit
 
 GENESIS = "0" * 64
 
@@ -36,6 +36,8 @@ def kayit_ekle(olay_turu, veri):
     from .models import LogKaydi
 
     with transaction.atomic():
+        # PostgreSQL: es zamanli yazanlar sirayla ilerler; ayni "sira" iki kez uretilemez (kilit.py)
+        kilit.zincir_kilidi()
         son = LogKaydi.objects.select_for_update().order_by("-sira").first()
         sira = 1 if son is None else son.sira + 1
         onceki = GENESIS if son is None else son.hash

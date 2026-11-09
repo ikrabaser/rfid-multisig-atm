@@ -94,21 +94,65 @@ function ATMSimulatoru(arayuz) {
     arayuz.kilit(false);
   }
 
-  // Parayi verir (LED), alinmasini bekler (A tusu = "para alindi" sensoru). true: islem geri alindi.
-  async function paraVer(islemId) {
+  // Teslim sonucunu sunucuya bildirir. Baglanti hatasinda AYNI satir tekrar gider (sunucu bildirimi idempotenttir).
+  async function teslimBildir(islemId, kod, verilen) {
+    const satir = `TESLIM|${islemId}|${kod}` + (verilen ? `|${verilen}` : "");
+    let c = await komut(satir);
+    for (let d = 0; d < 2 && c.startsWith("HATA|Sunucu"); d++) c = await komut(satir);
+    return c;
+  }
+
+  // Para dagitimi: once dagitici sayar/verir (donanimda sensor, simulatorde arayuzden gelen sonuc), sonra LED yanar,
+  // musteri A tusuyla "aldim" der. Sonuc sunucuya bildirilir:
+  //   normal       -> A: alindi,  H: alinmadi (zaman asimi, para geri cekildi: tam iade)
+  //   SIKISTI      -> S: para verilmedi, tam iade, dagitici kapanir
+  //   EKSIK        -> A'dan sonra K|verilen banknotlar: yalniz fark iade edilir (A yoksa H: hepsi geri cekilir)
+  //   BAGLANTI_YOK -> sonuc bildirilemez; sunucu teslimi "belirsiz" isaretler, para operator sayimina kadar tutulur
+  // true donerse islem geri alinmistir (cagiran "Islem tamam" yazmaz).
+  async function paraVer(islemId, plan, tutar) {
+    ekran("Para sayiliyor", tutar ? `${tutar} TL` : "");
+    const d = arayuz.dagitici ? await arayuz.dagitici(plan || "", tutar) : { durum: "TAMAM" };
+    await bekle(800);
+
+    if (d.durum === "SIKISTI") {
+      bip(false);
+      ekran("Para sikisti!", "Bekleyin...");
+      if (!islemId) return false;
+      const c = await teslimBildir(islemId, "S");
+      if (alan(c, 0) !== "TESLIM") {
+        await hataGoster(c);
+        return false;
+      }
+      ekran("Para sikisti", "Hesaba iade");
+      await bekle(3000);
+      return true;
+    }
+
     arayuz.led(true);
-    ekran("Parayi alin", "A: Aldim");
+    ekran("Parayi alin", d.durum === "EKSIK" ? `A:Aldim ${d.verilenTutar} TL` : "A: Aldim");
     const alindi = (await tusBekle(PARA_ALMA_MS, "A")) === "A";
     arayuz.led(false);
     if (!islemId) return false;
 
+    if (d.durum === "BAGLANTI_YOK") {
+      bip(false);
+      ekran("Baglanti koptu", "Sonuc belirsiz");
+      await bekle(3000);
+      return false;
+    }
+
     ekran("Kaydediliyor...");
-    const satir = `TESLIM|${islemId}|${alindi ? "A" : "H"}`;
-    let c = await komut(satir);
-    for (let d = 0; d < 2 && c.startsWith("HATA|Sunucu"); d++) c = await komut(satir);
+    const kod = !alindi ? "H" : d.durum === "EKSIK" ? "K" : "A";
+    const c = await teslimBildir(islemId, kod, kod === "K" ? d.verilen : "");
     if (alan(c, 0) !== "TESLIM") {
       await hataGoster(c);
       return false;
+    }
+    if (alan(c, 1) === "KISMI") {
+      ekran("Eksik verildi", `${alan(c, 2)} TL iade`);
+      bip(false);
+      await bekle(3000);
+      return false; // verilen kisim alindi; "Islem tamam" ekrani gosterilmez
     }
     if (alan(c, 1) === "GERI") {
       ekran("Para alinmadi", "Islem iptal");
@@ -238,7 +282,7 @@ function ATMSimulatoru(arayuz) {
 
   // ------------------------------------------------------------------ musteri
   // Onay bekler; bu sirada okutulan yetkili kartlari oy verir. Sonuc ekranda gosterilir.
-  async function onayBekle(talepId, etiket) {
+  async function onayBekle(talepId, etiket, tutar) {
     ekran("Onay gerekli", etiket);
     await bekle(1500);
     let sonSorgu = 0;
@@ -260,7 +304,7 @@ function ATMSimulatoru(arayuz) {
           ekran("Islem onaylandi", "Tamamlandi");
           bip(true);
           if (alan(c, 6) === "KASA_ACMA") await kilitAc();
-          else await paraVer(alan(c, 7));
+          else await paraVer(alan(c, 7), alan(c, 8), tutar);
           await bekle(1500);
           return;
         }
@@ -332,14 +376,14 @@ function ATMSimulatoru(arayuz) {
     }
     const a0 = alan(c, 0);
     if (a0 === "TAMAM") {
-      const geriAlindi = tur === "C" ? await paraVer(alan(c, 2)) : false;
+      const geriAlindi = tur === "C" ? await paraVer(alan(c, 2), alan(c, 3), tutar) : false;
       if (!geriAlindi) {
         ekran("Islem tamam", "Bak: " + alan(c, 1));
         bip(true);
         await bekle(3000);
       }
     } else if (a0 === "BEKLE") {
-      await onayBekle(alan(c, 1), tutar + " TL");
+      await onayBekle(alan(c, 1), tutar + " TL", tutar);
     } else {
       await hataGoster(c);
     }
@@ -508,6 +552,10 @@ function ATMSimulatoru(arayuz) {
 
   async function komutYolla(satir) {
     protokolYaz("→", satir);
+    if ($("ariza").value === "yanit_kaybi" && satir.startsWith("ISLEM|")) {
+      yanitKaybiBekliyor = true; // ISLEM sunucuda islenir, ama cevap bu istekte kaybolur
+      $("ariza").value = "normal";
+    }
     const r = await fetch(veri.komut_url, {
       method: "POST",
       credentials: "same-origin",
@@ -515,10 +563,48 @@ function ATMSimulatoru(arayuz) {
       body: JSON.stringify({ satir, terminal: $("terminal").value }),
     });
     const j = await r.json();
+    if (yanitKaybiBekliyor && satir.startsWith("ISLEM|")) {
+      yanitKaybiBekliyor = false;
+      protokolYaz("←", "(cevap kayboldu: baglanti koptu)");
+      throw new Error("yanit kayboldu"); // terminal ayni anahtarla yeniden dener; sunucu ayni sonucu verir
+    }
     protokolYaz("←", j.cevap);
+    const plan = (j.cevap.match(/^TAMAM\|[^|]*\|[^|]*\|(.+)$/) || [])[1];
+    if (plan) $("son-plan").textContent = plan;
     return j.cevap;
   }
 
+  // ---------------------------------------------------------------- para dagitici simulasyonu (ariza enjeksiyonu)
+  const planCoz = (metin) =>
+    Object.fromEntries(String(metin || "").split("+").filter(Boolean).map((p) => p.split("x").map(Number)));
+  const planTutari = (plan) => Object.entries(plan).reduce((t, [n, a]) => t + Number(n) * a, 0);
+  const planYaz = (plan) =>
+    Object.keys(plan).map(Number).sort((a, b) => b - a).filter((n) => plan[n] > 0).map((n) => `${n}x${plan[n]}`).join("+");
+
+  // Secili ariza SADECE bir sonraki cekim icin gecerlidir, kullanilinca "normal"e doner
+  function arizayiTuket() {
+    const secim = $("ariza").value;
+    $("ariza").value = "normal";
+    return secim;
+  }
+
+  async function dagitici(plan, tutar) {
+    const ariza = arizayiTuket();
+    if (plan) $("son-plan").textContent = plan;
+    if (ariza === "sikisma") return { durum: "SIKISTI" };
+    if (ariza === "baglanti") return { durum: "BAGLANTI_YOK" };
+    if (ariza === "eksik") {
+      const verilen = planCoz(plan);
+      const enBuyuk = Math.max(...Object.keys(verilen).map(Number));
+      if (!isFinite(enBuyuk)) return { durum: "TAMAM" };
+      verilen[enBuyuk] -= 1; // en buyuk banknottan biri verilmedi
+      if (planTutari(verilen) === 0) return { durum: "TAMAM" };
+      return { durum: "EKSIK", verilen: planYaz(verilen), verilenTutar: planTutari(verilen) };
+    }
+    return { durum: "TAMAM" };
+  }
+
+  let yanitKaybiBekliyor = false;
   const rastgele = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
 
   // ---------------------------------------------------------------- denetleyici
@@ -532,6 +618,7 @@ function ATMSimulatoru(arayuz) {
     bip,
     komut: komutYolla,
     rastgele,
+    dagitici,
   });
 
   function durumMesaji(metin) {
@@ -626,6 +713,7 @@ function ATMSimulatoru(arayuz) {
   }
   let sonZincir = null;
   function seritCiz(v) {
+    dagiticiPaneliCiz(v);
     if (v.zincir) sonZincir = v.zincir;
     const kap = $("serit-icerik");
     kap.textContent = "";
@@ -664,6 +752,24 @@ function ATMSimulatoru(arayuz) {
       kap.appendChild(kutu);
     });
 
+    if (v.belirsiz.length) {
+      kap.appendChild(el("h3", "", "Teslimi belirsiz çekmeler"));
+      v.belirsiz.forEach((b) => {
+        const kutu = el("div", "talep belirsiz");
+        kutu.appendChild(el("div", "", `#${b.islem_id} · ${Number(b.tutar).toLocaleString("tr-TR")} TL · ${b.terminal}`));
+        kutu.appendChild(el("div", "ince", `plan ${b.plan || "-"} · kasetler sayıldıktan sonra karar ver`));
+        const dugmeler = el("div", "dugmeler");
+        [["Verildi", "VERILDI"], ["Verilmedi (iade)", "VERILMEDI"]].forEach(([yazi, sonuc]) => {
+          const d = el("button", "kucuk", yazi);
+          d.type = "button";
+          d.addEventListener("click", () => operatorGonder({ eylem: "coz", islem_id: b.islem_id, sonuc }));
+          dugmeler.appendChild(d);
+        });
+        kutu.appendChild(dugmeler);
+        kap.appendChild(kutu);
+      });
+    }
+
     kap.appendChild(el("h3", "", "Defter hareketleri"));
     const def = el("table", "tablo");
     v.hareketler.forEach((h) => {
@@ -686,8 +792,44 @@ function ATMSimulatoru(arayuz) {
       kap.appendChild(s);
     });
   }
+  // Kaset paneli (secili terminal) ve operator dugmeleri
+  async function operatorGonder(govde) {
+    const r = await fetch(veri.operator_url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
+      body: JSON.stringify(govde),
+    });
+    const j = await r.json();
+    if (!j.ok) durumMesaji(j.hata || "Operatör işlemi başarısız");
+    seritYenile();
+  }
+
+  function dagiticiPaneliCiz(v) {
+    const kod = $("terminal").value;
+    const kap = $("kasetler");
+    kap.textContent = "";
+    (v.kasetler[kod] || []).forEach((k) => {
+      const satir = el("div", "kaset-satir");
+      satir.appendChild(el("span", "kaset-nominal", `${k.nominal} TL`));
+      satir.appendChild(el("span", "kaset-adet", `${k.adet.toLocaleString("tr-TR")} adet`));
+      const bilgi = [];
+      if (k.rezerve) bilgi.push(`rezerve ${k.rezerve}`);
+      if (k.iade_kutusu) bilgi.push(`iade kutusu ${k.iade_kutusu}`);
+      satir.appendChild(el("span", "ince", bilgi.join(" · ")));
+      kap.appendChild(satir);
+    });
+    const acik = v.dagiticilar[kod] !== false;
+    const durum = $("dagitici-durum");
+    durum.textContent = acik ? "Dağıtıcı açık" : "DAĞITICI KAPALI (arıza)";
+    durum.className = "rozet " + (acik ? "ok" : "kotu");
+    $("dagitici-ac").hidden = acik;
+  }
+
   seritYenile();
   setInterval(seritYenile, 1500);
+  $("dagitici-ac").addEventListener("click", () => operatorGonder({ eylem: "dagitici_ac", terminal: $("terminal").value }));
+  $("terminal").addEventListener("change", seritYenile);
 
   // ---------------------------------------------------------------- telefonlar (SMS gelen kutusu simulasyonu)
   let telefonAcik = false;

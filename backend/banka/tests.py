@@ -6,8 +6,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 import uuid
+from collections import Counter
 from pathlib import Path
 from decimal import Decimal
 from unittest import mock
@@ -18,14 +20,17 @@ from django.contrib.auth.models import Group
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
-from django.test import Client, TestCase, override_settings
+from django.core.management.base import CommandError
+from django.db import IntegrityError, OperationalError, connection, connections, transaction
+from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
-from . import (anomali, baglam, bildirim, bloke_butunlugu, kart_butunlugu, ledger, personel_butunlugu,
+from kasa import settings as proje_ayarlari
+
+from . import (anomali, baglam, bildirim, bloke_butunlugu, kart_butunlugu, kilit, ledger, nakit, personel_butunlugu,
                politika_degisikligi, rbac, services, simulator, sms, yonetim_talepleri)
 from .hashlog import kayit_ekle, zinciri_dogrula
-from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kart, LogKaydi, Musteri, OnayTalebi, Personel, Politika,
+from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, OnayTalebi, Personel, Politika,
                      PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi, YonetimTalebi)
 from .politika_degisikligi import PolitikaHatasi
 from .yonetim_talepleri import YonetimHatasi
@@ -784,16 +789,23 @@ class KurusTestleri(Yardimci, TestCase):
         self.hazirla()
 
     def test_kurus_tutari(self):
-        services.islem_baslat(self.giris(), "CEKME", "100.50")
+        # Kurus yalnizca yatirma ve havalede mumkun; nakit cekme banknotla verilir (ayri test)
+        services.islem_baslat(self.giris(), "HAVALE", "100.50", "100002")
         self.assertEqual(self.yenile(self.ali), Decimal("999899.50"))
-        self.assertEqual(self.yenile(self.kasa), Decimal("9999899.50"))
+        self.assertEqual(self.yenile(self.zeynep), Decimal("250100.50"))
+
+    def test_nakit_cekmede_kurus_reddedilir(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.islem_baslat(self.giris(), "CEKME", "100.50")
+        self.assertEqual(e.exception.kod, "tutar_birimi")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
 
     def test_virgul_ondalik_ayraci(self):
         services.islem_baslat(self.giris(), "YATIRMA", "100,5")
         self.assertEqual(self.yenile(self.ali), Decimal("1000100.50"))
 
     def test_tek_hane_kurus(self):
-        services.islem_baslat(self.giris(), "CEKME", "5.5")
+        services.islem_baslat(self.giris(), "HAVALE", "5.5", "100002")
         self.assertEqual(self.yenile(self.ali), Decimal("999994.50"))
 
     def test_uc_ondalik_hane_reddedilir(self):
@@ -809,10 +821,10 @@ class KurusTestleri(Yardimci, TestCase):
     def test_kurusla_defter_dengeli_kalir(self):
         token = self.giris()
         services.islem_baslat(token, "YATIRMA", "0.01")
-        services.islem_baslat(token, "CEKME", "0.01")
+        services.islem_baslat(token, "HAVALE", "0.01", "100002")      # nakit çekme kuruş verilemez; havale verir
         services.islem_baslat(token, "HAVALE", "12.34", "100002")
         self.assertTrue(ledger.mutabakat()["saglam"])
-        self.assertEqual(self.yenile(self.zeynep), Decimal("250012.34"))
+        self.assertEqual(self.yenile(self.zeynep), Decimal("250012.35"))
 
 
 @override_settings(MESAI_DISI_KURALI=False)
@@ -2523,16 +2535,16 @@ class SimulatorProtokolTestleri(Yardimci, TestCase):
     def test_kucuk_cekim_ve_teslim(self):
         token = self.giris()
         cevap = self.s(f"ISLEM|{token}|C|500||anahtar1")
-        self.assertRegex(cevap, r"^TAMAM\|999500\.00\|\d+$")
+        self.assertRegex(cevap, r"^TAMAM\|999500\.00\|\d+\|200x2\+100x1$")
         islem_no = cevap.split("|")[2]
-        self.assertEqual(self.s(f"TESLIM|{islem_no}|A"), "TESLIM|ALINDI")
+        self.assertEqual(self.s(f"TESLIM|{islem_no}|A"), "TESLIM|ALINDI|0.00")
         cevap2 = self.s(f"ISLEM|{token}|C|700||anahtar2")
-        self.assertEqual(self.s(f"TESLIM|{cevap2.split('|')[2]}|H"), "TESLIM|GERI")      # para alinmadi: ters kayit
+        self.assertEqual(self.s(f"TESLIM|{cevap2.split('|')[2]}|H"), "TESLIM|GERI|700.00")   # para alinmadi: ters kayit
         self.assertEqual(self.yenile(self.ali), Decimal("999500.00"))
 
     def test_kurus_ve_idempotency(self):
         token = self.giris()
-        self.assertRegex(self.s(f"ISLEM|{token}|C|100.5||k1"), r"^TAMAM\|999899\.50\|\d+$")
+        self.assertRegex(self.s(f"ISLEM|{token}|H|100.5|100002|k1"), r"^TAMAM\|999899\.50\|\d+\|$")   # kurus: havalede
         ilk = self.s(f"ISLEM|{token}|C|50||ayni")
         ikinci = self.s(f"ISLEM|{token}|C|50||ayni")
         self.assertEqual(ilk, ikinci)                                                       # ayni anahtar: ayni islem
@@ -2544,10 +2556,10 @@ class SimulatorProtokolTestleri(Yardimci, TestCase):
         self.assertRegex(bekle, r"^BEKLE\|\d+\|1$")
         talep = bekle.split("|")[1]
         self.assertEqual(self.s("BEKLEYEN"), f"BEKLEYEN|{talep}|Cek|10000|0|1")
-        self.assertRegex(self.s(f"DURUM|{talep}"), rf"^DURUM\|0\|1\|BEKLIYOR\|\d+\|0\|CEKME\|\d+$")
+        self.assertRegex(self.s(f"DURUM|{talep}"), r"^DURUM\|0\|1\|BEKLIYOR\|\d+\|0\|CEKME\|\d+\|$")
         self.assertTrue(self.s(f"ONAY|{talep}|b0b0b001|0000|E").startswith("HATA|Yanlis PIN"))
         self.assertEqual(self.s(f"ONAY|{talep}|b0b0b001|1111|E"), "ONAY|1|1|UYGULANDI")
-        self.assertRegex(self.s(f"DURUM|{talep}"), r"^DURUM\|1\|1\|UYGULANDI\|0\|0\|CEKME\|\d+$")
+        self.assertRegex(self.s(f"DURUM|{talep}"), r"^DURUM\|1\|1\|UYGULANDI\|0\|0\|CEKME\|\d+\|200x50$")
         self.assertEqual(self.s("BEKLEYEN"), "BEKLEYEN|YOK")
         self.assertEqual(self.yenile(self.ali), Decimal("990000.00"))
 
@@ -2573,6 +2585,27 @@ class SimulatorProtokolTestleri(Yardimci, TestCase):
         giris = LogKaydi.objects.filter(olay_turu="giris").last()
         self.assertEqual(json.loads(giris.veri)["terminal"], "ATM-02")
         self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_banknot_hatalari_protokolde(self):
+        token = self.giris()
+        self.assertEqual(self.s(f"ISLEM|{token}|C|35||a1"), "HATA|Tutar 10 TL'nin kati olmali")
+        self.assertEqual(self.s(f"ISLEM|{token}|C|30||a2"), "HATA|Bu tutar verilemiyor")
+        Kaset.objects.filter(terminal__kod="ATM-01").update(adet=0)
+        self.assertEqual(self.s(f"ISLEM|{token}|C|1000||a3"), "HATA|ATM'de bu tutar icin banknot yok")
+
+    def test_sikisma_protokolu(self):
+        token = self.giris()
+        cevap = self.s(f"ISLEM|{token}|C|2000||s1")
+        self.assertRegex(cevap, r"^TAMAM\|998000\.00\|\d+\|200x10$")
+        self.assertEqual(self.s(f"TESLIM|{cevap.split('|')[2]}|S"), "TESLIM|GERI|2000.00")
+        self.assertEqual(self.s(f"ISLEM|{token}|C|1000||s2"), "HATA|Para dagitici arizali")   # dagitici kapandi
+
+    def test_eksik_verme_protokolu(self):
+        token = self.giris()
+        no = self.s(f"ISLEM|{token}|C|2000||e1").split("|")[2]
+        self.assertEqual(self.s(f"TESLIM|{no}|K|200x20"), "HATA|Geçersiz eksik verme bildirimi".replace("ç", "c"))
+        self.assertEqual(self.s(f"TESLIM|{no}|K|200x9"), "TESLIM|KISMI|200.00")
+        self.assertEqual(self.yenile(self.ali), Decimal("998200.00"))
 
     def test_kart_butunlugu_simulatorde_de_gecerli(self):
         kart = Kart(uid="e0e0e001", hesap=Hesap.objects.get(hesap_no="100002"))
@@ -2661,6 +2694,41 @@ class SimulatorGorunumTestleri(Yardimci, TestCase):
         self.assertNotIn("zincir", v)
         self.assertTrue(self.client.get("/simulator/serit/?zincir=1").json()["zincir"]["saglam"])
 
+    def test_serit_kasetleri_ve_dagitici_durumu(self):
+        self.client.force_login(self.root)
+        v = self.client.get("/simulator/serit/").json()
+        k200 = [k for k in v["kasetler"]["ATM-01"] if k["nominal"] == 200][0]
+        self.assertEqual((k200["adet"], k200["rezerve"], k200["kullanilabilir"]), (5000, 0, 5000))
+        self.assertEqual(v["dagiticilar"], {"ATM-01": True, "ATM-02": True})
+        self.assertEqual(v["belirsiz"], [])
+
+    def test_operator_ucu_belirsiz_teslimi_cozer_ve_dagiticiyi_acar(self):
+        self.client.force_login(self.root)
+
+        def operator(govde):
+            return self.client.post("/simulator/operator/", data=json.dumps(govde), content_type="application/json").json()
+
+        token = simulator.isle("PIN|a0a0a001|1234", "ATM-01").split("|")[1]
+        no = int(simulator.isle(f"ISLEM|{token}|C|2000||op1", "ATM-01").split("|")[2])
+        Islem.objects.filter(id=no).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=3))
+        v = self.client.get("/simulator/serit/").json()                 # şerit, süresi geçen teslimi BELİRSİZ işaretler
+        self.assertEqual([b["islem_id"] for b in v["belirsiz"]], [no])
+        self.assertTrue(operator({"eylem": "coz", "islem_id": no, "sonuc": "VERILMEDI"})["ok"])
+        self.assertEqual(Islem.objects.get(id=no).teslim, "GERI_ALINDI")
+        yapan = json.loads(LogKaydi.objects.filter(olay_turu="nakit_cozuldu").get().veri)["yapan"]
+        self.assertEqual(yapan, "simulator:root")
+
+        no2 = int(simulator.isle(f"ISLEM|{token}|C|1000||op2", "ATM-01").split("|")[2])
+        simulator.isle(f"TESLIM|{no2}|S", "ATM-01")                      # sıkıştı: dağıtıcı kapandı
+        self.assertFalse(self.client.get("/simulator/serit/").json()["dagiticilar"]["ATM-01"])
+        self.assertTrue(operator({"eylem": "dagitici_ac", "terminal": "ATM-01"})["ok"])
+        self.assertTrue(Terminal.objects.get(kod="ATM-01").nakit_dagitimi)
+        self.assertFalse(operator({"eylem": "bilinmiyor"})["ok"])
+        self.assertFalse(operator({"eylem": "coz", "islem_id": no, "sonuc": "VERILDI"})["ok"])   # zaten sonuçlanmış
+
+        self.client.force_login(self.U.objects.get(username="denetci"))   # superuser olmayan: yasak
+        self.assertEqual(self.client.post("/simulator/operator/", data="{}", content_type="application/json").status_code, 403)
+
     def test_telefon_ucu(self):
         self.client.force_login(self.root)
         self.assertEqual(self.client.get("/simulator/telefon/").json(), {"mesajlar": []})      # bellek saglayicisi
@@ -2698,8 +2766,668 @@ class OnayPenceresiAyariTestleri(Yardimci, TestCase):
         return int(simulator.isle(f"DURUM|{talep}", "ATM-01").split("|")[4])
 
     def test_onay_penceresi_ayardan_gelir(self):
-        self.assertLessEqual(self.kalan(), 30)                       # varsayilan 30 sn
+        with override_settings(ONAY_PENCERESI_SN=30):                # ortam degiskeninden bagimsiz
+            self.assertLessEqual(self.kalan(), 30)
         with override_settings(ONAY_PENCERESI_SN=120):
             kalan = self.kalan()
             self.assertGreater(kalan, 100)
             self.assertLessEqual(kalan, 120)
+
+
+# ====================================================================== banknot stoğu ve para dağıtımı
+
+class NakitPlanTestleri(SimpleTestCase):
+    """Dağıtım planı: saf hesap (veritabanı yok)."""
+
+    BOL = {200: 1000, 100: 1000, 50: 1000, 20: 1000}
+
+    def test_en_az_banknotla_boler(self):
+        self.assertEqual(nakit.plan_hesapla(Decimal("2000"), self.BOL), {200: 10})
+        self.assertEqual(nakit.plan_hesapla(Decimal("70"), self.BOL), {50: 1, 20: 1})
+        self.assertEqual(nakit.plan_hesapla(Decimal("500.00"), self.BOL), {200: 2, 100: 1})
+
+    def test_eldeki_stoga_gore_dagitir(self):
+        self.assertEqual(nakit.plan_hesapla(Decimal("2000"), {**self.BOL, 200: 5}), {200: 5, 100: 10})
+        self.assertEqual(nakit.plan_hesapla(Decimal("2000"), {200: 0, 100: 0, 50: 100, 20: 0}), {50: 40})
+        self.assertEqual(nakit.plan_hesapla(Decimal("600000"), {n: 5000 for n in (200, 100, 50, 20)}), {200: 3000})
+
+    def test_verilemeyen_tutarlar(self):
+        for tutar in ("10", "30", "35", "105", "100.50"):
+            with self.assertRaises(nakit.NakitHatasi) as e:
+                nakit.plan_hesapla(Decimal(tutar), self.BOL)
+            self.assertEqual(e.exception.kod, "tutar_birimi", tutar)
+        with self.assertRaises(nakit.NakitHatasi) as e:
+            nakit.plan_hesapla(Decimal("2000"), {200: 3, 100: 0, 50: 0, 20: 0})
+        self.assertEqual(e.exception.kod, "banknot")
+        with self.assertRaises(nakit.NakitHatasi) as e:
+            nakit.plan_hesapla(Decimal("1990"), {200: 10, 100: 10, 50: 0, 20: 100})   # 50'lik olmadan 1990 oluşmaz
+        self.assertEqual(e.exception.kod, "banknot")
+
+    def test_kaba_kuvvetle_ayni_sonucu_verir(self):
+        import random
+
+        def kaba(lira, stok):
+            en_az = None
+            for a in range(min(stok[200], lira // 200) + 1):
+                for b in range(min(stok[100], (lira - 200 * a) // 100) + 1):
+                    for c in range(min(stok[50], (lira - 200 * a - 100 * b) // 50) + 1):
+                        kalan = lira - 200 * a - 100 * b - 50 * c
+                        if kalan % 20 == 0 and kalan // 20 <= stok[20]:
+                            n = a + b + c + kalan // 20
+                            en_az = n if en_az is None else min(en_az, n)
+            return en_az
+
+        rastgele = random.Random(7)
+        for _ in range(150):
+            stok = {n: rastgele.randint(0, 12) for n in (200, 100, 50, 20)}
+            lira = rastgele.randrange(10, 4000, 10)
+            beklenen = kaba(lira, stok)
+            try:
+                plan = nakit.plan_hesapla(Decimal(lira), stok)
+            except nakit.NakitHatasi:
+                self.assertIsNone(beklenen, (lira, stok))
+                continue
+            self.assertEqual(sum(plan.values()), beklenen, (lira, stok))          # en az banknot
+            self.assertEqual(nakit.plan_tutari(plan), lira)                        # tutarı tam verir
+            self.assertTrue(all(plan[n] <= stok[n] for n in plan))                 # stoğu aşmaz
+
+    def test_plan_yazma_ve_cozme(self):
+        self.assertEqual(nakit.plan_yaz({20: 3, 200: 8}), "200x8+20x3")
+        self.assertEqual(nakit.plan_coz("200x8+20x3"), {200: 8, 20: 3})
+        self.assertEqual(nakit.plan_coz(""), {})
+        for kotu in ("abc", "200x0", "150x2", "200x2+200x1", "200x"):
+            with self.assertRaises(nakit.NakitHatasi, msg=kotu):
+                nakit.plan_coz(kotu)
+
+    def test_banknot_cinsleri_ayarlanabilir(self):
+        with override_settings(BANKNOT_NOMINALLERI=(100, 50)):
+            self.assertEqual(nakit.en_kucuk_birim(), 50)
+            self.assertEqual(nakit.plan_hesapla(Decimal("150"), {100: 5, 50: 5}), {100: 1, 50: 1})
+            with self.assertRaises(nakit.NakitHatasi):
+                nakit.plan_hesapla(Decimal("120"), {100: 5, 50: 5})
+
+
+class NakitYardimci(Yardimci):
+    def kaset(self, nominal, terminal="ATM-01"):
+        return Kaset.objects.get(terminal__kod=terminal, nominal=nominal)
+
+    def cek(self, tutar="2000", **ek):
+        return services.islem_baslat(self.giris(), "CEKME", tutar, **ek)
+
+    def belirsiz_cekim(self, tutar="2000"):
+        """Teslim sonucu gelmeden pencere geçmiş bir çekim (bağlantı koptu): BELİRSİZ işaretlenir."""
+        r = self.cek(tutar)
+        Islem.objects.filter(id=r["islem_id"]).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=3))
+        services.suresi_dolanlari_kapat()
+        return r
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class NakitStokTestleri(NakitYardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def test_seed_her_terminale_kaset_koyar_ve_mutabakat_temiz(self):
+        for terminal in ("ATM-01", "ATM-02"):
+            self.assertEqual(Kaset.objects.filter(terminal__kod=terminal).count(), 4)
+        rapor = ledger.mutabakat()
+        self.assertEqual(rapor["kaset_farklari"], [])
+        self.assertTrue(rapor["saglam"])
+
+    def test_cekim_planlanir_ve_rezerve_edilir(self):
+        r = self.cek("2000")
+        self.assertEqual(r["dagitim"], "200x10")
+        islem = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual((islem.dagitim_plani, islem.teslim), ("200x10", "BEKLIYOR"))
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve), (5000, 10))
+        self.assertEqual(self.kaset(100).rezerve, 0)
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_teslim_sonrasi_stok_duser(self):
+        r = self.cek("2000")
+        services.teslim_bildir(r["islem_id"], "ALINDI")
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 0))
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).verilen_plani, "200x10")
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_alinmayan_para_iade_kutusuna_gider(self):
+        r = self.cek("2000")
+        services.teslim_bildir(r["islem_id"], "ALINMADI")
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 10))
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_yetersiz_stok_reddedilir_ve_para_hareket_etmez(self):
+        Kaset.objects.filter(terminal__kod="ATM-01").update(adet=0)
+        Kaset.objects.filter(terminal__kod="ATM-01", nominal=200).update(adet=3)
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek("2000")
+        self.assertEqual(e.exception.kod, "banknot")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertEqual(Islem.objects.count(), 0)
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="islem_reddi_banknot").exists())
+
+    def test_stoga_gore_karisik_plan(self):
+        Kaset.objects.filter(terminal__kod="ATM-01", nominal=200).update(adet=5)
+        self.assertEqual(self.cek("2000")["dagitim"], "200x5+100x10")
+
+    def test_tutar_kurallari(self):
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek("35")
+        self.assertEqual((e.exception.kod, e.exception.mesaj), ("tutar_birimi", "Tutar 10 TL'nin katı olmalı"))
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek("30")
+        self.assertEqual((e.exception.kod, e.exception.mesaj), ("tutar_birimi", "Bu tutar verilemiyor"))
+        services.islem_baslat(self.giris(), "YATIRMA", "100.50")   # kuruş yatırmada serbest
+
+    def test_terminal_stoklari_ayridir(self):
+        Kaset.objects.filter(terminal__kod="ATM-02").update(adet=0)
+        with baglam.terminal_baglami("ATM-02"):
+            with self.assertRaises(IslemHatasi) as e:
+                self.cek("1000")
+        self.assertEqual(e.exception.kod, "banknot")
+        with baglam.terminal_baglami("ATM-01"):
+            self.assertEqual(self.cek("1000")["dagitim"], "200x5")
+
+    def test_onayli_cekimde_banknot_onayda_rezerve_edilir(self):
+        r = self.cek("10000")
+        self.assertEqual(r["durum"], "onay_bekliyor")
+        self.assertEqual(self.kaset(200).rezerve, 0)
+        services.onay_karar(r["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(self.kaset(200).rezerve, 50)
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).dagitim_plani, "200x50")
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_onay_beklerken_stok_biterse_islem_basarisiz_olur(self):
+        r = self.cek("10000")
+        Kaset.objects.filter(terminal__kod="ATM-01").update(adet=0)
+        ozet = services.onay_karar(r["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(ozet["durum"], "BASARISIZ")
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).durum, "BASARISIZ")
+        self.assertEqual(HesapHareketi.objects.count(), 0)
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="islem_basarisiz").exists())
+
+    def test_dagitici_kapaliysa_cekim_reddedilir_digerleri_calisir(self):
+        Terminal.objects.filter(kod="ATM-01").update(nakit_dagitimi=False)
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek("1000")
+        self.assertEqual(e.exception.kod, "dagitici")
+        services.islem_baslat(self.giris(), "YATIRMA", "100")
+        services.islem_baslat(self.giris(), "HAVALE", "100", "100002")
+
+    def test_tekrar_istek_tek_rezerve_eder(self):
+        a = self.cek("1000", anahtar="a-1")
+        b = self.cek("1000", anahtar="a-1")
+        self.assertEqual(a["islem_id"], b["islem_id"])
+        self.assertTrue(b["tekrar"])
+        self.assertEqual(b["dagitim"], "200x5")
+        self.assertEqual(self.kaset(200).rezerve, 5)
+        self.assertEqual(Islem.objects.filter(tur="CEKME").count(), 1)
+
+    def test_kaset_doldur_ve_rezerve_korumasi(self):
+        r = services.kaset_doldur("ATM-01", 200, 3000, "Ali Teknisyen")
+        self.assertEqual((r["eski_adet"], r["yeni_adet"]), (5000, 3000))
+        self.assertEqual(self.kaset(200).adet, 3000)
+        olay = json.loads(LogKaydi.objects.filter(olay_turu="kaset_ayarlandi").last().veri)
+        self.assertEqual((olay["yapan"], olay["eski_adet"], olay["yeni_adet"]), ("Ali Teknisyen", 5000, 3000))
+        self.cek("2000")  # 10 banknot rezerve
+        with self.assertRaises(IslemHatasi) as e:
+            services.kaset_doldur("ATM-01", 200, 5, "Ali Teknisyen")
+        self.assertEqual(e.exception.kod, "rezerve")
+        with self.assertRaises(IslemHatasi) as e:
+            services.kaset_doldur("ATM-01", 500, 10, "Ali Teknisyen")
+        self.assertEqual(e.exception.kod, "nominal")
+        with self.assertRaises(IslemHatasi):
+            services.kaset_doldur("ATM-01", 200, 10, "")   # yapan zorunlu
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_yonetim_komutlari(self):
+        cikti = io.StringIO()
+        call_command("nakit_durumu", stdout=cikti)
+        self.assertIn("ATM-01", cikti.getvalue())
+        self.assertIn("200 TL", cikti.getvalue())
+        call_command("kaset_doldur", "--terminal", "ATM-01", "--nominal", "50", "--adet", "4000",
+                     "--yapan", "Servis", stdout=io.StringIO())
+        self.assertEqual(self.kaset(50).adet, 4000)
+        with self.assertRaises(CommandError):
+            call_command("kaset_doldur", "--nominal", "500", "--adet", "1", "--yapan", "Servis", stdout=io.StringIO())
+
+    def test_dusuk_stok_anomalisi(self):
+        self.assertNotIn("dusuk_banknot_stogu", {b["kural"] for b in anomali.tara()})
+        Kaset.objects.filter(terminal__kod="ATM-01", nominal=200).update(adet=50)
+        bulgu = [b for b in anomali.tara() if b["kural"] == "dusuk_banknot_stogu"]
+        self.assertEqual(len(bulgu), 1)
+        self.assertIn("ATM-01 200 TL: 50", bulgu[0]["aciklama"])
+
+    def test_mutabakat_kaset_sizintisini_yakalar(self):
+        self.cek("2000")
+        Kaset.objects.filter(terminal__kod="ATM-01", nominal=200).update(rezerve=0)   # rezervasyon "sızmış"
+        rapor = ledger.mutabakat()
+        self.assertFalse(rapor["saglam"])
+        self.assertEqual(rapor["kaset_farklari"], [{"terminal": "ATM-01", "nominal": 200, "rezerve": 0, "beklenen": 10}])
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class DagitimHataTestleri(NakitYardimci, TestCase):
+    """Sıkışma, eksik verme ve bağlantı kopması: para güvenli yönetilir, çifte ödeme olmaz."""
+
+    def setUp(self):
+        self.hazirla()
+
+    # ---- sıkışma
+    def test_sikisma_tam_iade_eder_ve_dagitici_kapanir(self):
+        r = self.cek("2000")
+        s = services.teslim_bildir(r["islem_id"], "SIKISTI")
+        self.assertEqual((s["teslim"], s["iade"]), ("GERI", "2000.00"))
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertEqual(self.yenile(self.kasa), Decimal("10000000.00"))
+        ters = Islem.objects.get(ters_islem_id=r["islem_id"])
+        self.assertEqual((ters.tur, ters.ters_neden, ters.tutar), ("TERS_KAYIT", "DAGITICI_SIKISTI", Decimal("2000.00")))
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 10))   # sıkışan banknotlar iade kutusunda
+        self.assertFalse(Terminal.objects.get(kod="ATM-01").nakit_dagitimi)
+        self.assertEqual(json.loads(LogKaydi.objects.filter(olay_turu="dagitici_kapandi").get().veri)["neden"], "SIKISTI")
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek("1000")
+        self.assertEqual(e.exception.kod, "dagitici")
+        self.assertIn("dagitici_arizasi", {b["kural"] for b in anomali.tara()})
+        self.assertTrue(Bildirim.objects.filter(olay="dagitici_arizasi").exists())
+        self.assertTrue(ledger.mutabakat()["saglam"])
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_dagitici_acma_komutu(self):
+        r = self.cek("1000")
+        services.teslim_bildir(r["islem_id"], "SIKISTI")
+        with self.assertRaises(CommandError):   # servis notu çok kısa
+            call_command("dagitici_ac", "--yapan", "Servis", "--neden", "kisa", stdout=io.StringIO())
+        call_command("dagitici_ac", "--terminal", "ATM-01", "--yapan", "Teknik Servis", "--neden", "Rulo degistirildi",
+                     stdout=io.StringIO())
+        self.assertTrue(Terminal.objects.get(kod="ATM-01").nakit_dagitimi)
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="dagitici_acildi").exists())
+        self.cek("1000")  # yeniden çalışır
+
+    # ---- eksik verme
+    def test_eksik_verme_yalniz_farki_iade_eder(self):
+        r = self.cek("2000")
+        s = services.teslim_bildir(r["islem_id"], "EKSIK", "200x9")
+        self.assertEqual((s["teslim"], s["iade"]), ("KISMI", "200.00"))
+        self.assertEqual(self.yenile(self.ali), Decimal("998200.00"))
+        self.assertEqual(self.yenile(self.kasa), Decimal("9998200.00"))
+        o = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual((o.teslim, o.verilen_plani, o.iade_tutari), ("KISMI", "200x9", Decimal("200.00")))
+        ters = Islem.objects.get(ters_islem_id=r["islem_id"])
+        self.assertEqual((ters.tutar, ters.ters_neden), (Decimal("200.00"), "EKSIK_VERILDI"))
+        k = self.kaset(200)
+        # 10 banknot kasetten cikti: 9'u musteriye, 1'i iade kutusuna; kasette 5000 - 10 kaldi
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 1))
+        self.assertFalse(Terminal.objects.get(kod="ATM-01").nakit_dagitimi)
+        self.assertEqual(services.gunluk_toplam(self.ali), Decimal("1800.00"))   # yalnız fiilen verilen sayılır
+        self.assertTrue(ledger.mutabakat()["saglam"])
+        # aynı bildirim tekrarlanırsa aynı sonuç, ikinci ters kayıt yok
+        self.assertEqual(services.teslim_bildir(r["islem_id"], "EKSIK", "200x9")["teslim"], "KISMI")
+        self.assertEqual(Islem.objects.filter(tur="TERS_KAYIT").count(), 1)
+        with self.assertRaises(IslemHatasi) as e:
+            services.teslim_bildir(r["islem_id"], "ALINDI")   # çelişen bildirim reddedilir
+        self.assertEqual(e.exception.kod, "celiski")
+
+    def test_karisik_banknotla_eksik_verme(self):
+        Kaset.objects.filter(terminal__kod="ATM-01", nominal=200).update(adet=5)
+        r = self.cek("2000")
+        self.assertEqual(r["dagitim"], "200x5+100x10")
+        services.teslim_bildir(r["islem_id"], "EKSIK", "200x5+100x9")
+        o = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual((o.verilen_plani, o.iade_tutari), ("200x5+100x9", Decimal("100.00")))
+        k100, k200 = self.kaset(100), self.kaset(200)
+        self.assertEqual((k100.adet, k100.rezerve, k100.iade_kutusu), (4990, 0, 1))   # 10 cikti: 9 musteriye, 1 iade kutusuna
+        self.assertEqual((k200.adet, k200.rezerve, k200.iade_kutusu), (0, 0, 0))
+
+    def test_gecersiz_eksik_bildirimleri_reddedilir(self):
+        r = self.cek("2000")
+        for kotu in ("", "200x11", "200x10", "100x1", "abc", "200x0"):
+            with self.assertRaises(IslemHatasi, msg=kotu) as e:
+                services.teslim_bildir(r["islem_id"], "EKSIK", kotu)
+            self.assertEqual(e.exception.kod, "plan", kotu)
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BEKLIYOR")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))
+
+    def test_gunluk_limit_yalniz_verilen_kismi_sayar(self):
+        r = self.cek("5000")  # 5.000 TL onaysız
+        services.teslim_bildir(r["islem_id"], "EKSIK", "200x20")
+        self.assertEqual(services.gunluk_toplam(self.ali), Decimal("4000.00"))
+
+    # ---- bağlantı kopması
+    def test_baglanti_kopmasinda_teslim_belirsiz_olur_otomatik_iade_yok(self):
+        r = self.belirsiz_cekim("2000")
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BELIRSIZ")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))   # otomatik iade YOK (çifte ödeme riski)
+        self.assertEqual(self.kaset(200).rezerve, 10)                   # banknotlar rezerve kalır
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="teslim_belirsiz_isaretlendi").exists())
+        self.assertIn("teslim_belirsiz", {b["kural"] for b in anomali.tara()})
+        rapor = ledger.mutabakat()
+        self.assertEqual(rapor["belirsiz_teslimler"], [r["islem_id"]])
+        self.assertTrue(rapor["saglam"])
+
+    def test_gec_gelen_iade_gerektiren_bildirim_reddedilir_para_alindi_kabul_edilir(self):
+        r = self.belirsiz_cekim("2000")
+        for durum in ("ALINMADI", "SIKISTI", "ARIZA"):
+            with self.assertRaises(IslemHatasi, msg=durum) as e:
+                services.teslim_bildir(r["islem_id"], durum)
+            self.assertEqual(e.exception.kod, "sure")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))
+        self.assertTrue(Terminal.objects.get(kod="ATM-01").nakit_dagitimi)    # reddedilen bildirim dağıtıcıyı kapatmaz
+        s = services.teslim_bildir(r["islem_id"], "ALINDI")   # "para alındı" parayı geri vermez: güvenle kabul
+        self.assertEqual(s["teslim"], "ALINDI")
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve), (4990, 0))
+        self.assertTrue(LogKaydi.objects.filter(olay_turu="teslim_gec_onay").exists())
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    # ---- operatör çözümü (kasetler sayıldıktan sonra)
+    def test_operator_verilmedi_der_ters_kaydedilir_banknot_kasette_kalir(self):
+        r = self.belirsiz_cekim("2000")
+        s = services.nakit_coz(r["islem_id"], "VERILMEDI", "Ali Teknisyen", "Kaset sayimi: banknotlar yerinde")
+        self.assertEqual((s["teslim"], s["iade"]), ("GERI", "2000.00"))
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (5000, 0, 0))
+        self.assertEqual(Islem.objects.get(ters_islem_id=r["islem_id"]).ters_neden, "OPERATOR_VERILMEDI")
+        olay = json.loads(LogKaydi.objects.filter(olay_turu="nakit_cozuldu").get().veri)
+        self.assertEqual((olay["yapan"], olay["sonuc"]), ("Ali Teknisyen", "VERILMEDI"))
+        with self.assertRaises(IslemHatasi) as e:
+            services.nakit_coz(r["islem_id"], "VERILDI", "Ali Teknisyen", "ikinci deneme")
+        self.assertEqual(e.exception.kod, "sonuclanmis")
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_operator_verildi_der_para_gitmis_sayilir(self):
+        r = self.belirsiz_cekim("2000")
+        s = services.nakit_coz(r["islem_id"], "VERILDI", "Ali Teknisyen", "Kasa sayimi: eksik banknot var")
+        self.assertEqual((s["teslim"], s["iade"]), ("ALINDI", "0.00"))
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 0))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_operator_kismi_der_fark_iade_edilir(self):
+        r = self.belirsiz_cekim("2000")
+        s = services.nakit_coz(r["islem_id"], "KISMI", "Ali Teknisyen", "Kasa sayimi: 2 banknot eksik", verilen="200x8")
+        self.assertEqual((s["teslim"], s["iade"]), ("KISMI", "400.00"))
+        self.assertEqual(self.yenile(self.ali), Decimal("998400.00"))
+        k = self.kaset(200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 2))   # 10 cikti: 8 musteriye, 2 iade kutusuna
+        self.assertEqual(Islem.objects.get(ters_islem_id=r["islem_id"]).ters_neden, "OPERATOR_KISMI")
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_operator_cozumu_kurallari(self):
+        r = self.cek("2000")  # teslim hâlâ BEKLIYOR (pencere geçmedi)
+        with self.assertRaises(IslemHatasi) as e:
+            services.nakit_coz(r["islem_id"], "VERILDI", "Ali Teknisyen", "sayim yapildi")
+        self.assertEqual(e.exception.kod, "bekliyor")
+        for yapan, neden in (("", "sayim yapildi"), ("Ali", "kisa")):
+            with self.assertRaises(IslemHatasi) as e:
+                services.nakit_coz(r["islem_id"], "VERILDI", yapan, neden)
+            self.assertEqual(e.exception.kod, "gerekce")
+        with self.assertRaises(IslemHatasi) as e:
+            services.nakit_coz(r["islem_id"], "BELKI", "Ali Teknisyen", "sayim yapildi")
+        self.assertEqual(e.exception.kod, "sonuc")
+        yatirma = services.islem_baslat(self.giris(), "YATIRMA", "100")
+        with self.assertRaises(IslemHatasi) as e:
+            services.nakit_coz(yatirma["islem_id"], "VERILDI", "Ali Teknisyen", "sayim yapildi")
+        self.assertEqual(e.exception.kod, "yok")
+
+    def test_nakit_coz_komutu(self):
+        r = self.belirsiz_cekim("2000")
+        cikti = io.StringIO()
+        call_command("nakit_durumu", stdout=cikti)
+        self.assertIn("nakit_coz", cikti.getvalue())   # belirsiz çekme listelenir ve yol gösterilir
+        call_command("nakit_coz", "--islem", str(r["islem_id"]), "--sonuc", "VERILMEDI", "--yapan", "Ali Teknisyen",
+                     "--neden", "Kaset sayimi tamam", stdout=cikti)
+        self.assertIn("sonuçlandı", cikti.getvalue())
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class PinSayaciTestleri(Yardimci, TestCase):
+    def setUp(self):
+        self.hazirla()
+
+    def test_sayac_bayat_nesneye_degil_taze_satira_gore_artar(self):
+        """Eşzamanlı isteklerin birbirinin sayacını ezmesi (lost update) engellenir: sayaç kilitli taze satırdan sayılır."""
+        bayat = Kart.objects.get(uid="a0a0a002")                      # hatali_deneme = 0 gören nesne
+        Kart.objects.filter(pk=bayat.pk).update(hatali_deneme=2)      # bu arada başka istek iki hata işledi
+        with self.assertRaises(IslemHatasi) as e:
+            services._pin_kontrol(bayat, "0000", "a0a0a002")
+        self.assertEqual(e.exception.kod, "bloke")                    # bayat sayaçla "kalan hak: 2" derdi
+        self.assertTrue(Kart.objects.get(pk=bayat.pk).bloke)
+
+    def test_pin_degisirse_guncel_hash_ile_dogrulanir(self):
+        bayat = Kart.objects.get(uid="a0a0a002")
+        taze = Kart.objects.get(pk=bayat.pk)
+        taze.pin_ayarla("7777")
+        taze.save()
+        with self.assertRaises(IslemHatasi):
+            services._pin_kontrol(bayat, "4321", "a0a0a002")           # eski PIN artık geçersiz
+        services._pin_kontrol(bayat, "7777", "a0a0a002")               # yeni PIN geçerli
+
+
+class KilitTestleri(SimpleTestCase):
+    def hata(self, kod):
+        class Neden(Exception):
+            sqlstate = kod
+
+        hata = OperationalError("x")
+        hata.__cause__ = Neden()
+        return hata
+
+    def test_gecici_hata_yeniden_denenir(self):
+        sayac = {"n": 0}
+
+        @kilit.yeniden_dene(bekleme=0)
+        def is_():
+            sayac["n"] += 1
+            if sayac["n"] < 3:
+                raise self.hata("40P01")   # deadlock
+            return "tamam"
+
+        self.assertEqual(is_(), "tamam")
+        self.assertEqual(sayac["n"], 3)
+
+    def test_son_denemede_hata_yukselir(self):
+        sayac = {"n": 0}
+
+        @kilit.yeniden_dene(deneme=2, bekleme=0)
+        def is_():
+            sayac["n"] += 1
+            raise self.hata("40001")
+
+        with self.assertRaises(OperationalError):
+            is_()
+        self.assertEqual(sayac["n"], 2)
+
+    def test_kalici_hata_denenmez(self):
+        sayac = {"n": 0}
+
+        @kilit.yeniden_dene(bekleme=0)
+        def is_():
+            sayac["n"] += 1
+            raise self.hata("42P01")   # tablo yok: geçici değil
+
+        with self.assertRaises(OperationalError):
+            is_()
+        self.assertEqual(sayac["n"], 1)
+
+    def test_dis_transaction_icindeyse_denenmez(self):
+        sayac = {"n": 0}
+
+        @kilit.yeniden_dene(bekleme=0)
+        def is_():
+            sayac["n"] += 1
+            raise self.hata("40P01")
+
+        with mock.patch.object(kilit, "connection", mock.Mock(in_atomic_block=True)):
+            with self.assertRaises(OperationalError):
+                is_()
+        self.assertEqual(sayac["n"], 1)
+
+    def test_zincir_kilidi_postgres_disinda_hicbir_sey_yapmaz(self):
+        with mock.patch.object(kilit, "postgres_mu", return_value=False):
+            self.assertIsNone(kilit.zincir_kilidi())   # veritabanına dokunmaz (SimpleTestCase sorgu yasaklar)
+
+
+class VeritabaniAyariTestleri(SimpleTestCase):
+    def ortam(self, **degisken):
+        temiz = {k: v for k, v in os.environ.items()
+                 if not k.startswith("POSTGRES_") and k != "DB_ENGINE"}
+        temiz.update(degisken)
+        return mock.patch.dict(os.environ, temiz, clear=True)
+
+    def test_varsayilan_postgresql(self):
+        with self.ortam():
+            ayar = proje_ayarlari._veritabani()
+        self.assertEqual(ayar["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual((ayar["NAME"], ayar["USER"], ayar["HOST"], ayar["PORT"]), ("kasa", "kasa", "127.0.0.1", "5432"))
+        self.assertIn("lock_timeout", ayar["OPTIONS"]["options"])
+
+    def test_ortam_degiskenleri_baglantiyi_belirler(self):
+        with self.ortam(POSTGRES_DB="bankam", POSTGRES_USER="u", POSTGRES_PASSWORD="p", POSTGRES_HOST="db", POSTGRES_PORT="6543"):
+            ayar = proje_ayarlari._veritabani()
+        self.assertEqual((ayar["NAME"], ayar["USER"], ayar["PASSWORD"], ayar["HOST"], ayar["PORT"]),
+                         ("bankam", "u", "p", "db", "6543"))
+
+    def test_sqlite_secenegi(self):
+        with self.ortam(DB_ENGINE="sqlite"):
+            ayar = proje_ayarlari._veritabani()
+        self.assertEqual(ayar["ENGINE"], "django.db.backends.sqlite3")
+        self.assertTrue(str(ayar["NAME"]).endswith("db.sqlite3"))
+
+    def test_sayi_ayari_gecersizse_varsayilana_doner(self):
+        with self.ortam(ORNEK_SN="45"):
+            self.assertEqual(proje_ayarlari._env_int("ORNEK_SN", 30, 10, 600), 45)
+        with self.ortam(ORNEK_SN="abc"):
+            self.assertEqual(proje_ayarlari._env_int("ORNEK_SN", 30, 10, 600), 30)
+        with self.ortam(ORNEK_SN="5"):                       # aralık dışı
+            self.assertEqual(proje_ayarlari._env_int("ORNEK_SN", 30, 10, 600), 30)
+
+
+# ====================================================================== PostgreSQL eşzamanlılık testleri
+
+@unittest.skipUnless(connection.vendor == "postgresql",
+                     "Eşzamanlılık testleri yalnızca PostgreSQL'de anlamlıdır (DB_ENGINE=sqlite iken atlanır)")
+@override_settings(MESAI_DISI_KURALI=False)
+class EszamanliTestleri(TransactionTestCase):
+    """Gerçek thread'ler, ayrı veritabanı bağlantıları, aynı anda başlayan istekler.
+
+    Her testte tüm istekler bir bariyerde bekleyip AYNI ANDA salınır; kontrollerin birbirinin arasına
+    girememesi (bakiye / günlük limit / banknot stoğu / PIN deneme sayısı) sonuçların kesin sayısıyla sınanır.
+    """
+
+    def setUp(self):
+        ayar = override_settings(SMS_SAGLAYICI="banka.sms.BellekSmsSaglayici")
+        ayar.enable()
+        self.addCleanup(ayar.disable)
+        sms.BellekSmsSaglayici.gelen.clear()
+        call_command("seed_demo", stdout=io.StringIO())
+        self.ali = Hesap.objects.get(hesap_no="100001")
+        self.token = services.musteri_giris("a0a0a001", "1234")["token"]
+
+    def paralel(self, isler):
+        bariyer = threading.Barrier(len(isler))
+        sonuc = [None] * len(isler)
+
+        def kos(i, is_):
+            try:
+                bariyer.wait(timeout=30)
+                sonuc[i] = ("ok", is_())
+            except Exception as hata:  # noqa: BLE001 - testte her hata sonuç olarak toplanır
+                sonuc[i] = ("hata", hata)
+            finally:
+                connections.close_all()
+
+        kolar = [threading.Thread(target=kos, args=(i, f)) for i, f in enumerate(isler)]
+        for k in kolar:
+            k.start()
+        for k in kolar:
+            k.join(timeout=120)
+        self.assertTrue(all(x is not None for x in sonuc), "Bir thread bitmedi (kilitlenme olabilir)")
+        return sonuc
+
+    @staticmethod
+    def ozet(sonuc):
+        basarili = sum(1 for d, _ in sonuc if d == "ok")
+        hatalar = Counter(getattr(v, "kod", type(v).__name__) for d, v in sonuc if d == "hata")
+        return basarili, dict(hatalar)
+
+    def test_bakiye_es_zamanli_cekimlerde_asilamaz(self):
+        Hesap.objects.filter(hesap_no="100001").update(bakiye=Decimal("5000.00"), acilis_bakiyesi=Decimal("5000.00"))
+        sonuc = self.paralel([lambda: services.islem_baslat(self.token, "CEKME", "2000") for _ in range(8)])
+        self.assertEqual(self.ozet(sonuc), (2, {"bakiye": 6}))
+        self.ali.refresh_from_db()
+        self.assertEqual(self.ali.bakiye, Decimal("1000.00"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_gunluk_limit_es_zamanli_asilamaz(self):
+        Hesap.objects.filter(hesap_no="100001").update(gunluk_limit=Decimal("10000.00"))
+        sonuc = self.paralel([lambda: services.islem_baslat(self.token, "CEKME", "3000") for _ in range(6)])
+        self.assertEqual(self.ozet(sonuc), (3, {"limit": 3}))
+        self.ali.refresh_from_db()
+        self.assertEqual(services.gunluk_toplam(self.ali), Decimal("9000.00"))
+
+    def test_banknot_stogu_es_zamanli_asilamaz(self):
+        Kaset.objects.filter(terminal__kod="ATM-01").update(adet=0)
+        Kaset.objects.filter(terminal__kod="ATM-01", nominal=200).update(adet=5)     # 1.000 TL = 5 banknot
+        sonuc = self.paralel([lambda: services.islem_baslat(self.token, "CEKME", "1000") for _ in range(6)])
+        self.assertEqual(self.ozet(sonuc), (1, {"banknot": 5}))
+        k = Kaset.objects.get(terminal__kod="ATM-01", nominal=200)
+        self.assertEqual((k.adet, k.rezerve), (5, 5))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_ayni_idempotency_anahtari_es_zamanli_tek_islem_olusturur(self):
+        sonuc = self.paralel([lambda: services.islem_baslat(self.token, "CEKME", "1000", anahtar="es-1") for _ in range(6)])
+        self.assertEqual(self.ozet(sonuc)[0], 6)                                      # hepsi aynı sonucu aldı
+        self.assertEqual(len({v["islem_id"] for d, v in sonuc if d == "ok"}), 1)
+        self.assertEqual(Islem.objects.filter(tur="CEKME").count(), 1)
+        self.ali.refresh_from_db()
+        self.assertEqual(self.ali.bakiye, Decimal("999000.00"))                       # para bir kez düştü
+
+    def test_log_zinciri_es_zamanli_yazimlarda_saglam_kalir(self):
+        sonuc = self.paralel([lambda: services.musteri_giris("a0a0a001", "1234") for _ in range(10)])
+        self.assertEqual(self.ozet(sonuc), (10, {}))
+        self.assertTrue(zinciri_dogrula()["saglam"])
+        siralar = list(LogKaydi.objects.order_by("sira").values_list("sira", flat=True))
+        self.assertEqual(siralar, list(range(1, len(siralar) + 1)))                   # boşluk ve tekrar yok
+
+    def test_pin_deneme_siniri_paralel_isteklerle_asilamaz(self):
+        sonuc = self.paralel([lambda: services.musteri_giris("a0a0a002", "0000") for _ in range(10)])
+        self.assertEqual(self.ozet(sonuc), (0, {"pin": 2, "bloke": 8}))               # 2 hakkı gösterir, 3.'de bloke
+        kart = Kart.objects.get(uid="a0a0a002")
+        self.assertEqual((kart.hatali_deneme, kart.bloke), (3, True))
+
+    def test_es_zamanli_onaylar_islemi_bir_kez_uygular(self):
+        r = services.islem_baslat(self.token, "CEKME", "60000")                       # 2 onay, en az müdür yrd.
+        self.assertEqual(r["durum"], "onay_bekliyor")
+        onaylayanlar = [("b0b0b003", "3333"), ("b0b0b001", "1111"), ("b0b0b002", "2222")]
+        sonuc = self.paralel([lambda u=u, p=p: services.onay_karar(r["talep_id"], u, p, "ONAY") for u, p in onaylayanlar])
+        self.assertEqual(self.ozet(sonuc)[0], 3)
+        islem = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual(islem.durum, "UYGULANDI")
+        self.ali.refresh_from_db()
+        self.assertEqual(self.ali.bakiye, Decimal("940000.00"))                       # yalnızca bir kez düştü
+        self.assertEqual(HesapHareketi.objects.filter(islem=islem).count(), 2)
+        self.assertEqual(Kaset.objects.get(terminal__kod="ATM-01", nominal=200).rezerve, 300)
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_es_zamanli_teslim_bildirimleri_tek_ters_kayit_uretir(self):
+        r = services.islem_baslat(self.token, "CEKME", "2000")
+        sonuc = self.paralel([lambda: services.teslim_bildir(r["islem_id"], "ALINMADI") for _ in range(4)])
+        self.assertEqual(self.ozet(sonuc)[0], 4)
+        self.assertEqual({v["teslim"] for d, v in sonuc if d == "ok"}, {"GERI"})
+        self.assertEqual(Islem.objects.filter(tur="TERS_KAYIT").count(), 1)
+        self.ali.refresh_from_db()
+        self.assertEqual(self.ali.bakiye, Decimal("1000000.00"))                      # tek iade
+        k = Kaset.objects.get(terminal__kod="ATM-01", nominal=200)
+        self.assertEqual((k.adet, k.rezerve, k.iade_kutusu), (4990, 0, 10))
+        self.assertTrue(ledger.mutabakat()["saglam"])

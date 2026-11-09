@@ -5,12 +5,14 @@ satırlarıdır. `Hesap.bakiye` hızlı okuma için tutulan önbelleğdir; mutab
 bunu defterden yeniden hesaplayıp karşılaştırır.
 """
 import datetime
+from collections import defaultdict
 from decimal import Decimal
 
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from .models import Hesap, HesapHareketi, Islem
+from . import nakit
+from .models import Hesap, HesapHareketi, Islem, Kaset
 
 MUSTERI_ISLEMLERI = (Islem.Tur.CEKME, Islem.Tur.YATIRMA, Islem.Tur.HAVALE, Islem.Tur.TERS_KAYIT)  # defter satiri yazan islemler
 
@@ -87,21 +89,43 @@ def mutabakat(tarih=None):
     tutarsiz_ters = []
     for t in Islem.objects.filter(tur=Islem.Tur.TERS_KAYIT, durum=Islem.Durum.UYGULANDI).select_related("ters_islem"):
         o = t.ters_islem
+        # tam iade: ters kayit tutari = cekme tutari; eksik verme (KISMI): ters kayit tutari = iade edilen fark
+        tam = o is not None and o.teslim == Islem.Teslim.GERI_ALINDI and o.tutar == t.tutar
+        kismi = o is not None and o.teslim == Islem.Teslim.KISMI and o.iade_tutari == t.tutar and t.tutar < o.tutar
         if (o is None or o.tur != Islem.Tur.CEKME or o.durum != Islem.Durum.UYGULANDI
-                or o.teslim != Islem.Teslim.GERI_ALINDI or o.tutar != t.tutar or o.hesap_id != t.hesap_id):
+                or not (tam or kismi) or o.hesap_id != t.hesap_id):
             tutarsiz_ters.append(t.id)
     tersi_olmayan = sorted(
-        Islem.objects.filter(teslim=Islem.Teslim.GERI_ALINDI)
+        Islem.objects.filter(teslim__in=[Islem.Teslim.GERI_ALINDI, Islem.Teslim.KISMI])
         .exclude(id__in=Islem.objects.filter(ters_islem__isnull=False).values("ters_islem_id"))
         .values_list("id", flat=True)
     )
     # Uyari (hata degil): teslimi 10 dakikadan uzun suredir bildirilmeyen nakit cekmeler
     belirsiz_teslim = sorted(
-        Islem.objects.filter(
-            tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, teslim=Islem.Teslim.BEKLIYOR,
-            tamamlanma__lt=timezone.now() - datetime.timedelta(minutes=10),
+        Islem.objects.filter(tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI).filter(
+            Q(teslim=Islem.Teslim.BELIRSIZ)
+            | Q(teslim=Islem.Teslim.BEKLIYOR, tamamlanma__lt=timezone.now() - datetime.timedelta(minutes=10))
         ).values_list("id", flat=True)
     )
+
+    # Kaset rezervleri: teslimi sonuclanmamis (BEKLIYOR/BELIRSIZ) dagitim planlarinin toplamina esit olmali.
+    # Fark = bir rezervasyon sizmis ya da iki kez kapatilmis demektir.
+    acik = defaultdict(int)
+    for islem in Islem.objects.filter(
+        tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI,
+        teslim__in=[Islem.Teslim.BEKLIYOR, Islem.Teslim.BELIRSIZ],
+    ).exclude(dagitim_plani=""):
+        kod = nakit.terminal_kodu(islem.terminal)
+        for nominal, adet in nakit.plan_coz(islem.dagitim_plani).items():
+            acik[(kod, nominal)] += adet
+    kaset_farklari = []
+    for k in Kaset.objects.select_related("terminal"):
+        beklenen = acik.pop((k.terminal.kod, k.nominal), 0)
+        if k.rezerve != beklenen:
+            kaset_farklari.append({"terminal": k.terminal.kod, "nominal": k.nominal,
+                                   "rezerve": k.rezerve, "beklenen": beklenen})
+    for (kod, nominal), adet in sorted(acik.items()):
+        kaset_farklari.append({"terminal": kod, "nominal": nominal, "rezerve": None, "beklenen": adet})
 
     from . import bloke_butunlugu, kart_butunlugu, personel_butunlugu, politika_degisikligi
     politika_durumu = politika_degisikligi.butunluk_durumu()
@@ -124,7 +148,8 @@ def mutabakat(tarih=None):
         .values("durum").annotate(adet=Count("id")).order_by("durum")
     )
     return {
-        "saglam": (not (bakiye_farklari or dengesiz or hareketsiz or yetim or tutarsiz_ters or tersi_olmayan)
+        "saglam": (not (bakiye_farklari or dengesiz or hareketsiz or yetim or tutarsiz_ters or tersi_olmayan
+                        or kaset_farklari)
                    and zincir["saglam"] and politika_durumu != "tutarsiz" and personel_durumu != "tutarsiz"
                    and kart_durumu != "tutarsiz" and not muhursuz_kartlar
                    and not bloke_sapmalari),
@@ -136,6 +161,7 @@ def mutabakat(tarih=None):
         "tutarsiz_ters_kayitlar": tutarsiz_ters,
         "tersi_olmayan_geri_alinanlar": tersi_olmayan,
         "belirsiz_teslimler": belirsiz_teslim,
+        "kaset_farklari": kaset_farklari,
         "politika": politika_durumu,
         "personel": personel_durumu,
         "kart": kart_durumu,

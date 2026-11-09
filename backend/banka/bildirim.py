@@ -142,9 +142,24 @@ def ters_kayit(ters):
     """Para teslim edilmediği için işlem ters kaydedildi: müdür yardımcısı ve üstüne bilgi."""
     orijinal = ters.ters_islem
     konu = f"Ters kayıt: işlem #{orijinal.id}"
-    metin = (f"İşlem #{orijinal.id} ({tl(orijinal.tutar)}, hesap {orijinal.hesap.hesap_no}) ters kaydedildi. "
-             f"Neden: {ters.ters_neden}. Terminal: {orijinal.terminal or '-'}.")
+    if ters.tutar != orijinal.tutar:  # eksik verme: yalnizca fark iade edildi
+        metin = (f"İşlem #{orijinal.id} ({tl(orijinal.tutar)}, hesap {orijinal.hesap.hesap_no}) eksik verildi; "
+                 f"fark {tl(ters.tutar)} iade (ters kayıt) edildi. Neden: {ters.ters_neden}. "
+                 f"Terminal: {orijinal.terminal or '-'}.")
+    else:
+        metin = (f"İşlem #{orijinal.id} ({tl(orijinal.tutar)}, hesap {orijinal.hesap.hesap_no}) ters kaydedildi. "
+                 f"Neden: {ters.ters_neden}. Terminal: {orijinal.terminal or '-'}.")
     return yetkililere_bildir("ters_kayit", konu, metin, en_az_rol=Rol.MUDUR_YRD)
+
+
+def dagitici_arizasi(islem, neden):
+    """Sıkışma / eksik verme: para dağıtıcı kapandı, teknik servis gerekir. Müdür yardımcısı ve üstüne bilgi."""
+    terminal = islem.terminal or "-"
+    konu = f"Para dağıtıcı kapandı: {terminal}"
+    metin = (f"{terminal} terminalinde işlem #{islem.id} ({tl(islem.tutar)}) için dağıtıcı sorunu bildirildi: {neden}. "
+             f"Nakit dağıtımı kapatıldı. Teknik servis kontrolünden sonra "
+             f"'python manage.py dagitici_ac' ile açılır; kasetler sayılmalıdır.")
+    return yetkililere_bildir("dagitici_arizasi", konu, metin, en_az_rol=Rol.MUDUR_YRD)
 
 
 def yonetim_talebi_acildi(talep):

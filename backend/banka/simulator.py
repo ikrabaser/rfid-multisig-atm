@@ -13,14 +13,16 @@ import unicodedata
 
 from django.conf import settings
 
-from . import (anomali, baglam, kart_butunlugu, personel_butunlugu, politika_degisikligi, services, sms,
+from . import (anomali, baglam, kart_butunlugu, nakit, personel_butunlugu, politika_degisikligi, services, sms,
                terminal as terminal_modulu)
-from .models import Hesap, HesapHareketi, Kart, LogKaydi, OnayTalebi, Personel, Rol, Terminal
+from .models import Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol, Terminal
 from .services import IslemHatasi
 
 ESLEME = str.maketrans({"ı": "i", "İ": "I", "ß": "ss"})
 TUR = {"C": "CEKME", "Y": "YATIRMA", "H": "HAVALE"}
 TUR_KISA = {"CEKME": "Cek", "YATIRMA": "Yatir", "HAVALE": "Havale", "KASA_ACMA": "Kasa"}
+# TESLIM|id|A (alindi) | H (alinmadi) | S (sikisti) | K|banknotlar (eksik verildi)
+TESLIM_DURUMU = {"A": "ALINDI", "H": "ALINMADI", "S": "SIKISTI", "K": "EKSIK"}
 
 
 def aktif_mi():
@@ -77,7 +79,7 @@ def _isle(komut, a):
             return f"BEKLE|{r['talep_id']}|{r['gereken']}"
         if not r.get("basarili", True):
             return hata("Islem basarisiz")
-        return f"TAMAM|{r['bakiye']}|{r['islem_id']}"
+        return f"TAMAM|{r['bakiye']}|{r['islem_id']}|{r.get('dagitim', '')}"
 
     if komut == "KASAAC":
         r = services.kasa_acma_baslat(a[0], a[1])
@@ -94,7 +96,7 @@ def _isle(komut, a):
         r = services.talep_durumu(int(a[0]))
         ust = 1 if r["ust_yetkili_gerekli"] else 0
         return (f"DURUM|{r['verilen']}|{r['gereken']}|{r['durum']}|{r['kalan_sn']}|{ust}|{r['tur']}|"
-                f"{r['islem_id']}")
+                f"{r['islem_id']}|{r.get('dagitim', '')}")
 
     if komut == "ONAY":
         karar = "RED" if a[3].upper() == "H" else "ONAY"
@@ -102,8 +104,9 @@ def _isle(komut, a):
         return f"ONAY|{r['verilen']}|{r['gereken']}|{r['durum']}"
 
     if komut == "TESLIM":
-        r = services.teslim_bildir(int(a[0]), "ALINDI" if a[1].upper() == "A" else "ALINMADI")
-        return f"TESLIM|{r['teslim']}"
+        durum = TESLIM_DURUMU[a[1].upper()]
+        r = services.teslim_bildir(int(a[0]), durum, a[2] if len(a) > 2 else None)
+        return f"TESLIM|{r['teslim']}|{r['iade']}"
 
     return hata("Bilinmeyen komut")
 
@@ -188,6 +191,14 @@ def serit_verisi(zincir=False):
             "kart": kart_butunlugu.durum(),
         },
         "anomali_sayisi": len(anomali.tara()),
+        "kasetler": nakit.stok_ozeti(),
+        "dagiticilar": {t.kod: t.nakit_dagitimi for t in Terminal.objects.all()},
+        "belirsiz": [
+            {"islem_id": i.id, "tutar": f"{i.tutar:.2f}", "terminal": nakit.terminal_kodu(i.terminal),
+             "plan": i.dagitim_plani}
+            for i in Islem.objects.filter(tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI,
+                                          teslim=Islem.Teslim.BELIRSIZ)[:10]
+        ],
     }
     if zincir:
         veri["zincir"] = zinciri_dogrula()
@@ -199,3 +210,23 @@ def telefon_mesajlari():
     if not str(settings.SMS_SAGLAYICI).endswith("DosyaSmsSaglayici"):
         return []
     return sms.kutuyu_oku()[-20:]
+
+
+def operator_eylemi(kullanici, govde):
+    """Simülatörün 'operatör' düğmeleri: belirsiz teslimi sayımla çöz, dağıtıcıyı yeniden aç.
+
+    Yalnızca simülatör (superuser, SIMULATOR_AKTIF) içindir; yapan kişi hash zincirine yazılır.
+    """
+    yapan = f"simulator:{kullanici.get_username()}"
+    eylem = govde.get("eylem")
+    try:
+        if eylem == "coz":
+            r = services.nakit_coz(govde.get("islem_id"), govde.get("sonuc"), yapan,
+                                   "Simülatörden operatör sayımı", govde.get("verilen"))
+        elif eylem == "dagitici_ac":
+            r = services.dagitici_ac(govde.get("terminal"), yapan, "Simülatörden teknik servis onayı")
+        else:
+            return {"ok": False, "hata": "Bilinmeyen eylem"}
+    except IslemHatasi as e:
+        return {"ok": False, "hata": e.mesaj}
+    return {"ok": True, **r}

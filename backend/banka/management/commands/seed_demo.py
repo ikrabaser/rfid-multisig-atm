@@ -7,7 +7,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from banka import kart_butunlugu, personel_butunlugu, politika_degisikligi, rbac
-from banka.models import Hesap, Kart, Musteri, Personel, Politika, Rol, Terminal
+from banka import nakit
+from banka.models import Hesap, Kart, Kaset, Musteri, Personel, Politika, Rol, Terminal
 
 # DEMO verisi. UID'ler sahte; admin panelinden kendi kartlarının UID'si ile değiştir.
 MUSTERILER = [
@@ -24,6 +25,7 @@ PERSONEL = [
     ("Deniz (müdür yrd.)", "b0b0b004", Rol.MUDUR_YRD, "4444", "deniz@banka.example", "+905550000004"),
     ("Elif (müdür)", "b0b0b005", Rol.MUDUR, "5555", "elif@banka.example", "+905550000005"),
 ]
+KASET_ADEDI = 5000   # her terminalde her banknot cinsinden (200/100/50/20 TL: toplam 1.850.000 TL)
 TERMINALLER = [
     # kod, ad, enlem, boylam  (Ankara ile Istanbul arasi ~350 km: imkansiz seyahat demosu icin)
     ("ATM-01", "Merkez Şube", 39.9334, 32.8597),
@@ -95,7 +97,9 @@ class Command(BaseCommand):
             self.stdout.write(f"Müşteri: {ad}  hesap {hesap_no}  kart {uid}  PIN {pin}")
 
         for kod, ad, enlem, boylam in TERMINALLER:
-            Terminal.objects.get_or_create(kod=kod, defaults={"ad": ad, "enlem": enlem, "boylam": boylam})
+            terminal, _ = Terminal.objects.get_or_create(kod=kod, defaults={"ad": ad, "enlem": enlem, "boylam": boylam})
+            for nominal in nakit.nominaller():  # yalnizca eksik kasetler eklenir; mevcut stok korunur
+                Kaset.objects.get_or_create(terminal=terminal, nominal=nominal, defaults={"adet": KASET_ADEDI})
 
         for ad, uid, rol, pin, eposta, telefon in PERSONEL:
             mevcut = Personel.objects.filter(kart_uid=uid)

@@ -251,7 +251,7 @@ class Kopru:
                 return f"BEKLE|{r['talep_id']}|{r['gereken']}"
             if not r.get("basarili", True):
                 return hata("Islem basarisiz")
-            return f"TAMAM|{r['bakiye']}|{r['islem_id']}"
+            return f"TAMAM|{r['bakiye']}|{r['islem_id']}|{r.get('dagitim', '')}"
 
         if komut == "KASAAC":
             r = self._post("/api/kasa-ac/", {"uid": a[0], "pin": a[1]})
@@ -276,15 +276,17 @@ class Kopru:
                 return hata(r.get("hata", "Hata"))
             ust = 1 if r["ust_yetkili_gerekli"] else 0
             return (f"DURUM|{r['verilen']}|{r['gereken']}|{r['durum']}|{r['kalan_sn']}|{ust}|{r['tur']}|"
-                    f"{r['islem_id']}")
+                    f"{r['islem_id']}|{r.get('dagitim', '')}")
 
         if komut == "TESLIM":
-            # TESLIM|islemId|A (para alindi) ya da H (alinmadi: zaman asimi, para geri cekildi)
-            durum = "ALINDI" if a[1].upper() == "A" else "ALINMADI"
-            r = self._post("/api/teslim/", {"islem_id": int(a[0]), "durum": durum})
+            # TESLIM|islemId|A (para alindi) | H (alinmadi: para geri cekildi) | S (sikisti, para verilmedi)
+            #                         | K|200x8+100x1 (eksik verildi: fiilen verilen banknotlar)
+            durum = {"A": "ALINDI", "H": "ALINMADI", "S": "SIKISTI", "K": "EKSIK"}[a[1].upper()]
+            r = self._post("/api/teslim/", {"islem_id": int(a[0]), "durum": durum,
+                                            "verilen": a[2] if len(a) > 2 else ""})
             if not r.get("ok"):
                 return hata(r.get("hata", "Hata"))
-            return f"TESLIM|{r['teslim']}"
+            return f"TESLIM|{r['teslim']}|{r.get('iade', '')}"
 
         if komut == "ONAY":
             karar = "RED" if a[3].upper() == "H" else "ONAY"

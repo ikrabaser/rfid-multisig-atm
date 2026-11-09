@@ -46,6 +46,9 @@ class Command(BaseCommand):
             sorunlar.append(f"Orijinaliyle uyuşmayan ters kayıtlar: {r['tutarsiz_ters_kayitlar']}")
         if r["tersi_olmayan_geri_alinanlar"]:
             sorunlar.append(f"Geri alındı işaretli ama ters kaydı olmayan işlemler: {r['tersi_olmayan_geri_alinanlar']}")
+        for f in r["kaset_farklari"]:
+            sorunlar.append(
+                f"Kaset rezervi tutarsız {f['terminal']} {f['nominal']} TL: kayıtlı {f['rezerve']}, açık dağıtımlardan {f['beklenen']}")
         for b in r["bloke_sapmalari"]:
             yon = "log bloke diyor ama veritabanında bloke yok (onaysız kaldırılmış)" if b["beklenen"] else \
                   "veritabanında bloke var ama logda bloke olayı yok (onaysız bloke)"
@@ -60,7 +63,8 @@ class Command(BaseCommand):
             sorunlar.append("Politika tablosu son onaylı sürümden farklı (onaysız değişiklik olabilir)")
         if r["belirsiz_teslimler"]:
             self.stdout.write(self.style.WARNING(
-                f"UYARI: Teslimi 10 dk'dan uzun süredir bildirilmeyen çekmeler: {r['belirsiz_teslimler']}"))
+                f"UYARI: Teslimi belirsiz ya da 10 dk'dan uzun süredir bildirilmeyen çekmeler: {r['belirsiz_teslimler']} "
+                f"(operatör sayımıyla: python manage.py nakit_coz)"))
         if r["kart"] == "baslangic_yok":
             self.stdout.write(self.style.WARNING(
                 "UYARI: Müşteri kartları için onaylı başlangıç görüntüsü yok (python manage.py kart_goruntu_al)"))

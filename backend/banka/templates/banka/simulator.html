@@ -39,6 +39,25 @@
       <div class="tuslar" id="tuslar"></div>
       <div class="yuva" title="Kart yuvası"></div>
     </div>
+    <div class="dagitici-kutusu">
+      <h2>Para dağıtıcı</h2>
+      <div class="dagitici-ust">
+        <span id="dagitici-durum" class="rozet ok">Dağıtıcı açık</span>
+        <button id="dagitici-ac" class="kucuk" type="button" hidden>Servis: dağıtıcıyı aç</button>
+      </div>
+      <div id="kasetler" class="kasetler"></div>
+      <div class="ince">Son çekim planı: <b id="son-plan">-</b></div>
+      <label class="ariza">Arıza (yalnızca bir sonraki çekim için)
+        <select id="ariza">
+          <option value="normal">Yok (normal)</option>
+          <option value="sikisma">Para sıkışması</option>
+          <option value="eksik">Eksik verme (bir banknot)</option>
+          <option value="baglanti">Bağlantı kopması (sonuç bildirilemez)</option>
+          <option value="yanit_kaybi">Yanıt kaybı (işlem cevabı kaybolur)</option>
+        </select>
+      </label>
+    </div>
+
     <p class="kisayol">Klavye: rakamlar, <kbd>A</kbd>–<kbd>D</kbd>, <kbd>*</kbd>, <kbd>Enter</kbd> = <kbd>#</kbd>, <kbd>Backspace</kbd> = <kbd>D</kbd>, <kbd>Esc</kbd> = <kbd>*</kbd>. Tutarda <kbd>C</kbd> ondalık noktasıdır.</p>
 
     <div class="protokol-kutusu">

@@ -83,6 +83,7 @@ def simulator_sayfa(request):
     return render(request, "banka/simulator.html", {"veri": {
         **simulator.sayfa_verisi(),
         "komut_url": "/simulator/komut/", "serit_url": "/simulator/serit/", "telefon_url": "/simulator/telefon/",
+        "operator_url": "/simulator/operator/",
     }})
 
 
@@ -105,6 +106,19 @@ def simulator_komut(request):
 @require_GET
 def simulator_serit(request):
     return JsonResponse(simulator.serit_verisi(zincir=request.GET.get("zincir") == "1"))
+
+
+@simulator_kapisi
+@simulator_yetkisi
+@require_POST
+def simulator_operator(request):
+    try:
+        govde = json.loads(request.body or b"{}")
+        if not isinstance(govde, dict):
+            raise ValueError
+    except ValueError:
+        return JsonResponse({"ok": False, "hata": "Geçersiz istek"}, status=400)
+    return JsonResponse(simulator.operator_eylemi(request.user, govde))
 
 
 @simulator_kapisi

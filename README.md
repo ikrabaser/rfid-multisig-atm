@@ -11,7 +11,7 @@ Kasa dairesinin kilidi, onay tamamlanınca **röle** ile açılır.
 flowchart LR
     A["Arduino terminal<br/>RC522 + keypad + LCD + röle"] -- "seri USB<br/>düz metin" --> B["Python köprüsü<br/>serial_bridge.py"]
     B -- "HTTPS / JSON" --> C["Django backend<br/>politika, onay, defter, log"]
-    C --> D[("SQLite")]
+    C --> D[("PostgreSQL")]
     C --> E["Panel ve admin<br/>/ ve /admin/"]
 ```
 
@@ -45,6 +45,8 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **PIN gizliliği**: PIN yalnızca SMS sağlayıcıya verilir; log, veritabanı, panel ve e-postada görünmez | `sms.py` | `python manage.py sms_kutusu` |
 | **Yetkili bütünlüğü**: sahte yetkili/rol/PIN değişikliği veritabanından yapılırsa onaylar kapanır | `personel_butunlugu.py` | `python manage.py personel_goruntu_al` |
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
+| **Banknot stoğu ve para dağıtımı**: tutar eldeki banknotlarla bölünür ve rezerve edilir; sıkışma, eksik verme ve bağlantı kopması güvenli yönetilir | `nakit.py`, `services.teslim_bildir`, `nakit_coz` | simülatörde "Para dağıtıcı" paneli, `python manage.py nakit_durumu` |
+| **PostgreSQL ve eşzamanlılık**: aynı anda gelen işlemlerde bakiye, günlük limit, banknot stoğu ve PIN deneme sınırı aşılamaz | `kilit.py`, `services.py` | `python manage.py test` (eşzamanlılık testleri) |
 
 ## Klasör yapısı
 
@@ -76,6 +78,19 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 
 ## Kurulum (Windows)
 
+Veritabanı artık **PostgreSQL** (SQLite yalnızca hızlı deneme içindir). Önce PostgreSQL'i ayağa kaldır, iki yoldan biriyle:
+
+1. **Docker** (önerilen): repo kökünde `docker compose up -d`. `docker-compose.yml`, `settings.py` varsayılanlarıyla aynı
+   bağlantıyı açar (veritabanı `kasa`, kullanıcı `kasa`, parola `kasa`, `127.0.0.1:5432`).
+2. **Kendi PostgreSQL'in**: bir veritabanı ve kullanıcı oluştur (testler için kullanıcıda `CREATEDB` yetkisi gerekir),
+   sonra `$env:POSTGRES_DB`, `$env:POSTGRES_USER`, `$env:POSTGRES_PASSWORD`, `$env:POSTGRES_HOST`, `$env:POSTGRES_PORT` ayarla.
+   Örnek (psql ile, varsayılan ayarlarla uyumlu):
+
+```sql
+CREATE USER kasa WITH PASSWORD 'kasa' CREATEDB;
+CREATE DATABASE kasa OWNER kasa;
+```
+
 ```bat
 cd backend
 python -m venv .venv
@@ -90,21 +105,18 @@ python manage.py test
 python manage.py runserver
 ```
 
-Gereken Django sürümü **5.1 veya üstü**. `seed_demo` sahte UID'li demo müşteri/yetkili/politika ve **nakit kasa
-hesabı** üretir, PIN'leri yazdırır (müşteriler `1234` / `4321`, yetkililer `1111`…`5555`). Gerçek kartlarının UID'sini
-admin panelinden (`/admin/`) gir.
+PostgreSQL kurmadan hızlıca denemek istersen (eşzamanlılık testleri atlanır): PowerShell'de `$env:DB_ENGINE="sqlite"` yaz ve
+aynı komutları çalıştır. Ortam değişkenleri tek yerde: `backend/.env.example`.
 
-> Şema değiştiyse (ör. defter, günlük limit eklenmesi) eski demo veritabanını sil: `del db.sqlite3`, sonra
-> `makemigrations`, `migrate`, `seed_demo` komutlarını tekrar çalıştır. Eski bakiyelerin açılış kaydı olmadığı için
-> mutabakat fark gösterirdi.
+Gereken Django sürümü **5.1 veya üstü**, sürücü `psycopg` 3 (`requirements.txt`). `seed_demo` sahte UID'li demo
+müşteri/yetkili/politika, **nakit kasa hesabı** ve her terminale **banknot kasetleri** üretir, PIN'leri yazdırır
+(müşteriler `1234` / `4321`, yetkililer `1111`…`5555`). Gerçek kartlarının UID'sini admin panelinden (`/admin/`) gir.
 
-> Mevcut veritabanın varsa silmene gerek yok: `makemigrations` yeni bir migration (`0003_...`) üretir, `migrate` uygular,
-> `seed_demo` eksik terminalleri ve yetkililerin demo iletişim bilgilerini tamamlar, politika ve yetkili kümesi için
-> onaylı başlangıç görüntülerini kaydeder, RBAC gruplarını kurar ve 8 demo yönetim kullanıcısı oluşturur
-> (`politika_talep`, `politika_onay1-2`, `yonetim_talep`, `yonetim_onay1-3`, `denetci`), demo müşterilere sahte
-> telefon numarası atar (PIN'ler oraya SMS ile gider) ve kart listesi için de onaylı başlangıç görüntüsü kaydeder;
-> **şifreleri yalnızca ilk çalıştırmada ekrana yazar**, not al.
-> Veritabanın eskiden kalmaysa ve politikaların varsa bir kez `python manage.py politika_goruntu_al` çalıştır.
+> **SQLite'tan geçiyorsan:** Demo veritabanı taşınmaz, PostgreSQL'de sıfırdan başlar (`migrate`, `seed_demo`). Eski
+> `db.sqlite3` yalnızca `DB_ENGINE=sqlite` iken kullanılır. Yeni alanlar (banknot kasetleri, dağıtım planı, dağıtıcı durumu)
+> için `makemigrations banka` bir migration üretir. `seed_demo`, onaylı başlangıç görüntülerini kaydeder, RBAC gruplarını
+> kurar ve 8 demo yönetim kullanıcısı oluşturur (`politika_talep`, `politika_onay1-2`, `yonetim_talep`,
+> `yonetim_onay1-3`, `denetci`); **şifreleri yalnızca ilk çalıştırmada ekrana yazar**, not al.
 
 İkinci terminalde köprü:
 
@@ -343,7 +355,8 @@ terminal onu sorgular.
 
 Klavyede tutar girerken `C` tuşu ondalık noktasıdır (en fazla 2 hane): `1 0 0 C 5` → `100.5` → `100,50 TL`.
 Sunucu nokta ve virgülü kabul eder, 3. ondalık haneyi **reddeder** (sessizce yuvarlamaz) ve `1,000.50` gibi
-belirsiz binlik ayraçlarını da reddeder. Defter kuruşla dengeli kalır.
+belirsiz binlik ayraçlarını da reddeder. Defter kuruşla dengeli kalır. **Nakit çekmede kuruş yoktur**: ATM yalnızca
+banknot verir, çekilen tutar banknotlarla oluşmalıdır (örn. 10 TL'nin katı); kuruş yatırma ve havalede geçerlidir.
 
 ## Çevrimdışı davranış
 
@@ -478,8 +491,76 @@ sequenceDiagram
   `cok_ters_kayit`) işaretler.
 - **Simülasyon notu:** Gerçek ATM'de "para alındı" bilgisini dağıtıcının sensörü verir. Burada A tuşu o sensörü taklit
   eder; bu yüzden bir müşteri parayı alıp tuşa basmayarak iade alabilirdi. Gerçek bir sensörde bu mümkün olmaz.
-- Elle ters kayıt (terminal hiç bildirmediyse) bilinçli olarak yok: tek kişinin yapacağı bir geri alma da dört göz
-  isterdi. Belirsiz teslimler uyarı olarak görünür ve incelenir.
+- Terminal hiç bildirmediyse (bağlantı koptu) teslim **otomatik iade edilmez**; `BELIRSIZ` olur ve yalnızca operatör
+  sayımıyla (`nakit_coz`, yapan ve gerekçe hash zincirine yazılır) sonuçlanır. Ayrıntılar: "Banknot stoğu ve para dağıtımı".
+
+## Banknot stoğu ve para dağıtımı
+
+Para çekerken tutarın bakiyeye yetmesi yetmez, **eldeki banknotlarla verilebilmesi** gerekir. Her terminalin kasetleri
+(`Kaset`: 200 / 100 / 50 / 20 TL, ayar `BANKNOT_NOMINALLERI`) ayrı tutulur:
+
+| Alan | Anlamı |
+|---|---|
+| `adet` | kasette duran banknot (rezerve edilenler dahil) |
+| `rezerve` | planlanmış ama teslim sonucu henüz gelmemiş banknot; **kullanılabilir = adet − rezerve** |
+| `iade_kutusu` | geri çekilen ya da sıkışan banknot; kasete geri konmaz, teknik servis sayar |
+
+**Çekim akışı** (2.000 TL örneği):
+
+1. Tutar 10 TL'nin katı olmalı (ayarlardaki banknotların ortak böleni) ve bu banknotlarla oluşmalı (10 ve 30 TL verilemez).
+2. Tutar, kasetlerdeki **gerçek stokla en az banknotla** bölünür: bol stokta `200x10`; 200'lükler az ise `200x5+100x10`.
+   Stok yetmezse çekim reddedilir (`ATM'de bu tutar için banknot yok`), para hiç hareket etmez.
+3. Plan **rezerve edilir** (iki eşzamanlı çekim aynı banknotu sayamaz). Onay isteyen çekimde stok önce kontrol edilir,
+   asıl rezervasyon onay anında yapılır; bu arada stok bitmişse işlem `BASARISIZ` olur ve defter hiç değişmez.
+4. Dağıtım planı işleme yazılır (`Islem.dagitim_plani`) ve terminale `TAMAM|bakiye|islemId|200x10` ile gider.
+5. Terminal sonucu bildirir; stok buna göre kapanır:
+
+| Olay | Terminal bildirimi | Bakiye | Banknotlar | Dağıtıcı |
+|---|---|---|---|---|
+| Para alındı | `TESLIM\|id\|A` | düşük kalır | kasetten düşer | açık |
+| Müşteri almadı (geri çekildi) | `H` | tam iade (ters kayıt) | iade kutusuna | açık |
+| **Para sıkıştı** (hiç verilmedi) | `S` | tam iade | iade kutusuna | **kapanır** |
+| **Eksik verildi** (örn. 9/10 banknot) | `K\|200x9` | **yalnızca fark** iade | verilenler düşer, kalan iade kutusuna | **kapanır** |
+| **Bağlantı koptu** (sonuç gelmedi) | yok | **dokunulmaz** | rezerve kalır | açık |
+
+**Sıkışma ve eksik verme:** Dağıtıcı kapanır (başka müşteri aynı arızaya uğramasın), müdür yardımcısı ve üstüne bildirim
+gider, anomali tarayıcı `dagitici_arizasi` bulgusu üretir. Eksik vermede yalnızca fark ters kaydedilir (`iade_tutari`),
+günlük limite de yalnızca fiilen verilen kısım sayılır. Teknik servis kasetleri sayar ve açar:
+
+```bat
+python manage.py nakit_durumu
+python manage.py kaset_doldur --terminal ATM-01 --nominal 200 --adet 3000 --yapan "Ali Teknisyen" --iade-kutusunu-bosalt
+python manage.py dagitici_ac --terminal ATM-01 --yapan "Ali Teknisyen" --neden "Rulo degistirildi"
+```
+
+**Bağlantı koparsa üç farklı an vardır:**
+
+- *İstek sunucuya ulaşmadan ya da cevap dönmeden:* terminal **aynı idempotency anahtarıyla** yeniden dener; sunucu aynı
+  sonucu (aynı plan dahil) verir, para ve banknot bir kez düşer.
+- *Para verildi ama sonuç bildirilemedi:* `TESLIM_PENCERESI_SN` (120 sn) içinde bildirim gelmezse teslim **`BELIRSIZ`** olur.
+  Para **otomatik iade edilmez**: müşteri parayı almış olabilir, iade çift ödeme olurdu. Banknotlar rezerve kalır, anomali
+  uyarısı çıkar. Geç gelen **"para alındı"** bildirimi güvenle kabul edilir (hiçbir parayı geri vermez); iade gerektiren
+  geç bildirimler reddedilir.
+- *Operatör çözümü:* Teknisyen kasetleri sayıp sonuçlandırır. Kim yaptığı ve gerekçesi hash zincirine yazılır:
+
+```bat
+python manage.py nakit_coz --islem 12 --sonuc VERILMEDI --yapan "Ali Teknisyen" --neden "Kaset sayimi: banknotlar yerinde"
+python manage.py nakit_coz --islem 13 --sonuc VERILDI   --yapan "Ali Teknisyen" --neden "Kasa sayimi: banknot eksik"
+python manage.py nakit_coz --islem 14 --sonuc KISMI --verilen 200x8 --yapan "Ali Teknisyen" --neden "2 banknot eksik"
+```
+
+**Defter ve denetim:** `gun_sonu_mutabakat` artık eksik vermedeki kısmi ters kaydı da doğrular ve **kaset rezervlerini**
+açık dağıtımların toplamıyla karşılaştırır (sızan ya da iki kez kapatılan rezervasyon fark olarak çıkar).
+Anomali tarayıcı ayrıca düşük banknot stoğunu (`dusuk_banknot_stogu`, eşik `KASET_UYARI_ESIGI`) ve kapanan dağıtıcıyı bildirir.
+
+**Simülatörde deneme:** Sol tarafta **Para dağıtıcı** paneli kasetleri ve son planı gösterir. "Arıza" seçicisi bir sonraki çekim
+için sıkışma, eksik verme, bağlantı kopması ya da yanıt kaybını (işlem sunucuda yapılır ama cevap kaybolur, terminal aynı
+anahtarla yeniden dener) oynatır. Belirsiz teslimler şeritte görünür ve oradan operatör çözümü verilir.
+
+**Sınırlar (dürüstçe):** Gerçek dağıtıcının sayaç/sensör bilgisi simüle edilir; sunucu eksik verme bildirimine güvenir ve
+bunu denetim kaydına ve kaset sayımına (mutabakat) bırakır. Operatör çözümü şimdilik tek kişilik komuttur ve yapan kişi
+loglanır; gerçek bankada dört göz (maker-checker) ister. Arduino donanımında dağıtıcı olmadığı için firmware yalnızca
+`A`/`H` bildirir (para sıkışması ve eksik verme simülatörde oynatılır).
 
 ## RBAC: roller ve yetkiler
 
@@ -646,8 +727,9 @@ Deneme senaryoları:
 2. **Onaylı çekim:** 10.000 TL üstünü çek → ekran "Onay 0/N" der → yetkili kartlarına tıkla → `A` → PIN. Oylar şeritte canlı görünür.
 3. **Kasa açma:** müdür yrd./müdür kartı (Cem, Deniz, Elif) → `A` → PIN → diğer yetkililer onaylar → kilit göstergesi 5 sn yanar.
    Görevli kartıyla (Ayşe) denersen "Bu rol kasa acma talebi baslatam..." hatasını görürsün (RBAC).
-4. **Kuruş:** tutarda `C` ondalık noktasıdır (`1 0 0 C 5` → `100.5`).
-5. **📱 Telefonlar:** yeni kart/yetkili PIN'i gibi SMS'lerin geldiği simülasyon gelen kutusu (yalnızca dosya sağlayıcıdayken).
+4. **Kuruş:** tutarda `C` ondalık noktasıdır (`1 0 0 C 5` → `100.5`); yalnızca yatırma ve havalede geçerlidir, nakit çekmede tutar banknotla verilebilmelidir.
+5. **Para dağıtıcı arızaları:** sol paneldeki "Arıza" seçicisinden sıkışma, eksik verme, bağlantı kopması ya da yanıt kaybı seç, sonra bir çekim yap.
+6. **📱 Telefonlar:** yeni kart/yetkili PIN'i gibi SMS'lerin geldiği simülasyon gelen kutusu (yalnızca dosya sağlayıcıdayken).
 
 **Nasıl çalışır:** Tarayıcıdaki sanal terminal, firmware'in konuştuğu **aynı satır protokolünü** (`KART|uid`, `PIN|uid|pin`, `ISLEM|...`)
 sunucuya yollar; sunucu bunları doğrudan servis katmanına çevirir (`simulator.py`) ve firmware'in beklediği cevap satırlarını döner.
@@ -669,6 +751,35 @@ node backend\js_testleri\simulator_akis.test.js
 ```
 
 `python manage.py test` Node kuruluysa bunu da çalıştırır, kurulu değilse atlar.
+
+## PostgreSQL ve eşzamanlılık
+
+SQLite tek yazıcılıdır; iki işlemin aynı anda aynı bakiyeyi okuyup ikisinin de "yeterli" demesi mümkün değildi. PostgreSQL'de
+mümkündür, bu yüzden "oku, kontrol et, yaz" adımları kilit altında yapılır. **Kilit sırası her yerde aynıdır**, böylece
+kilitler birbirini beklemez (deadlock oluşmaz):
+
+1. **Zincir kilidi:** `pg_advisory_xact_lock`, işlem bitene kadar tutulur. Hash zinciri "sıra = son sıra + 1" olduğu için
+   zincire yazan herkes sıraya girer (aynı sıra iki kez üretilemez, zincir çatallanmaz).
+2. **Hesap satırları** (`select_for_update`, id sırasıyla), sonra **kaset satırları**.
+3. Bakiye, günlük limit, banknot stoğu ve idempotency kontrolleri bu kilitlerin **altında** yapılır.
+
+| Korunan değişmez | Nasıl |
+|---|---|
+| Bakiye eksiye düşmez | kontrol hesap satırı kilitliyken; ayrıca veritabanı `CHECK (bakiye >= 0)` |
+| Günlük limit aşılmaz | toplam, hesap satırı kilitliyken hesaplanır (bekleyen onaylar dahil) |
+| Banknot stoğu aşılmaz | kasetler kilitli, plan rezerve edilir; veritabanı `CHECK (adet >= rezerve)` |
+| Aynı istek iki kez işlenmez | idempotency anahtarı kilit altında yeniden sorgulanır; benzersiz kısıt son güvence |
+| 3 yanlış PIN sınırı paralel isteklerle aşılmaz | sayaç, kilitli **taze** satırdan artırılır (eski nesneden değil) |
+| Aynı işlem iki kez uygulanmaz / iade edilmez | onay ve teslim, işlem satırı kilitliyken |
+
+Yine de PostgreSQL bir deadlock ya da serileştirme hatası döndürürse (`40P01`, `40001`) servis fonksiyonları
+`kilit.yeniden_dene` ile baştan denenir. Kilit beklemesi ve açık kalan işlem için veritabanı zaman aşımları vardır
+(`lock_timeout`, `idle_in_transaction_session_timeout`).
+
+**Testler:** `EszamanliTestleri` gerçek thread'lerle ve ayrı veritabanı bağlantılarıyla çalışır; istekler bir bariyerde
+bekleyip **aynı anda** salınır. Örn. bakiyesi 5.000 TL olan hesaptan 8 paralel 2.000 TL çekim: tam 2'si başarılı, 6'sı
+`Yetersiz bakiye`, sonuç bakiye 1.000 TL, defter ve zincir sağlam. Bu testler yalnızca PostgreSQL'de çalışır (SQLite'ta atlanır).
+Bunlara ek olarak `PinSayaciTestleri` ve `KilitTestleri` SQLite'ta da çalışan belirleyici testlerdir.
 
 ## Hash zinciri
 
@@ -709,11 +820,11 @@ Tam liste `atm_terminal.ino` dosyasının başındaki yorumda. Özet:
 | `KART\|uid` | `TIP\|MUSTERI/PERSONEL/BLOKE/BILINMIYOR` |
 | `PIN\|uid\|pin` | `GIRIS\|token\|ad` |
 | `BAKIYE\|token` | `BAKIYE\|tutar` |
-| `ISLEM\|token\|C/Y/H\|tutar\|hedef\|anahtar` | `TAMAM\|bakiye\|islemId` ya da `BEKLE\|talepId\|gereken` |
-| `TESLIM\|islemId\|A/H` | `TESLIM\|ALINDI` ya da `TESLIM\|GERI` (ters kayıt yapıldı) |
+| `ISLEM\|token\|C/Y/H\|tutar\|hedef\|anahtar` | `TAMAM\|bakiye\|islemId\|plan` (plan: nakit çekmede `200x8+100x2`) ya da `BEKLE\|talepId\|gereken` |
+| `TESLIM\|islemId\|A/H/S` ya da `TESLIM\|islemId\|K\|200x8` | `TESLIM\|ALINDI\|0.00`, `TESLIM\|GERI\|iade` (tam iade) ya da `TESLIM\|KISMI\|iade` (eksik verme) |
 | `KASAAC\|uid\|pin` | `BEKLE\|talepId\|gereken` |
 | `BEKLEYEN` | `BEKLEYEN\|YOK` ya da `BEKLEYEN\|id\|tur\|tutar\|verilen\|gereken` |
-| `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur\|islemId` |
+| `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur\|islemId\|plan` |
 | `ONAY\|talepId\|uid\|pin\|E/H` | `ONAY\|verilen\|gereken\|durum` |
 
 Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter). `HATA|Sunucu...` ile başlayan hatalarda terminal `ISLEM`i
@@ -727,7 +838,9 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 - Tutar klavyeden tam TL girilir (kuruş yok). Tek terminal hem müşteri hem yetkili modunda çalışır.
 - Terminal, idempotency için yalnızca yeniden deneme yapar; ISLEM cevabı hiç gelmezse işlem sunucuda uygulanmış olabilir ve
   ekranda "Sunucu yanit vermedi" görünür. Aynı anahtarla yeniden gönderince sonucu alırsın; kalıcı çözüm çevrimdışı kuyruk olurdu.
-- SQLite geliştirme içindir. Varsayılan anahtarlar (`DJANGO_SECRET_KEY`, `KOPRU_API_ANAHTARI`, `LOG_HMAC_ANAHTARI`) sadece demo içindir.
+- Varsayılan anahtarlar ve veritabanı parolası (`DJANGO_SECRET_KEY`, `KOPRU_API_ANAHTARI`, `LOG_HMAC_ANAHTARI`, `POSTGRES_PASSWORD`) sadece demo içindir.
+- Hash zinciri tek bir sıralı zincir olduğu için, yazan işlemler PostgreSQL'de bir danışma kilidiyle **sıraya girer** (aşağıdaki
+  "PostgreSQL ve eşzamanlılık"). Bu doğruluk için bilinçli bir takastır; yatay ölçekleme için zincirin bölümlenmesi gerekir.
 
 ## Sıradaki fikirler
 

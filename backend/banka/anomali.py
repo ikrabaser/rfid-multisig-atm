@@ -10,9 +10,10 @@ import math
 from collections import defaultdict
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
-from .models import Islem, LogKaydi, Terminal
+from .models import Islem, Kaset, LogKaydi, Terminal
 
 PENCERE_DK = 10
 IMKANSIZ_SEYAHAT_MIN_KM = 1.0       # bundan yakin terminaller ayni sube sayilir
@@ -183,15 +184,18 @@ def tara(saat=24, an=None):
                     sira=k.sira))
 
     # 9) Nakit cekme: para teslimi 5 dakikadan uzun suredir bildirilmedi (terminal coktu mu, para ortada mi?)
+    # (teslimi BELIRSIZ isaretlenmis ve operator sayimini bekleyen cekmeler de burada)
     belirsiz = list(Islem.objects.filter(
-        tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, teslim=Islem.Teslim.BEKLIYOR,
-        tamamlanma__gte=baslangic, tamamlanma__lt=an - datetime.timedelta(minutes=5),
+        tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, tamamlanma__gte=baslangic,
+    ).filter(
+        Q(teslim=Islem.Teslim.BELIRSIZ)
+        | Q(teslim=Islem.Teslim.BEKLIYOR, tamamlanma__lt=an - datetime.timedelta(minutes=5))
     ).values_list("id", flat=True))
     if belirsiz:
         bulgular.append(_bulgu(
             "teslim_belirsiz", "orta",
-            f"{len(belirsiz)} nakit çekmede para teslimi 5 dk'dan uzun süredir bildirilmedi "
-            f"(işlem no: {', '.join(str(i) for i in belirsiz[:5])})"))
+            f"{len(belirsiz)} nakit çekmede para teslimi 5 dk'dan uzun süredir bildirilmedi ya da operatör sayımını "
+            f"bekliyor (işlem no: {', '.join(str(i) for i in belirsiz[:5])})"))
 
     # 10) Ayni hesapta kisa surede cok sayida ters kayit (dagitici arizasi ya da suistimal)
     ters = defaultdict(list)
@@ -212,6 +216,20 @@ def tara(saat=24, an=None):
             bulgular.append(_bulgu(
                 "butunluk_ihlali", "yuksek",
                 f"Onaysız veri değişikliği tespit edildi: {k.olay_turu} (log #{k.sira})", sira=k.sira))
+
+    # 12) Para dagitici kapandi (siskma ya da eksik verme): teknik servis gerekir
+    for k, v in kayitlar:
+        if k.olay_turu == "dagitici_kapandi":
+            bulgular.append(_bulgu(
+                "dagitici_arizasi", "yuksek",
+                f"Terminal {v.get('terminal', '?')} para dağıtıcısı kapandı ({v.get('neden', '?')}), "
+                f"işlem #{v.get('islem_id', '?')} (log #{k.sira})", sira=k.sira))
+
+    # 13) Banknot stogu azaldi (anlik durum; zaman penceresine bakmaz)
+    dusuk = [f"{k.terminal.kod} {k.nominal} TL: {k.adet - k.rezerve}"
+             for k in Kaset.objects.select_related("terminal") if k.adet - k.rezerve < settings.KASET_UYARI_ESIGI]
+    if dusuk:
+        bulgular.append(_bulgu("dusuk_banknot_stogu", "orta", "Banknot stoğu azaldı: " + ", ".join(dusuk[:6])))
 
     bulgular.sort(key=lambda b: CIDDIYET_SIRASI[b["ciddiyet"]])
     return bulgular

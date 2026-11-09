@@ -11,11 +11,11 @@
     KART|uid                            TIP|MUSTERI | PERSONEL | BLOKE | BILINMIYOR
     PIN|uid|pin                         GIRIS|token|ad        veya HATA|mesaj
     BAKIYE|token                        BAKIYE|1234.50
-    ISLEM|token|C/Y/H|tutar|hedef|anahtar  TAMAM|yeniBakiye|islemId | BEKLE|talepId|gereken | HATA|mesaj
+    ISLEM|token|C/Y/H|tutar|hedef|anahtar  TAMAM|yeniBakiye|islemId|plan | BEKLE|talepId|gereken | HATA|mesaj   (plan: nakit cekmede banknotlar, orn. 200x8; bu firmware plani kullanmaz)
     KASAAC|uid|pin                      BEKLE|talepId|gereken | HATA|mesaj   (kasa dairesi acma talebi)
     BEKLEYEN                            BEKLEYEN|YOK | BEKLEYEN|id|tur|tutar|verilen|gereken
-    DURUM|talepId                       DURUM|verilen|gereken|durum|kalanSn|ustYetkili(0/1)|tur|islemId
-    TESLIM|islemId|A/H                  TESLIM|ALINDI | TESLIM|GERI   (para teslimi; H = alinmadi, ters kayit)
+    DURUM|talepId                       DURUM|verilen|gereken|durum|kalanSn|ustYetkili(0/1)|tur|islemId|plan
+    TESLIM|islemId|A/H                  TESLIM|ALINDI|iade | TESLIM|GERI|iade   (para teslimi; H = alinmadi, ters kayit). Sunucu ayrica S (sikisti) ve K|banknotlar (eksik verildi) kabul eder; Uno'da dagitici olmadigi icin bu firmware yalnizca A/H yollar
     ONAY|talepId|uid|pin|E/H            ONAY|verilen|gereken|durum | HATA|mesaj
 
   Pinler (Uno):

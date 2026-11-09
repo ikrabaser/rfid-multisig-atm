@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from . import bildirim
 from .hashlog import kanonik_json, kayit_ekle
+from .kilit import zincir_kilidi
 from .models import LogKaydi, Politika, PolitikaDegisikligi, PolitikaDegisiklikOyu
 
 GECERLI_ROLLER = (1, 2, 3)
@@ -215,6 +216,7 @@ def talep_kaydet(talep, kullanici):
     talep.durum = PolitikaDegisikligi.Durum.BEKLIYOR
     talep.son_tarih = timezone.now() + timedelta(hours=settings.POLITIKA_DEGISIKLIK_SURE_SAAT)
     with transaction.atomic():
+        zincir_kilidi()
         talep.save()
         kayit_ekle("politika_degisikligi_talebi", {
             "talep_id": talep.id, "islem": talep.islem, "hedef_id": talep.hedef_id, "yeni": yeni_n,
@@ -254,6 +256,7 @@ def suresi_dolanlari_kapat():
         durum=PolitikaDegisikligi.Durum.BEKLIYOR, son_tarih__lt=timezone.now()
     ).values_list("id", flat=True):
         with transaction.atomic():
+            zincir_kilidi()
             talep = PolitikaDegisikligi.objects.select_for_update().get(id=talep_id)
             _suresi_dolduysa_kapat(talep)
 
@@ -301,6 +304,7 @@ def oy_ver(talep_id, kullanici, karar):
     Durum = PolitikaDegisikligi.Durum
     hata = None
     with transaction.atomic():
+        zincir_kilidi()
         talep = PolitikaDegisikligi.objects.select_for_update().filter(id=talep_id).first()
         if talep is None:
             raise PolitikaHatasi("Talep bulunamadı", "yok")
@@ -342,6 +346,7 @@ def oy_ver(talep_id, kullanici, karar):
 def iptal(talep_id, kullanici):
     """Yalnızca talep sahibi, bekleyen talebini geri çekebilir."""
     with transaction.atomic():
+        zincir_kilidi()
         talep = PolitikaDegisikligi.objects.select_for_update().filter(id=talep_id).first()
         if talep is None:
             raise PolitikaHatasi("Talep bulunamadı", "yok")
