@@ -7,6 +7,8 @@ Kasa dairesinin kilidi, onay tamamlanınca **röle** ile açılır.
 
 > Bu bir **simülasyon**. RC522 gerçek banka kartlarını (EMV) okuyamaz, yalnızca UID görür. Para sanaldır.
 
+Kısa özet, mühendislik kararları ve özgeçmiş metni: [docs/proje-ozeti.md](docs/proje-ozeti.md).
+
 ```mermaid
 flowchart LR
     A["Arduino terminal<br/>RC522 + keypad + LCD + röle"] -- "seri USB<br/>düz metin" --> B["Python köprüsü<br/>serial_bridge.py"]
@@ -47,6 +49,21 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
 | **Banknot stoğu ve para dağıtımı**: tutar eldeki banknotlarla bölünür ve rezerve edilir; sıkışma, eksik verme ve bağlantı kopması güvenli yönetilir | `nakit.py`, `services.teslim_bildir`, `nakit_coz` | simülatörde "Para dağıtıcı" paneli, `python manage.py nakit_durumu` |
 | **PostgreSQL ve eşzamanlılık**: aynı anda gelen işlemlerde bakiye, günlük limit, banknot stoğu ve PIN deneme sınırı aşılamaz | `kilit.py`, `services.py` | `python manage.py test` (eşzamanlılık testleri) |
+
+## Ekran görüntüleri
+
+Web ATM simülatörü (`/simulator/`): sanal terminal, kartlar ve canlı şerit.
+
+![Web ATM simülatörü](docs/simulator.png)
+
+Para dağıtıcı paneli: kasetler, rezerve edilen planlar ve kapanan dağıtıcı (sıkışma sonrası).
+
+![Para dağıtıcı paneli](docs/dagitici-arizasi.png)
+
+Canlı şerit: hesap bakiyeleri, bekleyen onaylar, defter hareketleri ve hash zincirli denetim kaydı (dağıtıcı kapanınca
+anomali rozeti de uyarıya döner).
+
+![Canlı şerit](docs/canli-serit.png)
 
 ## Klasör yapısı
 
