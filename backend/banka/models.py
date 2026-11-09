@@ -85,6 +85,10 @@ class Hesap(models.Model):
 class Kart(PinliKimlik):
     uid = models.CharField("Kart UID", max_length=20, unique=True)
     hesap = models.ForeignKey(Hesap, on_delete=models.PROTECT, related_name="kartlar")
+    mac = models.CharField(
+        "Bütünlük mührü", max_length=64, blank=True, default="",
+        help_text="HMAC(anahtar, uid + hesap no + PIN hash özeti). Yalnızca onaylı işlemler üretir; anahtar veritabanında değildir.",
+    )
 
     class Meta:
         verbose_name = "Müşteri kartı"

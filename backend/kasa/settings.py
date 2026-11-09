@@ -134,3 +134,10 @@ MAKS_KART_SAYISI = 3                               # bir hesaba en fazla bu kada
 YONETIM_TALEP_SURE_SAAT = 24
 YONETIM_MIN_AKTIF_YETKILI = 4                      # 3 onay + talebi baslatan (kasa acma) icin
 HESAP_GUNLUK_LIMIT_AZAMI = Decimal("5000000")      # hicbir hesabin gunluk limiti bunu asamaz
+
+# SMS: PIN gibi gizli icerikler yalnizca saglayiciya verilir. Gercek saglayici icin sms.SmsSaglayici'dan turet.
+SMS_SAGLAYICI = "banka.sms.DosyaSmsSaglayici"
+SMS_KUTUSU_DOSYASI = BASE_DIR / "sms_kutusu.jsonl"   # simulasyon: telefonu temsil eden dosya (git'e girmez)
+
+# Kart satir muhru (HMAC) anahtari: veritabaninin DISINDA tutulmali; bilmeyen biri gecerli bir kart satiri uretemez.
+KART_MAC_ANAHTARI = os.environ.get("KART_MAC_ANAHTARI", "gelistirme-kart-mac-anahtari")

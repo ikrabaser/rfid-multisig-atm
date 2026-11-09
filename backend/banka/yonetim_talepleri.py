@@ -31,7 +31,7 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
-from . import bildirim, kart_butunlugu, personel_butunlugu
+from . import bildirim, bloke_butunlugu, kart_butunlugu, personel_butunlugu
 from .hashlog import kayit_ekle
 from .models import Hesap, Kart, Musteri, Personel, Rol, Terminal, YonetimOyu, YonetimTalebi, uid_duzelt
 
@@ -247,15 +247,18 @@ def _hazirla_bloke_kaldir(ham):
     hedef_turu = str(ham.get("hedef") or "").strip().lower()
     if hedef_turu == "personel":
         nesne = _personel(ham.get("id"))
+        uid = nesne.kart_uid
         ad, anahtar = f"yetkili {nesne.ad}", "BLOKE_KALDIR_PERSONEL"
     elif hedef_turu == "kart":
         nesne = Kart.objects.filter(id=_int(ham.get("id"), "Kart no")).first()
         if nesne is None:
             raise YonetimHatasi("Kart bulunamadı", "hedef")
+        uid = nesne.uid
         ad, anahtar = f"kart {nesne.uid}", "BLOKE_KALDIR_KART"
     else:
         raise YonetimHatasi("Hedef türü 'personel' ya da 'kart' olmalı", "gecersiz")
-    if not nesne.bloke:
+    # veritabani "bloke degil" dese bile log "bloke" diyorsa (onaysiz sifirlanmis) talep acilabilmeli, aksi halde kilitlenir
+    if not (nesne.bloke or bloke_butunlugu.beklenen_bloke_mu(hedef_turu, nesne.id, uid)):
         raise YonetimHatasi("Hedef zaten bloke değil", "gecersiz")
     return {
         "veri": {"hedef": hedef_turu, "id": nesne.id},
@@ -268,7 +271,8 @@ def _hazirla_bloke_kaldir(ham):
 def _uygula_bloke_kaldir(veri):
     model = Personel if veri["hedef"] == "personel" else Kart
     nesne = model.objects.select_for_update().get(id=veri["id"])
-    if not nesne.bloke:
+    uid = nesne.kart_uid if veri["hedef"] == "personel" else nesne.uid
+    if not (nesne.bloke or bloke_butunlugu.beklenen_bloke_mu(veri["hedef"], nesne.id, uid)):
         raise YonetimHatasi("Hedef artık bloke değil", "durum_degisti")
     nesne.bloke = False
     nesne.hatali_deneme = 0
@@ -359,6 +363,7 @@ def _uygula_kart_tanimla(veri):
     kart = Kart(uid=veri["kart_uid"], hesap=hesap)
     kart.pin_ayarla(pin)
     kart.save()
+    kart_butunlugu.muhurle(kart)
     return {"kart_id": kart.id, "pin_ilet": (hesap.musteri, pin, "Kartınız tanımlandı")}
 
 
@@ -382,6 +387,7 @@ def _uygula_kart_pin_sifirla(veri):
     pin = _rastgele_pin()
     kart.pin_ayarla(pin)  # hatali deneme sayacini da sifirlar; bloke durumuna dokunmaz
     kart.save(update_fields=["pin_hash", "hatali_deneme"])
+    kart_butunlugu.muhurle(kart)
     return {"pin_ilet": (kart.hesap.musteri, pin, "PIN'iniz sıfırlandı")}
 
 
@@ -495,9 +501,14 @@ def _uygula(talep):
     if personel_ilgili and personel_butunlugu.tutarli_mi() is False:
         raise YonetimHatasi(
             "Yetkili kayıtları son onaylı sürümden farklı (onaysız değişiklik). Önce incelenmeli.", "butunluk")
-    if kart_ilgili and kart_butunlugu.tutarli_mi() is False:
-        raise YonetimHatasi(
-            "Kart kayıtları son onaylı sürümden farklı (onaysız değişiklik). Önce incelenmeli.", "butunluk")
+    if kart_ilgili:
+        kart_durumu = kart_butunlugu.tutarli_mi()
+        if kart_durumu is None:  # baslangic olmadan kart eklemek, mevcut mühürsüz kartları sessizce meşrulaştırırdı
+            raise YonetimHatasi(
+                "Kart kayıtları için onaylı başlangıç yok (python manage.py kart_goruntu_al). Önce kurulmalı.", "butunluk")
+        if kart_durumu is False:
+            raise YonetimHatasi(
+                "Kart kayıtları son onaylı sürümden farklı (onaysız değişiklik). Önce incelenmeli.", "butunluk")
     veri = json.loads(talep.veri)
     hazirla, uygula = ISLEYICILER[talep.tur]
     hazirla(veri)  # durum talepten sonra degismis olabilir: yeniden dogrula

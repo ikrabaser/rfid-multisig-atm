@@ -46,6 +46,12 @@ class Command(BaseCommand):
             sorunlar.append(f"Orijinaliyle uyuşmayan ters kayıtlar: {r['tutarsiz_ters_kayitlar']}")
         if r["tersi_olmayan_geri_alinanlar"]:
             sorunlar.append(f"Geri alındı işaretli ama ters kaydı olmayan işlemler: {r['tersi_olmayan_geri_alinanlar']}")
+        for b in r["bloke_sapmalari"]:
+            yon = "log bloke diyor ama veritabanında bloke yok (onaysız kaldırılmış)" if b["beklenen"] else \
+                  "veritabanında bloke var ama logda bloke olayı yok (onaysız bloke)"
+            sorunlar.append(f"Bloke sapması {b['tur']} {b['uid']}: {yon}")
+        if r["dogrulanamayan_kartlar"]:
+            sorunlar.append(f"Mührü doğrulanamayan kartlar (sahte/değiştirilmiş olabilir): {r['dogrulanamayan_kartlar']}")
         if r["kart"] == "tutarsiz":
             sorunlar.append("Müşteri kartı kayıtları son onaylı sürümden farklı (sahte kart / PIN değişikliği olabilir)")
         if r["personel"] == "tutarsiz":

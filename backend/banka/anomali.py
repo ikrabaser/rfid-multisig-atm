@@ -207,7 +207,8 @@ def tara(saat=24, an=None):
 
     # 11) Onaysiz veri degisikligi (politika / yetkili / kart) tespit edildi
     for k, v in kayitlar:
-        if k.olay_turu in ("politika_butunluk_ihlali", "personel_butunluk_ihlali", "kart_butunluk_ihlali"):
+        if k.olay_turu in ("politika_butunluk_ihlali", "personel_butunluk_ihlali", "kart_butunluk_ihlali",
+                           "bloke_butunluk_ihlali"):
             bulgular.append(_bulgu(
                 "butunluk_ihlali", "yuksek",
                 f"Onaysız veri değişikliği tespit edildi: {k.olay_turu} (log #{k.sira})", sira=k.sira))

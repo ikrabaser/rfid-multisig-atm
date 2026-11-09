@@ -14,7 +14,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from . import baglam, bildirim, kart_butunlugu, ledger, personel_butunlugu, politika_degisikligi, rbac
+from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, ledger, personel_butunlugu, politika_degisikligi,
+               rbac)
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
                      Rol, uid_duzelt)
@@ -48,13 +49,15 @@ def kart_tipi(uid):
     uid = uid_duzelt(uid)
     personel = Personel.objects.filter(kart_uid=uid, aktif=True).first()
     if personel:
-        return "BLOKE" if personel.bloke else "PERSONEL"
+        bloke = personel.bloke or bloke_butunlugu.beklenen_bloke_mu("personel", personel.id, uid)
+        return "BLOKE" if bloke else "PERSONEL"
     kart = Kart.objects.select_related("hesap").filter(uid=uid).first()
     if kart:
         if kart_butunlugu.kart_dogrulandi_mi(kart) is False:  # onaysiz eklenmis/degistirilmis kart
             kart_butunlugu.ihlal_kaydet(kart)
             return "BLOKE"
-        return "BLOKE" if kart.bloke else "MUSTERI"
+        bloke = kart.bloke or bloke_butunlugu.beklenen_bloke_mu("kart", kart.id, uid)
+        return "BLOKE" if bloke else "MUSTERI"
     kayit_ekle("bilinmeyen_kart", {"uid": uid})
     return "BILINMIYOR"
 
@@ -64,6 +67,11 @@ def _pin_kontrol(nesne, pin, kimlik):
 
     Atomic blogun DISINDA cagrilmali (hatali deneme sayaci geri alinmasin).
     """
+    if not nesne.bloke and bloke_butunlugu.beklenen_bloke_mu(
+            "kart" if isinstance(nesne, Kart) else "personel", nesne.id, kimlik):
+        # log bloke diyor, veritabani degil: bloke alani onaysiz sifirlanmis, kapali kal
+        bloke_butunlugu.ihlal_kaydet(kimlik, "kaldirilmis")
+        raise IslemHatasi("Kart bloke edildi", "bloke")
     if nesne.bloke:
         kayit_ekle("bloke_kart_denemesi", {"kimlik": kimlik})
         raise IslemHatasi("Kart bloke edildi", "bloke")

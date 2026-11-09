@@ -91,6 +91,7 @@ class Command(BaseCommand):
             kart = Kart(uid=uid, hesap=hesap)
             kart.pin_ayarla(pin)
             kart.save()
+            kart_butunlugu.muhurle(kart)
             self.stdout.write(f"Müşteri: {ad}  hesap {hesap_no}  kart {uid}  PIN {pin}")
 
         for kod, ad, enlem, boylam in TERMINALLER:
@@ -122,8 +123,8 @@ class Command(BaseCommand):
             personel_butunlugu.goruntu_kaydet("seed_demo")
             self.stdout.write("Yetkili kayıtları için onaylı başlangıç görüntüsü kaydedildi.")
         if kart_butunlugu.tutarli_mi() is None:
-            kart_butunlugu.goruntu_kaydet("seed_demo")
-            self.stdout.write("Müşteri kartları için onaylı başlangıç görüntüsü kaydedildi.")
+            kart_butunlugu.baslangic("seed_demo")
+            self.stdout.write("Müşteri kartları mühürlendi ve onaylı başlangıç görüntüsü kaydedildi.")
         self._yonetim_kullanicilari()
 
         self.stdout.write(self.style.SUCCESS("Demo verisi hazır. PIN'ler demo içindir, gerçek kullanımda değiştir."))

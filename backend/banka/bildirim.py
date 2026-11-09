@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
 
+from . import sms
 from .hashlog import kanonik_json, kayit_ekle
 from .models import Bildirim, Islem, LogKaydi, Personel, Rol
 
@@ -166,13 +167,14 @@ def yonetim_talebi_acildi(talep):
 
 
 def pin_ilet(personel, pin, neden):
-    """Yeni PIN'i yetkilinin KENDİ telefonuna SMS ile iletir (simülasyon).
+    """Yeni PIN'i alıcının (yetkili ya da müşteri) KENDİ telefonuna SMS ile iletir.
 
-    PIN hiçbir tabloda ve arayüzde görünmez; yalnızca "SMS sağlayıcıya gönderim" satırını temsil eden log
-    satırında geçer (gerçek bir sağlayıcıda mesaj içeriği doğrudan sağlayıcıya gider).
+    PIN yalnızca SMS sağlayıcısına verilir (bkz. sms.py); log'a, veritabanına, panele ve e-postaya YAZILMAZ.
+    Simülasyonda sağlayıcı, telefonu temsil eden ayrı bir dosyaya yazar: `python manage.py sms_kutusu`.
     """
     try:
-        log.info("SMS (simulasyon) -> %s: %s. Yeni PIN'iniz: %s", personel.telefon, neden, pin)
+        sms.gonder(personel.telefon, f"{neden}. Yeni PIN'iniz: {pin}")
+        log.info("PIN SMS ile gonderildi (icerik gizli) -> %s", personel.telefon)
         Bildirim.objects.create(
             kanal=Bildirim.Kanal.SMS, durum=Bildirim.Durum.SIMULASYON, alici=personel.ad, adres=personel.telefon,
             konu="Yeni PIN iletildi", metin=f"{neden}. Yeni PIN SMS ile iletildi (içerik kayıtlarda tutulmaz).",

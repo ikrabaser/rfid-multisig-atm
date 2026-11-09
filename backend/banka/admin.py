@@ -15,7 +15,7 @@ class KartAdmin(admin.ModelAdmin):
     müşterinin kendi telefonuna SMS ile gider; bloke kaldırma da talep ile. Admin hiçbir PIN'i bilemez ya da belirleyemez."""
     list_display = ("uid", "hesap", "bloke", "hatali_deneme")
     list_filter = ("bloke",)
-    exclude = ("pin_hash",)
+    exclude = ("pin_hash", "mac")
 
     def has_add_permission(self, request):
         return False

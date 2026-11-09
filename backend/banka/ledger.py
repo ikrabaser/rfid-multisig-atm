@@ -103,10 +103,12 @@ def mutabakat(tarih=None):
         ).values_list("id", flat=True)
     )
 
-    from . import kart_butunlugu, personel_butunlugu, politika_degisikligi
+    from . import bloke_butunlugu, kart_butunlugu, personel_butunlugu, politika_degisikligi
     politika_durumu = politika_degisikligi.butunluk_durumu()
     personel_durumu = personel_butunlugu.durum()
     kart_durumu = kart_butunlugu.durum()
+    muhursuz_kartlar = kart_butunlugu.dogrulanamayan_kartlar()
+    bloke_sapmalari = bloke_butunlugu.sapmalar()
 
     zincir = zinciri_dogrula()
 
@@ -124,7 +126,8 @@ def mutabakat(tarih=None):
     return {
         "saglam": (not (bakiye_farklari or dengesiz or hareketsiz or yetim or tutarsiz_ters or tersi_olmayan)
                    and zincir["saglam"] and politika_durumu != "tutarsiz" and personel_durumu != "tutarsiz"
-                   and kart_durumu != "tutarsiz"),
+                   and kart_durumu != "tutarsiz" and not muhursuz_kartlar
+                   and not bloke_sapmalari),
         "tarih": gun.isoformat(),
         "bakiye_farklari": bakiye_farklari,
         "dengesiz_islemler": dengesiz,
@@ -136,6 +139,8 @@ def mutabakat(tarih=None):
         "politika": politika_durumu,
         "personel": personel_durumu,
         "kart": kart_durumu,
+        "dogrulanamayan_kartlar": muhursuz_kartlar,
+        "bloke_sapmalari": bloke_sapmalari,
         "zincir": zincir,
         "uygulananlar": [
             {"tur": u["tur"], "adet": u["adet"], "toplam": _para(u["toplam"] or 0)} for u in uygulananlar

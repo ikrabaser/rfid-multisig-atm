@@ -8,3 +8,4 @@ backend/demir.txt
 .idea/
 .vscode/
 bridge/cevrimdisi_kuyruk.jsonl
+backend/sms_kutusu.jsonl
