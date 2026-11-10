@@ -2614,6 +2614,30 @@ class SimulatorProtokolTestleri(Yardimci, TestCase):
         self.assertEqual(self.s("KART|e0e0e001"), "TIP|BLOKE")
 
 
+class LogOzetiTestleri(SimpleTestCase):
+    def test_hash_kisaltilir_bos_alanlar_gizlenir(self):
+        from .simulator import _log_ozeti
+        hash_ = "a" * 64
+        veri = json.dumps({"onceki_hash": hash_, "hedef_hesap_id": None, "neden": "",
+                           "bloke": False, "adet": 2, "ic": {"x": 1}, "liste": [1]})
+        ozet = _log_ozeti(veri)
+        self.assertIn("onceki_hash=" + "a" * 12 + "…", ozet)
+        self.assertNotIn("a" * 13, ozet)
+        self.assertNotIn("hedef_hesap_id", ozet)
+        self.assertNotIn("neden", ozet)
+        self.assertNotIn("ic=", ozet)
+        self.assertNotIn("liste", ozet)
+        self.assertIn("bloke=False", ozet)
+        self.assertIn("adet=2", ozet)
+
+    def test_uzun_metin_kesilir_gecersiz_veri_bos_doner(self):
+        from .simulator import _log_ozeti
+        ozet = _log_ozeti(json.dumps({"not": "x" * 100}))
+        self.assertEqual(ozet, "not=" + "x" * 45 + "…")
+        self.assertEqual(_log_ozeti("json degil"), "")
+        self.assertEqual(_log_ozeti("[1, 2]"), "")
+
+
 @override_settings(MESAI_DISI_KURALI=False)
 class SimulatorGorunumTestleri(Yardimci, TestCase):
     def setUp(self):

@@ -52,9 +52,11 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 
 ## Ekran görüntüleri
 
-Web ATM simülatörü (`/simulator/`): sanal terminal, kartlar ve canlı şerit.
+Web ATM simülatörü (`/simulator/`): sanal terminal, para dağıtıcı ve demo kartları (canlı şerit aşağıda ayrı görselde).
 
 ![Web ATM simülatörü](docs/simulator.png)
+
+*Tam ekran görünüm: [docs/simulator-tam.png](docs/simulator-tam.png)*
 
 Para dağıtıcı paneli: kasetler, rezerve edilen planlar ve kapanan dağıtıcı (sıkışma sonrası).
 

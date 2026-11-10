@@ -781,6 +781,7 @@ function ATMSimulatoru(arayuz) {
       def.appendChild(satir);
     });
     kap.appendChild(def);
+    if (!v.hareketler.length) kap.appendChild(el("div", "bos", "Henüz hareket yok"));
 
     kap.appendChild(el("h3", "", "Denetim kaydı (son olaylar)"));
     v.loglar.forEach((l) => {

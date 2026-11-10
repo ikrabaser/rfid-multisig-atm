@@ -9,6 +9,7 @@ Köprü API anahtarı tarayıcıya VERİLMEZ: simülatör oturum açmış bir y�
 Yalnızca geliştirme içindir: `SIMULATOR_AKTIF` (varsayılan: DEBUG) kapalıysa hiçbir uç çalışmaz.
 """
 import json
+import re
 import unicodedata
 
 from django.conf import settings
@@ -146,17 +147,33 @@ def sayfa_verisi():
     }
 
 
+_HASH_DESENI = re.compile(r"^[0-9a-f]{32,}$")
+
+
+def _log_degeri(deger):
+    """Denetim kaydi ozetinde tek bir degeri okunur kisaltir."""
+    if isinstance(deger, str):
+        if _HASH_DESENI.match(deger):
+            return deger[:12] + "…"
+        if len(deger) > 48:
+            return deger[:45] + "…"
+    return deger
+
+
 def _log_ozeti(veri):
+    """Log verisini 'anahtar=deger' satirina cevirir; bos alanlari atlar, hash'leri kisaltir."""
     try:
         v = json.loads(veri)
     except ValueError:
         return ""
+    if not isinstance(v, dict):
+        return ""
     parcalar = []
     for anahtar, deger in v.items():
-        if isinstance(deger, (dict, list)):
+        if deger is None or deger == "" or isinstance(deger, (dict, list)):
             continue
-        parcalar.append(f"{anahtar}={deger}")
-    return ", ".join(parcalar)[:110]
+        parcalar.append(f"{anahtar}={_log_degeri(deger)}")
+    return ", ".join(parcalar)[:200]
 
 
 def serit_verisi(zincir=False):
