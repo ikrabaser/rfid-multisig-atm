@@ -1,5 +1,7 @@
 # RFID Banka + Çok İmzalı Kasa
 
+[![test](https://github.com/ikrabaser/rfid-multisig-atm/actions/workflows/test.yml/badge.svg)](https://github.com/ikrabaser/rfid-multisig-atm/actions/workflows/test.yml)
+
 Arduino + RC522 ile kartlı mini ATM. Küçük işlemler direkt geçer, büyük işlemler **N-of-M yetkili onayı** ister
 (ör. 5 yetkiliden en az 3'ü, 30 saniye içinde, içlerinden biri müdür). Para hareketleri **çift taraflı deftere**,
 her olay **HMAC'li hash zincirine** yazılır; geçmişte bir kayıt değiştirilirse ya da silinirse fark edilir.
@@ -866,6 +868,9 @@ node backend\js_testleri\simulator_akis.test.js
 
 `python manage.py test` Node kuruluysa bunu da çalıştırır, kurulu değilse atlar.
 
+**CI:** `.github/workflows/test.yml` her push ve pull request'te iki iş çalıştırır: PostgreSQL 16 servisiyle tam test
+(eşzamanlılık testleri, JS akış testi ve `makemigrations --check` dahil) ve SQLite ile hızlı kontrol.
+
 ## PostgreSQL ve eşzamanlılık
 
 SQLite tek yazıcılıdır; iki işlemin aynı anda aynı bakiyeyi okuyup ikisinin de "yeterli" demesi mümkün değildi. PostgreSQL'de
@@ -966,4 +971,3 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
 5. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
 6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
-7. GitHub Actions ile her push'ta `python manage.py test`.
