@@ -759,10 +759,20 @@ function ATMSimulatoru(arayuz) {
         kutu.appendChild(el("div", "", `#${b.islem_id} · ${Number(b.tutar).toLocaleString("tr-TR")} TL · ${b.terminal}`));
         kutu.appendChild(el("div", "ince", `plan ${b.plan || "-"} · kasetler sayıldıktan sonra karar ver`));
         const dugmeler = el("div", "dugmeler");
-        [["Verildi", "VERILDI"], ["Verilmedi (iade)", "VERILMEDI"]].forEach(([yazi, sonuc]) => {
+        [["Verildi", "VERILDI"], ["Verilmedi (iade)", "VERILMEDI"], ["Kısmi…", "KISMI"]].forEach(([yazi, sonuc]) => {
           const d = el("button", "kucuk", yazi);
           d.type = "button";
-          d.addEventListener("click", () => operatorGonder({ eylem: "coz", islem_id: b.islem_id, sonuc }));
+          d.addEventListener("click", () => {
+            const govde = { eylem: "coz", islem_id: b.islem_id, sonuc };
+            if (sonuc === "KISMI") {
+              // Şerit sık yenilendiği için giriş kutusu yerine kısa bir soru: kasetlerden fiilen çıkan banknotlar
+              const verilen = window.prompt(
+                `Müşteriye FİİLEN verilen banknotlar (örn. 200x3). Planlanan: ${b.plan || "-"}`, "");
+              if (verilen === null || !verilen.trim()) return;
+              govde.verilen = verilen.trim();
+            }
+            operatorGonder(govde);
+          });
           dugmeler.appendChild(d);
         });
         kutu.appendChild(dugmeler);

@@ -2753,6 +2753,24 @@ class SimulatorGorunumTestleri(Yardimci, TestCase):
         self.client.force_login(self.U.objects.get(username="denetci"))   # superuser olmayan: yasak
         self.assertEqual(self.client.post("/simulator/operator/", data="{}", content_type="application/json").status_code, 403)
 
+    def test_operator_ucu_kismi_cozum_banknot_ister_ve_farki_iade_eder(self):
+        self.client.force_login(self.root)
+
+        def operator(govde):
+            return self.client.post("/simulator/operator/", data=json.dumps(govde), content_type="application/json").json()
+
+        token = simulator.isle("PIN|a0a0a001|1234", "ATM-01").split("|")[1]
+        no = int(simulator.isle(f"ISLEM|{token}|C|2000||kismi1", "ATM-01").split("|")[2])
+        Islem.objects.filter(id=no).update(tamamlanma=timezone.now() - datetime.timedelta(minutes=3))
+        self.client.get("/simulator/serit/")
+        self.assertFalse(operator({"eylem": "coz", "islem_id": no, "sonuc": "KISMI"})["ok"])                    # banknot yok
+        self.assertFalse(operator({"eylem": "coz", "islem_id": no, "sonuc": "KISMI", "verilen": "200x11"})["ok"])  # plandan fazla
+        s = operator({"eylem": "coz", "islem_id": no, "sonuc": "KISMI", "verilen": "200x8"})
+        self.assertTrue(s["ok"])
+        o = Islem.objects.get(id=no)
+        self.assertEqual((o.teslim, o.verilen_plani, o.iade_tutari), ("KISMI", "200x8", Decimal("400.00")))
+        self.assertEqual(Hesap.objects.get(hesap_no="100001").bakiye, Decimal("998400.00"))
+
     def test_telefon_ucu(self):
         self.client.force_login(self.root)
         self.assertEqual(self.client.get("/simulator/telefon/").json(), {"mesajlar": []})      # bellek saglayicisi

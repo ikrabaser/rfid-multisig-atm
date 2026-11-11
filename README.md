@@ -581,7 +581,7 @@ Anomali tarayıcı ayrıca düşük banknot stoğunu (`dusuk_banknot_stogu`, eş
 
 **Simülatörde deneme:** Sol tarafta **Para dağıtıcı** paneli kasetleri ve son planı gösterir. "Arıza" seçicisi bir sonraki çekim
 için sıkışma, eksik verme, bağlantı kopması ya da yanıt kaybını (işlem sunucuda yapılır ama cevap kaybolur, terminal aynı
-anahtarla yeniden dener) oynatır. Belirsiz teslimler şeritte görünür ve oradan operatör çözümü verilir.
+anahtarla yeniden dener) oynatır. Belirsiz teslimler şeritte görünür ve oradan operatör çözümü verilir (Verildi / Verilmedi / Kısmi; kısmide fiilen verilen banknotlar `200x3` biçiminde sorulur).
 
 **Sınırlar (dürüstçe):** Gerçek dağıtıcının sayaç/sensör bilgisi simüle edilir; sunucu eksik verme bildirimine güvenir ve
 bunu denetim kaydına ve kaset sayımına (mutabakat) bırakır. Operatör çözümü dört gözlüdür (`NAKIT_COZ` yönetim talebi);
