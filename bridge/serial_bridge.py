@@ -39,8 +39,8 @@ import requests
 ESLEME = str.maketrans({"ı": "i", "İ": "I", "ß": "ss"})
 TUR = {"C": "CEKME", "Y": "YATIRMA", "H": "HAVALE"}
 TUR_KISA = {"CEKME": "Cek", "YATIRMA": "Yatir", "HAVALE": "Havale", "KASA_ACMA": "Kasa"}
-KOMUTLAR = {"KART", "PIN", "BAKIYE", "ISLEM", "BEKLEYEN", "DURUM", "ONAY", "KASAAC", "TESLIM"}
-GIZLI_KOMUTLAR = {"PIN", "ONAY", "BAKIYE", "ISLEM", "KASAAC"}  # konsola yazilirken ayrintilari gizlenir
+KOMUTLAR = {"KART", "PIN", "PINDEGIS", "BAKIYE", "ISLEM", "BEKLEYEN", "DURUM", "ONAY", "KASAAC", "TESLIM"}
+GIZLI_KOMUTLAR = {"PIN", "PINDEGIS", "ONAY", "BAKIYE", "ISLEM", "KASAAC"}  # konsola yazilirken ayrintilari gizlenir
 YEREL_ADRESLER = {"127.0.0.1", "localhost", "::1"}
 
 KUYRUK_VARSAYILAN = Path(__file__).with_name("cevrimdisi_kuyruk.jsonl")
@@ -59,6 +59,12 @@ def ascii_yap(metin):
 
 def hata(mesaj):
     return "HATA|" + ascii_yap(mesaj)[:32]
+
+
+def imza_alanlari(a, bas):
+    """Komutun sonundaki istege bagli |sayac|mac (imzali kart, NTAG 424 DNA mantigi): API'ye aynen iletilir.
+    RC522 imza uretemez; imza alani yoksa bos kalir ve sunucu moda gore karar verir (KART_IMZA_ZORUNLU)."""
+    return {"sayac": a[bas], "mac": a[bas + 1]} if len(a) > bas + 1 else {}
 
 
 def tutar_kisa(tutar):
@@ -225,14 +231,18 @@ class Kopru:
 
     def _isle(self, komut, a):
         if komut == "KART":
-            r = self._post("/api/kart/", {"uid": a[0]})
+            r = self._post("/api/kart/", {"uid": a[0], **imza_alanlari(a, 1)})
             return f"TIP|{r['tip']}" if r.get("ok") else hata(r.get("hata", "Hata"))
 
         if komut == "PIN":
-            r = self._post("/api/giris/", {"uid": a[0], "pin": a[1]})
+            r = self._post("/api/giris/", {"uid": a[0], "pin": a[1], **imza_alanlari(a, 2)})
             if not r.get("ok"):
                 return hata(r.get("hata", "Hata"))
             return f"GIRIS|{r['token']}|{ascii_yap(r['ad'])[:16]}"
+
+        if komut == "PINDEGIS":
+            r = self._post("/api/pin-degistir/", {"token": a[0], "eski": a[1], "yeni": a[2]})
+            return "PINDEGIS|TAMAM" if r.get("ok") else hata(r.get("hata", "Hata"))
 
         if komut == "BAKIYE":
             r = self._post("/api/bakiye/", {"token": a[0]})
@@ -254,7 +264,7 @@ class Kopru:
             return f"TAMAM|{r['bakiye']}|{r['islem_id']}|{r.get('dagitim', '')}"
 
         if komut == "KASAAC":
-            r = self._post("/api/kasa-ac/", {"uid": a[0], "pin": a[1]})
+            r = self._post("/api/kasa-ac/", {"uid": a[0], "pin": a[1], **imza_alanlari(a, 2)})
             if not r.get("ok"):
                 return hata(r.get("hata", "Hata"))
             return f"BEKLE|{r['talep_id']}|{r['gereken']}"
@@ -290,7 +300,8 @@ class Kopru:
 
         if komut == "ONAY":
             karar = "RED" if a[3].upper() == "H" else "ONAY"
-            r = self._post("/api/onay/", {"talep_id": int(a[0]), "uid": a[1], "pin": a[2], "karar": karar})
+            r = self._post("/api/onay/", {"talep_id": int(a[0]), "uid": a[1], "pin": a[2], "karar": karar,
+                                           **imza_alanlari(a, 4)})
             if not r.get("ok"):
                 return hata(r.get("hata", "Hata"))
             return f"ONAY|{r['verilen']}|{r['gereken']}|{r['durum']}"

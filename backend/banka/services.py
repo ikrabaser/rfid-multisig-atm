@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 
-from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kilit, ledger, nakit, personel_butunlugu,
+from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, nakit, personel_butunlugu,
                politika_degisikligi, rbac)
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
@@ -44,20 +44,48 @@ def para(d):
 
 # ------------------------------------------------------------------ kimlik / PIN
 
-def kart_tipi(uid):
-    """MUSTERI | PERSONEL | BLOKE | BILINMIYOR"""
+def _imza_kontrol(nesne, uid, imza):
+    """Imzali kart (kart_imzasi.py): ImzaHatasi'ni IslemHatasi'na cevirir."""
+    try:
+        kart_imzasi.kontrol(nesne, uid, imza)
+    except kart_imzasi.ImzaHatasi as e:
+        raise IslemHatasi(e.mesaj, e.kod)
+
+
+def imza_coz(sayac=None, mac=None):
+    """Protokoldeki (sayac, mac) alanlarindan imza; yoksa None. Bicim hatasi IslemHatasi."""
+    try:
+        return kart_imzasi.coz(sayac, mac)
+    except kart_imzasi.ImzaHatasi as e:
+        raise IslemHatasi(e.mesaj, e.kod)
+
+
+def kart_tipi(uid, imza=None):
+    """MUSTERI | PERSONEL | BLOKE | BILINMIYOR | IMZASIZ (imza yok/gecersiz/tekrar: klon suphesi)"""
     uid = uid_duzelt(uid)
     personel = Personel.objects.filter(kart_uid=uid, aktif=True).first()
     if personel:
         bloke = personel.bloke or bloke_butunlugu.beklenen_bloke_mu("personel", personel.id, uid)
-        return "BLOKE" if bloke else "PERSONEL"
+        if bloke:
+            return "BLOKE"
+        try:
+            _imza_kontrol(personel, uid, imza)
+        except IslemHatasi:
+            return "IMZASIZ"
+        return "PERSONEL"
     kart = Kart.objects.select_related("hesap").filter(uid=uid).first()
     if kart:
         if kart_butunlugu.kart_dogrulandi_mi(kart) is False:  # onaysiz eklenmis/degistirilmis kart
             kart_butunlugu.ihlal_kaydet(kart)
             return "BLOKE"
         bloke = kart.bloke or bloke_butunlugu.beklenen_bloke_mu("kart", kart.id, uid)
-        return "BLOKE" if bloke else "MUSTERI"
+        if bloke:
+            return "BLOKE"
+        try:
+            _imza_kontrol(kart, uid, imza)
+        except IslemHatasi:
+            return "IMZASIZ"
+        return "MUSTERI"
     kayit_ekle("bilinmeyen_kart", {"uid": uid})
     return "BILINMIYOR"
 
@@ -104,7 +132,7 @@ def _pin_kontrol(nesne, pin, kimlik):
         raise IslemHatasi(hata[0], hata[1], **hata[2])
 
 
-def musteri_giris(uid, pin):
+def musteri_giris(uid, pin, imza=None):
     uid = uid_duzelt(uid)
     kart = Kart.objects.select_related("hesap__musteri").filter(uid=uid).first()
     if kart is None:
@@ -113,10 +141,62 @@ def musteri_giris(uid, pin):
     if kart_butunlugu.kart_dogrulandi_mi(kart) is False:
         kart_butunlugu.ihlal_kaydet(kart)
         raise IslemHatasi("Kart doğrulanamadı; şubeye başvurun", "kart_butunluk")
+    _imza_kontrol(kart, uid, imza)   # PIN'den ONCE: imzasiz/klon kart PIN denemesi sayacini da kurcalayamaz
     _pin_kontrol(kart, pin, uid)
     kayit_ekle("giris", {"uid": uid, "hesap_no": kart.hesap.hesap_no})
     token = signing.TimestampSigner(salt=TOKEN_TUZU).sign(str(kart.id))
     return {"token": token, "ad": kart.hesap.musteri.ad, "hesap_no": kart.hesap.hesap_no}
+
+
+PIN_ARDISIK = {"0123", "1234", "2345", "3456", "4567", "5678", "6789", "9876", "8765", "7654", "6543", "5432", "4321", "3210"}
+
+
+def pin_zayif_mi(pin):
+    """Aynı rakamlar (0000) ya da ardışık dizi (1234, 4321): tahmin edilmesi kolay PIN."""
+    return len(set(pin)) == 1 or pin in PIN_ARDISIK
+
+
+def pin_degistir(token, eski, yeni):
+    """Müşteri PIN'ini terminalde KENDİ değiştirir: açık oturum + ESKİ PIN yeniden doğrulanır.
+
+    Oturum tek başına yetmez: açık bırakılmış bir terminalden PIN'in çalınmasını eski PIN şartı engeller. Eski PIN
+    yanlışsa normal PIN sayacı işler (3'te bloke). Yeni PIN eskisinden farklı, 4 rakam ve kolay tahmin edilir olmamalı.
+    Mühür ve onaylı kart özeti yenilenir (onaylı bir değişiklik sayılır); kart kayıtları zaten tutarsızsa değişiklik
+    reddedilir, böylece onaysız bir müdahale bu yolla meşrulaştırılmaz. PIN hiçbir yere yazılmaz; müşterinin
+    telefonuna "PIN'iniz değiştirildi" SMS'i gider (kendisi yapmadıysa fark etsin).
+    """
+    kart = _token_coz(token)
+    eski, yeni = str(eski or ""), str(yeni or "")
+    if not re.fullmatch(r"\d{4}", yeni):
+        raise IslemHatasi("Yeni PIN 4 rakam olmalı", "pin_bicim")
+    if yeni == eski:
+        raise IslemHatasi("Yeni PIN eskisiyle aynı olamaz", "pin_ayni")
+    if pin_zayif_mi(yeni):
+        raise IslemHatasi("Yeni PIN çok kolay tahmin edilir", "pin_zayif")
+    _pin_kontrol(kart, eski, kart.uid)   # yanlis eski PIN sayaci isletir; hata kilit blogu disinda firlatilir
+    hata, musteri = None, None
+    with transaction.atomic():
+        kilit.zincir_kilidi()
+        taze = Kart.objects.select_for_update().select_related("hesap__musteri").get(pk=kart.pk)
+        baslangic_var = kart_butunlugu.son_ozet() is not None
+        if taze.bloke:
+            hata = ("Kart bloke edildi", "bloke")
+        elif taze.pin_hash != kart.pin_hash:
+            hata = ("PIN bu arada değişti; yeniden giriş yapın", "durum_degisti")
+        elif baslangic_var and kart_butunlugu.tutarli_mi() is False:
+            hata = ("Kart kayıtları doğrulanamadı; şubeye başvurun", "kart_butunluk")
+        else:
+            taze.pin_ayarla(yeni)   # hatali deneme sayacini da sifirlar
+            taze.save(update_fields=["pin_hash", "hatali_deneme"])
+            if baslangic_var:
+                kart_butunlugu.muhurle(taze)
+                kart_butunlugu.goruntu_kaydet("musteri_pin_degisti", kart_id=taze.id)
+            kayit_ekle("pin_degistirildi", {"uid": taze.uid, "hesap_no": taze.hesap.hesap_no})
+            musteri = taze.hesap.musteri
+    if hata:
+        raise IslemHatasi(*hata)
+    bildirim.pin_degisti(musteri)
+    return {"degisti": True}
 
 
 def _token_coz(token):
@@ -139,12 +219,13 @@ def personel_butunlugunu_dogrula():
         raise IslemHatasi("Yetkili kayıtları doğrulanamadı; işlem yapılamaz", "butunluk")
 
 
-def personel_dogrula(uid, pin):
+def personel_dogrula(uid, pin, imza=None):
     uid = uid_duzelt(uid)
     personel = Personel.objects.filter(kart_uid=uid, aktif=True).first()
     if personel is None:
         kayit_ekle("yetkisiz_onay_denemesi", {"uid": uid})
         raise IslemHatasi("Yetkili kartı değil", "yetkisiz")
+    _imza_kontrol(personel, uid, imza)
     _pin_kontrol(personel, pin, uid)
     return personel
 
@@ -824,14 +905,14 @@ def kaset_doldur(terminal_kodu, nominal, adet, yapan, iade_kutusunu_bosalt=False
 # ------------------------------------------------------------------ kasa dairesi
 
 @kilit.yeniden_dene
-def kasa_acma_baslat(uid, pin):
+def kasa_acma_baslat(uid, pin, imza=None):
     """Yetkili, kasa dairesini acmak icin onay talebi baslatir.
 
     Kural ayarlardan gelir (KASA_ACMA_GEREKEN_ONAY, KASA_ACMA_EN_AZ_ROL). Talebi baslatan
     kendi talebini onaylayamaz; bu yuzden onaylayabilecek yeterli baska yetkili de olmali.
     """
     personel_butunlugunu_dogrula()
-    personel = personel_dogrula(uid, pin)
+    personel = personel_dogrula(uid, pin, imza)
     if not rbac.yetki_var_mi(personel, rbac.Yetki.KASA_AC_BASLAT):
         kayit_ekle("rbac_reddi", {"personel_id": personel.id, "yetki": rbac.Yetki.KASA_AC_BASLAT})
         raise IslemHatasi("Bu rol kasa açma talebi başlatamaz", "rol_yetersiz")
@@ -939,12 +1020,12 @@ def bekleyen_talep():
 
 
 @kilit.yeniden_dene
-def onay_karar(talep_id, uid, pin, karar):
+def onay_karar(talep_id, uid, pin, karar, imza=None):
     """karar: 'ONAY' veya 'RED'. Sonuc ozet sozlugu; kural ihlali IslemHatasi."""
     karar = Onay.Karar.RED if str(karar).upper() in ("RED", "H") else Onay.Karar.ONAY
     talep_id = _talep_no(talep_id)
     personel_butunlugunu_dogrula()
-    personel = personel_dogrula(uid, pin)  # atomic disinda: hatali PIN sayaci kalici olsun
+    personel = personel_dogrula(uid, pin, imza)  # atomic disinda: hatali PIN sayaci kalici olsun
     hata = None
     kasa_acildi = None
     with transaction.atomic():

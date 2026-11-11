@@ -15,6 +15,7 @@ from decimal import Decimal
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core import mail
@@ -27,7 +28,7 @@ from django.utils import timezone
 
 from kasa import settings as proje_ayarlari
 
-from . import (anomali, baglam, bildirim, bloke_butunlugu, kart_butunlugu, kilit, ledger, nakit, personel_butunlugu,
+from . import (anomali, baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, nakit, personel_butunlugu,
                politika_degisikligi, rbac, services, simulator, sms, yonetim_talepleri)
 from .hashlog import kayit_ekle, zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, OnayTalebi, Personel, Politika,
@@ -329,6 +330,133 @@ class PanelTesti(TestCase):
     def test_panel_giris_ister(self):
         r = Client().get("/")
         self.assertEqual(r.status_code, 302)
+        self.assertTrue(r["Location"].startswith("/giris/"))
+
+
+@override_settings(GIRIS_MAKS_HATA=3, GIRIS_MAKS_HATA_IP=6, GIRIS_KILIT_SN=600)
+class WebGirisTestleri(TestCase):
+    """Kendi giriş sayfamız: hatalı deneme sınırı (zincirden sayılır), yan kapı yok, oturum ve parola kuralları."""
+
+    def setUp(self):
+        U = get_user_model()
+        self.ali = U.objects.create_user("ali_yonetici", "a@banka.example", "dogru-parola-77", is_staff=True)
+        self.musteri = U.objects.create_user("normal", "n@banka.example", "dogru-parola-77")   # staff degil
+        self.c = Client()
+
+    def giris(self, kullanici="ali_yonetici", parola="dogru-parola-77", **ek):
+        return self.c.post("/giris/", {"username": kullanici, "password": parola, **ek})
+
+    def olaylar(self, tur):
+        return list(LogKaydi.objects.filter(olay_turu=tur).values_list("veri", flat=True))
+
+    def test_giris_sayfasi_ve_basarili_giris(self):
+        self.assertEqual(self.c.get("/giris/").status_code, 200)
+        r = self.giris(next="/")
+        self.assertEqual((r.status_code, r["Location"]), (302, "/"))
+        self.assertEqual(self.c.get("/").status_code, 200)               # panel artık açık
+        olay = json.loads(self.olaylar("web_giris")[0])
+        self.assertEqual(olay["kullanici"], "ali_yonetici")
+        self.assertNotIn("dogru-parola-77", " ".join(LogKaydi.objects.values_list("veri", flat=True)))
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_hatali_giris_ayni_mesaj_ve_loglanir_parola_yazilmaz(self):
+        r1 = self.giris(parola="yanlis-parola-1")
+        r2 = self.giris(kullanici="yok_boyle_biri", parola="yanlis-parola-2")
+        self.assertEqual((r1.status_code, r2.status_code), (200, 200))
+        self.assertEqual(r1.context["hata"], r2.context["hata"])         # kullanıcı adı sızmaz
+        self.assertEqual(len(self.olaylar("web_giris_hatali")), 2)
+        self.assertNotIn("yanlis-parola", " ".join(LogKaydi.objects.values_list("veri", flat=True)))
+
+    def test_ucuncu_hatadan_sonra_dogru_parola_bile_reddedilir_ve_log_sismez(self):
+        for _ in range(3):
+            self.giris(parola="yanlis")
+        r = self.giris()                                                  # doğru parola, ama kilitli
+        self.assertEqual(r.status_code, 429)
+        self.assertNotIn("_auth_user_id", self.c.session)
+        for _ in range(5):
+            self.giris(parola="yanlis")
+        self.assertEqual(len(self.olaylar("web_giris_hatali")), 3)        # kilitliyken zincire yazılmaz
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_kilit_pencere_dolunca_acilir(self):
+        for _ in range(3):
+            self.giris(parola="yanlis")
+        LogKaydi.objects.filter(olay_turu="web_giris_hatali").update(zaman=timezone.now() - datetime.timedelta(minutes=11))
+        self.assertEqual(self.giris().status_code, 302)
+
+    def test_basarili_giris_hata_sayacini_sifirlar(self):
+        self.giris(parola="yanlis")
+        self.giris(parola="yanlis")
+        self.assertEqual(self.giris().status_code, 302)                   # 2 hata, sonra başarı
+        self.c.post("/cikis/")
+        self.giris(parola="yanlis")
+        self.giris(parola="yanlis")
+        self.assertEqual(self.giris().status_code, 302)                   # sayaç sıfırlanmıştı: 2 yeni hata kilitlemez
+
+    def test_kilit_baska_kullaniciyi_etkilemez_ip_siniri_taramayi_keser(self):
+        for _ in range(3):
+            self.giris(parola="yanlis")
+        self.assertEqual(self.giris(kullanici="normal").status_code, 302)  # başka kullanıcı kilitli değil
+        c2 = Client()
+        for i in range(6):                                                 # farklı adlarla tarama: IP sınırı
+            c2.post("/giris/", {"username": f"tahmin{i}", "password": "x"})
+        self.assertEqual(c2.post("/giris/", {"username": "normal", "password": "dogru-parola-77"}).status_code, 429)
+
+    def test_admin_giris_yan_kapisi_ayni_sayfaya_yonlenir(self):
+        r = self.c.get("/admin/login/?next=/admin/banka/")
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(r["Location"].startswith("/giris/?next="))
+        self.assertEqual(self.c.post("/admin/login/", {"username": "ali_yonetici", "password": "dogru-parola-77"}).status_code, 302)
+        self.assertNotIn("_auth_user_id", self.c.session)                  # admin formuyla oturum açılamaz
+        self.assertEqual(self.c.get("/admin/", follow=False).status_code, 302)
+
+    def test_yetkisiz_kullanici_dongu_olmadan_403_alir_acik_yonlendirme_yok(self):
+        self.giris(kullanici="normal")
+        self.assertEqual(self.c.get("/").status_code, 403)                # staff değil
+        self.assertEqual(self.c.get("/giris/?next=/").status_code, 200)   # yönlendirme döngüsü yok
+        self.c.post("/cikis/")
+        r = self.giris(next="https://kotu.example/")
+        self.assertEqual(r["Location"], "/")                              # dış adrese yönlendirme yok
+        r = self.giris(next="//kotu.example/x")
+        self.assertEqual(r["Location"], "/")
+
+    def test_cikis_yalniz_post_ve_oturumu_kapatir(self):
+        self.giris()
+        self.assertEqual(self.c.get("/cikis/").status_code, 405)
+        r = self.c.post("/cikis/")
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(self.c.get("/").status_code, 302)
+        self.assertEqual(len(self.olaylar("web_cikis")), 1)
+
+    def test_parola_degistirme_kurallar_ve_log(self):
+        self.giris()
+        self.assertEqual(Client().get("/sifre-degistir/").status_code, 302)   # girişsiz
+        r = self.c.post("/sifre-degistir/", {"old_password": "yanlis", "new_password1": "Yeni-parola-9921", "new_password2": "Yeni-parola-9921"})
+        self.assertEqual(r.context["form"].errors.keys(), {"old_password"})
+        for zayif in ("kisa1", "1234567890", "password123"):
+            r = self.c.post("/sifre-degistir/", {"old_password": "dogru-parola-77", "new_password1": zayif, "new_password2": zayif})
+            self.assertTrue(r.context["form"].errors, zayif)
+        r = self.c.post("/sifre-degistir/", {"old_password": "dogru-parola-77", "new_password1": "Yeni-parola-9921", "new_password2": "Yeni-parola-9921"})
+        self.assertTrue(r.context["basarili"])
+        self.assertEqual(self.c.get("/").status_code, 200)                 # bu oturum açık kaldı
+        self.assertEqual(len(self.olaylar("web_sifre_degisti")), 1)
+        self.assertNotIn("Yeni-parola", " ".join(LogKaydi.objects.values_list("veri", flat=True)))
+        self.c.post("/cikis/")
+        self.assertEqual(self.giris(parola="dogru-parola-77").status_code, 200)   # eski parola artık geçersiz
+        self.assertEqual(self.giris(parola="Yeni-parola-9921").status_code, 302)
+
+    def test_oturum_ayarlari_bosta_kalinca_kapanir_ve_csrf_korumali(self):
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 1800)
+        self.assertTrue(settings.SESSION_SAVE_EVERY_REQUEST)
+        c = Client(enforce_csrf_checks=True)
+        self.assertEqual(c.post("/giris/", {"username": "ali_yonetici", "password": "dogru-parola-77"}).status_code, 403)
+
+    def test_simulator_girissiz_giris_sayfasina_yonlenir(self):
+        r = self.c.get("/simulator/")
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(r["Location"].startswith("/giris/"))
+
+
 
 
 # ====================================================================== yeni ozellikler
@@ -3365,6 +3493,236 @@ class NakitCozDortGozTestleri(NakitYardimci, TestCase):
 
 
 @override_settings(MESAI_DISI_KURALI=False)
+class PinDegistirTestleri(ApiYardimci, TestCase):
+    """Müşteri PIN'ini terminalde kendisi değiştirir: oturum + eski PIN, mühür yenilenir, PIN hiçbir yere yazılmaz."""
+
+    def setUp(self):
+        self.api_hazirla()
+        self.kart = Kart.objects.get(uid="a0a0a001")
+        self.telefon = self.kart.hesap.musteri.telefon
+
+    def test_pin_degisir_eski_gecmez_yeni_gecer_muhur_ve_ozet_yenilenir(self):
+        token = self.giris()
+        self.assertEqual(services.pin_degistir(token, "1234", "7391"), {"degisti": True})
+        with self.assertRaises(IslemHatasi):
+            services.musteri_giris("a0a0a001", "1234")
+        self.assertTrue(services.musteri_giris("a0a0a001", "7391")["token"])
+        kart = Kart.objects.get(uid="a0a0a001")
+        self.assertTrue(kart_butunlugu.kart_dogrulandi_mi(kart))          # mühür yeni PIN'e göre yenilendi
+        self.assertTrue(kart_butunlugu.tutarli_mi())                       # onaylı özet de güncel
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_pin_loglara_ve_bildirimlere_yazilmaz_musteriye_sms_gider(self):
+        services.pin_degistir(self.giris(), "1234", "7391")
+        tum_log = " ".join(LogKaydi.objects.values_list("veri", flat=True))
+        self.assertIn("pin_degistirildi", set(LogKaydi.objects.values_list("olay_turu", flat=True)))
+        self.assertNotIn("7391", tum_log)
+        self.assertNotIn("7391", " ".join(Bildirim.objects.values_list("metin", flat=True)))
+        sms_ler = [m for t, m in sms.BellekSmsSaglayici.gelen if t == self.telefon]
+        self.assertTrue(any("değiştirildi" in m for m in sms_ler))
+        self.assertFalse(any("7391" in m for m in sms_ler))               # SMS yalnızca haber verir, PIN içermez
+
+    def test_yanlis_eski_pin_sayaci_isletir_ve_ucuncude_bloke_eder(self):
+        token = self.giris()
+        for kalan in (2, 1):
+            with self.assertRaises(IslemHatasi) as e:
+                services.pin_degistir(token, "0000", "7391")
+            self.assertEqual((e.exception.kod, e.exception.ekstra["kalan_hak"]), ("pin", kalan))
+        with self.assertRaises(IslemHatasi) as e:
+            services.pin_degistir(token, "0000", "7391")
+        self.assertEqual(e.exception.kod, "bloke")
+        self.assertTrue(Kart.objects.get(uid="a0a0a001").bloke)
+        self.assertEqual(kart_butunlugu.durum(), "tutarli")                # PIN değişmedi, özet bozulmadı
+
+    def test_yeni_pin_kurallari(self):
+        token = self.giris()
+        for yeni, kod in (("123", "pin_bicim"), ("12345", "pin_bicim"), ("abcd", "pin_bicim"), ("", "pin_bicim"),
+                          ("1234", "pin_ayni"), ("0000", "pin_zayif"), ("4321", "pin_zayif"), ("7777", "pin_zayif")):
+            with self.assertRaises(IslemHatasi, msg=yeni) as e:
+                services.pin_degistir(token, "1234", yeni)
+            self.assertEqual(e.exception.kod, kod, yeni)
+        self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])   # hiçbiri PIN'i değiştirmedi
+
+    def test_gecersiz_oturum_reddedilir(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.pin_degistir("sahte.token", "1234", "7391")
+        self.assertEqual(e.exception.kod, "oturum")
+
+    def test_tutarsiz_kart_kayitlari_varken_degisiklik_reddedilir(self):
+        token = self.giris()
+        Kart.objects.filter(uid="a0a0a002").update(mac="x" * 64)           # başka karta onaysız müdahale
+        self.assertEqual(kart_butunlugu.durum(), "tutarsiz")
+        with self.assertRaises(IslemHatasi) as e:
+            services.pin_degistir(token, "1234", "7391")
+        self.assertEqual(e.exception.kod, "kart_butunluk")
+        self.assertTrue(services.musteri_giris("a0a0a001", "1234")["token"])   # PIN eskisi gibi
+
+    def test_simulator_ve_api_ucu(self):
+        token = simulator.isle("PIN|a0a0a001|1234", "ATM-01").split("|")[1]
+        self.assertEqual(simulator.isle(f"PINDEGIS|{token}|1234|7391", "ATM-01"), "PINDEGIS|TAMAM")
+        self.assertTrue(simulator.isle(f"PINDEGIS|{token}|1234|8462", "ATM-01").startswith("HATA|"))   # eski PIN artık yanlış
+        token2 = self.api("/api/giris/", {"uid": "a0a0a001", "pin": "7391"}, "ATM-01").json()["token"]
+        r = self.api("/api/pin-degistir/", {"token": token2, "eski": "7391", "yeni": "8462"}, "ATM-01")
+        self.assertEqual((r.status_code, r.json()["ok"]), (200, True))
+        self.assertEqual(self.api("/api/pin-degistir/", {"token": token2, "eski": "8462", "yeni": "8462"}, "ATM-01").json()["kod"],
+                         "pin_ayni")
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+@override_settings(MESAI_DISI_KURALI=False)
+class KartImzasiTestleri(ApiYardimci, TestCase):
+    """Imzali kart simulasyonu (NTAG 424 DNA mantigi): klon ve tekrar oynatma reddedilir, imzasiz kart moda baglidir."""
+
+    UID = "a0a0a001"
+    PERSONEL = "b0b0b001"
+
+    def setUp(self):
+        self.api_hazirla()
+        self.root = get_user_model().objects.create_superuser("root", "root@banka.example", "x")
+
+    def imza(self, uid, sayac):
+        return sayac, kart_imzasi.mac_hesapla(uid, sayac)
+
+    def olaylar(self, tur):
+        return LogKaydi.objects.filter(olay_turu=tur).count()
+
+    def test_gecerli_imza_kabul_edilir_ve_sayac_ilerler(self):
+        self.assertTrue(services.musteri_giris(self.UID, "1234", self.imza(self.UID, 5))["token"])
+        self.assertEqual(Kart.objects.get(uid=self.UID).imza_sayaci, 5)
+        self.assertTrue(services.musteri_giris(self.UID, "1234", self.imza(self.UID, 6))["token"])
+        self.assertEqual(Kart.objects.get(uid=self.UID).imza_sayaci, 6)
+
+    def test_imzasiz_kart_varsayilan_modda_kabul_edilir(self):
+        self.assertFalse(settings.KART_IMZA_ZORUNLU)
+        self.assertEqual(services.kart_tipi(self.UID), "MUSTERI")
+        self.assertTrue(services.musteri_giris(self.UID, "1234")["token"])
+
+    def test_gecersiz_mac_her_modda_reddedilir_loglanir_ve_anomali_olur(self):
+        sahte = (3, "0" * 16)
+        self.assertEqual(services.kart_tipi(self.UID, sahte), "IMZASIZ")
+        with self.assertRaises(IslemHatasi) as e:
+            services.musteri_giris(self.UID, "1234", sahte)
+        self.assertEqual(e.exception.kod, "imza")
+        self.assertEqual(self.olaylar("kart_imza_gecersiz"), 1)                  # ayni karttan tekrar: 10 dk icinde tek kayit
+        self.assertIn("kart_klon_suphesi", {b["kural"] for b in anomali.tara()})
+        self.assertTrue(zinciri_dogrula()["saglam"])
+        # baska kartin MAC'i bu kartta gecmez
+        with self.assertRaises(IslemHatasi):
+            services.musteri_giris(self.UID, "1234", self.imza("a0a0a002", 4))
+        # imza sorunu PIN deneme sayacini kurcalamaz: kart bloke olmaz, gercek imzayla girilir
+        self.assertFalse(Kart.objects.get(uid=self.UID).bloke)
+        self.assertTrue(services.musteri_giris(self.UID, "1234", self.imza(self.UID, 7))["token"])
+
+    def test_tekrar_oynatma_reddedilir(self):
+        services.musteri_giris(self.UID, "1234", self.imza(self.UID, 1))
+        services.musteri_giris(self.UID, "1234", self.imza(self.UID, 2))
+        with self.assertRaises(IslemHatasi) as e:
+            services.musteri_giris(self.UID, "1234", self.imza(self.UID, 1))      # dinlenmis eski okutma
+        self.assertEqual(e.exception.kod, "imza_tekrar")
+        self.assertEqual(self.olaylar("kart_tekrar_oynatma"), 1)
+        self.assertIn("kart_klon_suphesi", {b["kural"] for b in anomali.tara()})
+
+    def test_ayni_okutma_pencere_icinde_kart_ve_pin_adimlarinda_kabul_edilir(self):
+        imza = self.imza(self.UID, 9)
+        self.assertEqual(services.kart_tipi(self.UID, imza), "MUSTERI")           # KART adimi sayaci ilerletir
+        self.assertTrue(services.musteri_giris(self.UID, "1234", imza)["token"])  # PIN adimi ayni okutma
+        Kart.objects.filter(uid=self.UID).update(imza_zamani=timezone.now() - datetime.timedelta(
+            seconds=settings.KART_IMZA_GECERLILIK_SN + 5))
+        with self.assertRaises(IslemHatasi) as e:                                  # pencere doldu: artik tekrar oynatma
+            services.musteri_giris(self.UID, "1234", imza)
+        self.assertEqual(e.exception.kod, "imza_tekrar")
+
+    @override_settings(KART_IMZA_ZORUNLU=True)
+    def test_zorunlu_modda_imzasiz_kart_reddedilir(self):
+        self.assertEqual(services.kart_tipi(self.UID), "IMZASIZ")
+        with self.assertRaises(IslemHatasi) as e:
+            services.musteri_giris(self.UID, "1234")
+        self.assertEqual(e.exception.kod, "imza")
+        self.assertEqual(self.olaylar("kart_imzasiz"), 1)
+        self.assertEqual(services.kart_tipi(self.UID, self.imza(self.UID, 1)), "MUSTERI")
+        self.assertTrue(services.musteri_giris(self.UID, "1234", self.imza(self.UID, 1))["token"])
+        self.assertIn("kart_klon_suphesi", {b["kural"] for b in anomali.tara()})
+
+    def test_bicim_hatali_imza_reddedilir(self):
+        for sayac, mac in (("abc", "0" * 16), ("5", "kisa"), ("5", ""), ("", "0" * 16)):
+            with self.assertRaises(IslemHatasi, msg=(sayac, mac)):
+                services.imza_coz(sayac, mac)
+        self.assertIsNone(services.imza_coz("", ""))
+        self.assertIsNone(services.imza_coz(None, None))
+
+    def test_yetkili_karti_icin_de_gecerli(self):
+        imza = self.imza(self.PERSONEL, 1)
+        self.assertEqual(services.kart_tipi(self.PERSONEL, imza), "PERSONEL")
+        self.assertEqual(services.personel_dogrula(self.PERSONEL, "1111", imza).kart_uid, self.PERSONEL)
+        self.assertEqual(services.kart_tipi(self.PERSONEL, self.imza(self.PERSONEL, 2)), "PERSONEL")
+        self.assertEqual(services.kart_tipi(self.PERSONEL, self.imza(self.PERSONEL, 1)), "IMZASIZ")   # eski okutma
+        with self.assertRaises(IslemHatasi):
+            services.personel_dogrula(self.PERSONEL, "1111", self.imza(self.PERSONEL, 1))
+        self.assertEqual(services.kart_tipi(self.PERSONEL, (3, "f" * 16)), "IMZASIZ")
+
+    @override_settings(KART_IMZA_ZORUNLU=True)
+    def test_kasa_acma_ve_onay_imza_ister(self):
+        with self.assertRaises(IslemHatasi) as e:
+            services.kasa_acma_baslat("b0b0b003", "3333")
+        self.assertEqual(e.exception.kod, "imza")
+        talep = services.kasa_acma_baslat("b0b0b003", "3333", self.imza("b0b0b003", 1))
+        with self.assertRaises(IslemHatasi) as e:
+            services.onay_karar(talep["talep_id"], "b0b0b001", "1111", "ONAY")                 # imzasiz onay
+        self.assertEqual(e.exception.kod, "imza")
+        sonuc = services.onay_karar(talep["talep_id"], "b0b0b001", "1111", "ONAY", self.imza("b0b0b001", 1))
+        self.assertEqual(sonuc["durum"], "BEKLIYOR")
+        services.onay_karar(talep["talep_id"], "b0b0b002", "2222", "ONAY", self.imza("b0b0b002", 3))
+        with self.assertRaises(IslemHatasi) as e:                                               # eski okutma tekrar
+            services.onay_karar(talep["talep_id"], "b0b0b002", "2222", "ONAY", self.imza("b0b0b002", 2))
+        self.assertEqual(e.exception.kod, "imza_tekrar")
+
+    def test_api_imza_alanlarini_iletir(self):
+        sayac, mac = self.imza(self.UID, 4)
+        self.assertEqual(self.api("/api/kart/", {"uid": self.UID, "sayac": str(sayac), "mac": mac}).json()["tip"], "MUSTERI")
+        self.assertEqual(self.api("/api/kart/", {"uid": self.UID, "sayac": "2", "mac": "0" * 16}).json()["tip"], "IMZASIZ")
+        r = self.api("/api/giris/", {"uid": self.UID, "pin": "1234", "sayac": str(sayac), "mac": mac})
+        self.assertEqual(r.status_code, 200)
+        r = self.api("/api/giris/", {"uid": self.UID, "pin": "1234", "sayac": "5", "mac": "0" * 16})
+        self.assertEqual((r.status_code, r.json()["kod"]), (400, "imza"))
+
+    def test_simulator_kart_dokun_modlari(self):
+        self.assertEqual(simulator.kart_dokun(self.UID, "klon")["imza"], None)
+        self.assertIn("hata", simulator.kart_dokun(self.UID, "ucan-halisi"))
+        self.assertIn("hata", simulator.kart_dokun(self.UID, "tekrar"))            # henuz eski okutma yok
+        d1 = simulator.kart_dokun(self.UID, "gercek")
+        self.assertIn("hata", simulator.kart_dokun(self.UID, "tekrar"))            # tek okutma yetmez
+        d2 = simulator.kart_dokun(self.UID, "gercek")
+        self.assertEqual((d1["sayac"], d2["sayac"]), (1, 2))
+        self.assertEqual(d2["mac"], kart_imzasi.mac_hesapla(self.UID, 2))
+        eski = simulator.kart_dokun(self.UID, "tekrar")
+        self.assertEqual(eski["sayac"], 1)
+        # protokol: gercek okutma gecer, ayni kartin eski okutmasi (klon/tekrar) IMZASIZ
+        self.assertEqual(simulator.isle(f"KART|{self.UID}|{d2['sayac']}|{d2['mac']}", "ATM-01"), "TIP|MUSTERI")
+        self.assertTrue(simulator.isle(f"PIN|{self.UID}|1234|{d2['sayac']}|{d2['mac']}", "ATM-01").startswith("GIRIS|"))
+        self.assertEqual(simulator.isle(f"KART|{self.UID}|{eski['sayac']}|{eski['mac']}", "ATM-01"), "TIP|IMZASIZ")
+        self.assertTrue(simulator.isle(f"PIN|{self.UID}|1234|{eski['sayac']}|{eski['mac']}", "ATM-01").startswith("HATA|"))
+
+    def test_simulator_uc_yalniz_superuser(self):
+        yol = "/simulator/kart-dokun/"
+        govde = json.dumps({"uid": self.UID, "mod": "gercek"})
+        self.assertEqual(Client().post(yol, data=govde, content_type="application/json").status_code, 302)
+        self.client.force_login(get_user_model().objects.get(username="denetci"))
+        self.assertEqual(self.client.post(yol, data=govde, content_type="application/json").status_code, 403)
+        self.client.force_login(self.root)
+        self.assertEqual(self.client.get(yol).status_code, 405)
+        self.assertEqual(self.client.post(yol, data="{bozuk", content_type="application/json").status_code, 400)
+        r = self.client.post(yol, data=govde, content_type="application/json")
+        self.assertEqual((r.status_code, r.json()["sayac"]), (200, 1))
+        with override_settings(SIMULATOR_AKTIF=False):
+            self.assertEqual(self.client.post(yol, data=govde, content_type="application/json").status_code, 404)
+
+    def test_sayfa_verisi_imza_modunu_gosterir(self):
+        self.assertFalse(simulator.sayfa_verisi()["kart_imza_zorunlu"])
+        with override_settings(KART_IMZA_ZORUNLU=True):
+            self.assertTrue(simulator.sayfa_verisi()["kart_imza_zorunlu"])
+
+
 class PinSayaciTestleri(Yardimci, TestCase):
     def setUp(self):
         self.hazirla()

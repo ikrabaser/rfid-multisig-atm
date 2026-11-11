@@ -8,8 +8,11 @@
   Seri protokol (satir satir, alanlar '|' ile ayrilir, 9600 baud):
 
     Arduino -> PC                       PC -> Arduino
-    KART|uid                            TIP|MUSTERI | PERSONEL | BLOKE | BILINMIYOR
+    KART|uid                            TIP|MUSTERI | PERSONEL | BLOKE | BILINMIYOR | IMZASIZ
+                                        (IMZASIZ: imzali kart simulasyonunda klon/tekrar; bu firmware imza uretmez,
+                                         RC522 NTAG 424 DNA'nin AES'ini yapamaz. Simulator KART|uid|sayac|mac yollar)
     PIN|uid|pin                         GIRIS|token|ad        veya HATA|mesaj
+    PINDEGIS|token|eskiPin|yeniPin      PINDEGIS|TAMAM        (menude #: musteri kendi PIN'ini degistirir)
     BAKIYE|token                        BAKIYE|1234.50
     ISLEM|token|C/Y/H|tutar|hedef|anahtar  TAMAM|yeniBakiye|islemId|plan | BEKLE|talepId|gereken | HATA|mesaj   (plan: nakit cekmede banknotlar, orn. 200x8; bu firmware plani kullanmaz)
     KASAAC|uid|pin                      BEKLE|talepId|gereken | HATA|mesaj   (kasa dairesi acma talebi)
@@ -453,14 +456,54 @@ void islemYap(const String &token, char tur) {
   }
 }
 
+// 16x2 ekrana sigmadigi icin menu iki sayfa: 3 sn'de bir degisir; toplam 30 sn tus gelmezse cikis
 char menuSec() {
-  ekran(S("A:Bakiye B:Cek"), S("C:Yatir D:Havale"));
   unsigned long bas = millis();
+  unsigned long sayfaBas = 0;
+  bool sayfa2 = false;
+  bool ciz = true;
   while (millis() - bas < 30000UL) {
+    if (ciz) {
+      if (!sayfa2) ekran(S("A:Bakiye B:Cek"), S("C:Yatir D:Havale"));
+      else ekran(S("#:PIN degistir"), S("*:Cikis"));
+      sayfaBas = millis();
+      ciz = false;
+    }
     char t = keypad.getKey();
-    if (t == 'A' || t == 'B' || t == 'C' || t == 'D' || t == '*') return t;
+    if (t == 'A' || t == 'B' || t == 'C' || t == 'D' || t == '#' || t == '*') return t;
+    if (millis() - sayfaBas >= 3000UL) {
+      sayfa2 = !sayfa2;
+      ciz = true;
+    }
   }
   return '*';  // zaman asimi: cikis
+}
+
+// Eski PIN + yeni PIN iki kez. Sunucu eski PIN'i yeniden dogrular (acik oturum tek basina yetmez).
+void pinDegistir(const String &token) {
+  String eski = pinAl(S("Eski PIN:"));
+  if (eski.length() < 4) { ekran(S("Iptal edildi")); delay(1000); return; }
+  String yeni = pinAl(S("Yeni PIN:"));
+  if (yeni.length() < 4) { ekran(S("Iptal edildi")); delay(1000); return; }
+  String tekrar = pinAl(S("Yeni PIN tekrar:"));
+  if (tekrar.length() < 4) { ekran(S("Iptal edildi")); delay(1000); return; }
+  if (yeni != tekrar) {
+    ekran(S("PIN uyusmadi"), S("Degismedi"));
+    bip(false);
+    delay(2000);
+    eski = ""; yeni = ""; tekrar = "";
+    return;
+  }
+  ekran(S("Kontrol ediliyor"));
+  String c = komut(S("PINDEGIS|") + token + "|" + eski + "|" + yeni);
+  eski = ""; yeni = ""; tekrar = "";
+  if (alan(c, 0) == S("PINDEGIS")) {
+    ekran(S("PIN degisti"), S("Yeni PIN gecerli"));
+    bip(true);
+    delay(2500);
+  } else {
+    hataGoster(c);
+  }
 }
 
 void musteriOturumu(const String &uid) {
@@ -490,6 +533,7 @@ void musteriOturumu(const String &uid) {
     if (sec == 'B') islemYap(token, 'C');
     if (sec == 'C') islemYap(token, 'Y');
     if (sec == 'D') islemYap(token, 'H');
+    if (sec == '#') pinDegistir(token);
   }
   token = "";
   ekran(S("Cikis yapildi"));
@@ -538,6 +582,10 @@ void loop() {
     personelModu(uid);
   } else if (tip == S("BLOKE")) {
     ekran(S("Kart bloke"), S("Subeye basvurun"));
+    bip(false);
+    delay(2500);
+  } else if (tip == S("IMZASIZ")) {
+    ekran(S("Kart reddedildi"), S("Klon suphesi"));
     bip(false);
     delay(2500);
   } else {

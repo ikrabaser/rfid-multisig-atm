@@ -1,0 +1,38 @@
+{% load static %}<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Giriş</title>
+  <link rel="stylesheet" href="{% static 'banka/giris.css' %}">
+</head>
+<body>
+<main>
+  <div class="kart">
+    <h1>RFID Banka + Kasa</h1>
+    <p class="alt">Yönetim, panel ve simülatör girişi</p>
+    {% if oturum %}
+      <p class="bilgi"><strong>{{ user.get_username }}</strong> olarak giriş yaptınız.
+        {% if sonraki %}İstediğiniz sayfa için yetkiniz olmayabilir.{% endif %}</p>
+      <div class="baglar">
+        <a href="/">Panel</a><a href="/admin/">Yönetim</a><a href="{% url 'sifre_degistir' %}">Parola</a>
+        <form method="post" action="{% url 'cikis' %}">{% csrf_token %}<button class="bag" type="submit">Çıkış</button></form>
+      </div>
+      <p class="not">Başka bir hesapla girmek için aşağıdaki formu kullanın.</p>
+    {% endif %}
+    {% if hata %}<p class="hata" role="alert">{{ hata }}</p>{% endif %}
+    <form method="post" autocomplete="on">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ sonraki }}">
+      <label for="kullanici">Kullanıcı adı</label>
+      <input id="kullanici" type="text" name="username" value="{{ kullanici }}" autocomplete="username" autofocus required>
+      <label for="parola">Parola</label>
+      <input id="parola" type="password" name="password" autocomplete="current-password" required>
+      <button class="ana" type="submit">Giriş yap</button>
+    </form>
+    <p class="not">Çok sayıda hatalı denemede hesap geçici olarak kilitlenir. Boşta kalan oturum otomatik kapanır.</p>
+  </div>
+</main>
+</body>
+</html>

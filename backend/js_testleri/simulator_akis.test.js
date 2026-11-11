@@ -59,12 +59,21 @@ function sahteSunucu() {
     if (p[0] === "ISLEM" && p[5] && s.anahtarlar[p[5]]) return s.anahtarlar[p[5]];   // idempotency: ayni anahtar, ayni sonuc
     switch (p[0]) {
       case "KART":
+        if (p[3] === "kotu") return "TIP|IMZASIZ";                                  // imzali kart: sayac|mac (kotu = klon)
         if (musteriler[p[1]]) return musteriler[p[1]].bloke ? "TIP|BLOKE" : "TIP|MUSTERI";
         return yetkililer[p[1]] ? "TIP|PERSONEL" : "TIP|BILINMIYOR";
       case "PIN": {
         const m = musteriler[p[1]];
+        if (p[4] === "kotu") return hata("Kart dogrulanamadi (klon suphesi)");
         if (!m || m.pin !== p[2]) return hata("Yanlis PIN, kalan hak: 2");
         return `GIRIS|tok123456|${m.ad}`;
+      }
+      case "PINDEGIS": {
+        const m = musteriler.a0a0a001;
+        if (m.pin !== p[2]) return hata("Yanlis PIN, kalan hak: 2");
+        if (p[3] === p[2]) return hata("Yeni PIN eskisiyle ayni olamaz");
+        m.pin = p[3];
+        return "PINDEGIS|TAMAM";
       }
       case "BAKIYE":
         return `BAKIYE|${s.bakiye.toFixed(2)}`;
@@ -298,6 +307,124 @@ test("yanlis PIN hata ekrani ve basa donus; iptal (*) ve bilinmeyen/bloke kart",
   await t.ekranda("Karti okutun");
   await t.kart("a0a0a009");
   await t.ekranda("Kart bloke", "Subeye basvurun");
+});
+
+test("menu iki sayfa: bir sure sonra #:PIN degistir gorunur", async () => {
+  const t = kur();
+  await musteriGiris(t);
+  await t.ekranda("#:PIN degistir", "*:Cikis");
+  await t.ekranda("A:Bakiye B:Cek", "C:Yatir D:Havale");              // sayfalar doner
+});
+
+test("PIN degistirme: eski PIN + yeni PIN iki kez; sonraki girisde yeni PIN gecerli", async () => {
+  const t = kur();
+  await musteriGiris(t);
+  await t.tuslar("#");
+  await t.ekranda("Eski PIN:");
+  await t.tuslar("1234");
+  await t.ekranda("Yeni PIN:");
+  await t.tuslar("7391");
+  await t.ekranda("Yeni PIN tekrar:");
+  await t.tuslar("7391");
+  await t.ekranda("PIN degisti", "Yeni PIN gecerli");
+  assert.ok(t.sunucu.komutlar.includes("PINDEGIS|tok123456|1234|7391"));
+  await t.ekranda("A:Bakiye B:Cek");
+  await t.tuslar("*");
+  await t.ekranda("Cikis yapildi");
+  await t.ekranda("Karti okutun");
+  await t.kart("a0a0a001");
+  await t.ekranda("PIN girin:");
+  await t.tuslar("1234");                                             // eski PIN artik gecersiz
+  await t.ekranda("Yanlis PIN, kala");
+  await t.ekranda("Karti okutun");
+  await t.kart("a0a0a001");
+  await t.ekranda("PIN girin:");
+  await t.tuslar("7391");
+  await t.ekranda("Merhaba", "Ali Yilmaz");
+});
+
+test("PIN degistirme: tekrar uyusmazsa sunucuya gitmez; yanlis eski PIN ve iptal", async () => {
+  const t = kur();
+  await musteriGiris(t);
+  await t.tuslar("#");
+  await t.ekranda("Eski PIN:");
+  await t.tuslar("1234");
+  await t.ekranda("Yeni PIN:");
+  await t.tuslar("7391");
+  await t.ekranda("Yeni PIN tekrar:");
+  await t.tuslar("7392");
+  await t.ekranda("PIN uyusmadi", "Degismedi");
+  assert.ok(!t.sunucu.komutlar.some((k) => k.startsWith("PINDEGIS|")));
+  await t.ekranda("A:Bakiye B:Cek");
+  await t.tuslar("#");
+  await t.ekranda("Eski PIN:");
+  await t.tuslar("0000");
+  await t.ekranda("Yeni PIN:");
+  await t.tuslar("7391");
+  await t.ekranda("Yeni PIN tekrar:");
+  await t.tuslar("7391");
+  await t.ekranda("Yanlis PIN, kala");                                // sunucu reddetti, hata ekrani
+  await t.ekranda("A:Bakiye B:Cek");
+  await t.tuslar("#");
+  await t.ekranda("Eski PIN:");
+  await t.tuslar("*");
+  await t.ekranda("Iptal edildi");
+});
+
+test("imzali kart: sayac|mac KART ve PIN komutlarina eklenir, imzasiz kartta eskisi gibi", async () => {
+  const t = kur();
+  const mac = "0123456789abcdef";
+  await t.ekranda("Karti okutun");
+  await t.gonder({ tur: "kart", uid: "a0a0a001", sayac: 7, mac });
+  await t.ekranda("PIN girin:");
+  await t.tuslar("1234");
+  await t.ekranda("Merhaba", "Ali Yilmaz");
+  assert.ok(t.sunucu.komutlar.includes(`KART|a0a0a001|7|${mac}`));
+  assert.ok(t.sunucu.komutlar.includes(`PIN|a0a0a001|1234|7|${mac}`));
+  await t.ekranda("A:Bakiye B:Cek");
+  await t.tuslar("*");                                // oturumu kapat
+  await t.ekranda("Karti okutun");
+  await t.kart("a0a0a001");                           // imzasiz: alanlar yok
+  await t.ekranda("PIN girin:");
+  assert.ok(t.sunucu.komutlar.includes("KART|a0a0a001"));
+});
+
+test("klonlanmis/tekrar oynatilmis kart: Kart imzasi gecersiz, PIN istenmez", async () => {
+  const t = kur();
+  await t.ekranda("Karti okutun");
+  await t.gonder({ tur: "kart", uid: "a0a0a001", sayac: 3, mac: "kotu" });
+  await t.ekranda("Kart reddedildi", "Klon suphesi");
+  await t.ekranda("Karti okutun");
+  assert.ok(!t.sunucu.komutlar.some((k) => k.startsWith("PIN|")));
+  assert.deepEqual(t.olay.bip.slice(-1), [false]);
+});
+
+test("imzali yetkili karti: ONAY komutuna imza eklenir", async () => {
+  const t = kur();
+  await musteriGiris(t);
+  await t.tuslar("B");
+  await t.ekranda("Tutar");
+  await t.tuslar("10000#");
+  await t.ekranda("Onay 0/2", "Yetkili kart oku");
+  const mac = "fedcba9876543210";
+  await t.gonder({ tur: "kart", uid: "b0b0b001", sayac: 4, mac });
+  await t.ekranda("A:Onayla B:Red", "*:Iptal");
+  await t.tuslar("A");
+  await t.ekranda("Yetkili PIN:");
+  await t.tuslar("1111");
+  await t.ekranda("Oyunuz alindi");
+  assert.ok(t.sunucu.komutlar.includes(`KART|b0b0b001|4|${mac}`));
+  assert.ok(t.sunucu.komutlar.some((k) => k === `ONAY|1|b0b0b001|1111|E|4|${mac}`),
+    t.sunucu.komutlar.filter((k) => k.startsWith("ONAY")).join(";"));
+  await t.ekranda("Onay 1/2");
+  await t.kart("b0b0b002");
+  await t.ekranda("A:Onayla B:Red");
+  await t.tuslar("A");
+  await t.ekranda("Yetkili PIN:");
+  await t.tuslar("2222");
+  await t.ekranda("Islem onaylandi", "Tamamlandi");
+  await t.ekranda("Parayi alin");
+  await t.tuslar("A");
 });
 
 test("onayli cekim: yetkili kartlari okutulur, oylar sayilir, sonra para verilir", async () => {

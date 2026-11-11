@@ -1,0 +1,38 @@
+{% load static %}<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Parola değiştir</title>
+  <link rel="stylesheet" href="{% static 'banka/giris.css' %}">
+</head>
+<body>
+<main>
+  <div class="kart">
+    <h1>Parola değiştir</h1>
+    <p class="alt">{{ user.get_username }}</p>
+    {% if basarili %}<p class="tamam" role="status">Parolanız değiştirildi. Diğer açık oturumlarınız kapandı.</p>{% endif %}
+    {% if form.non_field_errors %}<p class="hata" role="alert">{{ form.non_field_errors.0 }}</p>{% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <label for="id_old_password">Mevcut parola</label>
+      <input id="id_old_password" type="password" name="old_password" autocomplete="current-password" required autofocus>
+      {% for h in form.old_password.errors %}<p class="alanhata">{{ h }}</p>{% endfor %}
+      <label for="id_new_password1">Yeni parola</label>
+      <input id="id_new_password1" type="password" name="new_password1" autocomplete="new-password" required>
+      {% for h in form.new_password1.errors %}<p class="alanhata">{{ h }}</p>{% endfor %}
+      <label for="id_new_password2">Yeni parola (tekrar)</label>
+      <input id="id_new_password2" type="password" name="new_password2" autocomplete="new-password" required>
+      {% for h in form.new_password2.errors %}<p class="alanhata">{{ h }}</p>{% endfor %}
+      <ul class="kural">
+        <li>En az 10 karakter; yalnızca rakamlardan oluşmasın.</li>
+        <li>Kullanıcı adınıza benzemesin, yaygın bir parola olmasın.</li>
+      </ul>
+      <button class="ana" type="submit">Değiştir</button>
+    </form>
+    <div class="baglar"><a href="/">Panel</a><a href="/admin/">Yönetim</a></div>
+  </div>
+</main>
+</body>
+</html>

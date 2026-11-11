@@ -16,6 +16,9 @@ EKRANLAR = [
     ("Sonuc", "Islem onaylandi", "Tamamlandi"),
     ("Kasa acma talebi", "Talep yok", "A:Kasa ac *:Cik"),
     ("Kasa acildi (role)", "Kasa acildi", "5 sn acik"),
+    ("Menu, 2. sayfa (3 sn'de bir)", "#:PIN degistir", "*:Cikis"),
+    ("PIN degistirme", "Yeni PIN tekrar:", "PIN: ****"),
+    ("PIN degisti", "PIN degisti", "Yeni PIN gecerli"),
     # --- para dagitici (simulatorde oynatilir; Arduino'da dagitici donanimi yok)
     ("Para sayiliyor", "Para sayiliyor", "2000 TL"),
     ("Parayi alin", "Parayi alin", "A: Aldim"),
@@ -25,6 +28,7 @@ EKRANLAR = [
     ("Baglanti koptu", "Baglanti koptu", "Sonuc belirsiz"),
     ("Para alinmadi", "Para alinmadi", "Islem iptal"),
     ("Kart bloke", "Kart bloke", "Subeye basvurun"),
+    ("Klon / tekrar oynatma", "Kart reddedildi", "Klon suphesi"),
 ]
 SOL, SAG, ILK_Y, ADIM = 28, 344, 72, 142
 YAZI = 'font-family="Segoe UI, Arial, sans-serif"'

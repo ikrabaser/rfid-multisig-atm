@@ -12,6 +12,7 @@
   <nav>
     <a href="/">Panel</a>
     <a href="/admin/">Yönetim</a>
+    <form method="post" action="{% url 'cikis' %}" style="display:inline">{% csrf_token %}<button type="submit" class="kucuk">Çıkış</button></form>
   </nav>
   <div class="araclar">
     <label>Terminal <select id="terminal"></select></label>
@@ -71,6 +72,13 @@
     <div class="kart-liste" id="musteri-kartlari"></div>
     <h2>Yetkili kartları</h2>
     <div class="kart-liste" id="yetkili-kartlari"></div>
+    <label class="ariza kart-modu">Kart okutma türü (imzalı kart simülasyonu)
+      <select id="kart-modu">
+        <option value="gercek">Gerçek imzalı kart</option>
+        <option value="klon">Klon: UID kopyalanmış, imza yok</option>
+        <option value="tekrar">Tekrar oynatma: eski okutmanın imzası</option>
+      </select>
+    </label>
     <p class="not" id="ipucu-notu" hidden>Demo PIN'leri yalnızca geliştirme modunda (DEBUG) ve PIN değişmediği sürece gösterilir.</p>
 
     <div class="yardim">

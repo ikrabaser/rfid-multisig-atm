@@ -219,9 +219,25 @@ function ATMSimulatoru(arayuz) {
     }
   }
 
+  // Imzali kart: okutma olayi {sayac, mac} tasiyabilir; her kart/PIN/onay komutunun sonuna |sayac|mac eklenir.
+  // Imzasiz kartta (RC522 gibi) bos kalir ve protokol eskisi gibidir.
+  const imzaEki = (olay) => (olay && olay.mac ? `|${olay.sayac}|${olay.mac}` : "");
+
+  async function imzasizGoster() {
+    ekran("Kart reddedildi", "Klon suphesi");
+    bip(false);
+    await bekle(2500);
+  }
+
   // ------------------------------------------------------------------ yetkili (personel)
-  async function personelKarar(talepId, uid) {
-    const c = await komut(`KART|${uid}`);
+  async function personelKarar(talepId, olay) {
+    const uid = olay.uid;
+    const imza = imzaEki(olay);
+    const c = await komut(`KART|${uid}${imza}`);
+    if (alan(c, 1) === "IMZASIZ") {
+      await imzasizGoster();
+      return;
+    }
     if (alan(c, 1) !== "PERSONEL") {
       ekran("Yetkili karti", "degil");
       bip(false);
@@ -236,7 +252,7 @@ function ATMSimulatoru(arayuz) {
     if (pin.length < 4) return;
 
     ekran("Kontrol ediliyor");
-    const r = await komut(`ONAY|${talepId}|${uid}|${pin}|${t === "A" ? "E" : "H"}`);
+    const r = await komut(`ONAY|${talepId}|${uid}|${pin}|${t === "A" ? "E" : "H"}${imza}`);
     if (alan(r, 0) === "ONAY") {
       ekran("Oyunuz alindi", `${alan(r, 1)}/${alan(r, 2)}`);
       bip(true);
@@ -247,7 +263,8 @@ function ATMSimulatoru(arayuz) {
   }
 
   // Bekleyen talep yokken yetkili, kasa dairesini acmak icin talep baslatabilir
-  async function kasaAcmaTalebi(uid) {
+  async function kasaAcmaTalebi(olay) {
+    const uid = olay.uid;
     ekran("Talep yok", "A:Kasa ac *:Cik");
     const t = await tusBekle(8000, "A*");
     if (t !== "A") return;
@@ -256,7 +273,7 @@ function ATMSimulatoru(arayuz) {
     if (pin.length < 4) return;
 
     ekran("Kontrol ediliyor");
-    const c = await komut(`KASAAC|${uid}|${pin}`);
+    const c = await komut(`KASAAC|${uid}|${pin}${imzaEki(olay)}`);
     if (alan(c, 0) === "BEKLE") {
       await onayBekle(alan(c, 1), "Kasa acma");
     } else {
@@ -264,20 +281,20 @@ function ATMSimulatoru(arayuz) {
     }
   }
 
-  async function personelModu(uid) {
+  async function personelModu(olay) {
     const c = await komut("BEKLEYEN");
     if (alan(c, 0) !== "BEKLEYEN") {
       await hataGoster(c);
       return;
     }
     if (alan(c, 1) === "YOK") {
-      await kasaAcmaTalebi(uid);
+      await kasaAcmaTalebi(olay);
       return;
     }
     const talepId = alan(c, 1);
     ekran("Talep #" + talepId, alan(c, 2) + " " + alan(c, 3));
     await bekle(2000);
-    await personelKarar(talepId, uid);
+    await personelKarar(talepId, olay);
   }
 
   // ------------------------------------------------------------------ musteri
@@ -331,7 +348,7 @@ function ATMSimulatoru(arayuz) {
       }
       const olay = await girdiBekleHam(ms(100));
       if (olay && olay.tur === "kart") {
-        await personelKarar(talepId, olay.uid);
+        await personelKarar(talepId, olay);
         sonSorgu = 0; // ekrani hemen guncelle
       }
     }
@@ -389,13 +406,50 @@ function ATMSimulatoru(arayuz) {
     }
   }
 
+  // 16x2 ekrana sigmadigi icin menu iki sayfa: 3 sn'de bir degisir; toplam 30 sn tus gelmezse cikis
   async function menuSec() {
-    ekran("A:Bakiye B:Cek", "C:Yatir D:Havale");
-    const t = await tusBekle(30000, "ABCD*");
-    return t === null ? "*" : t; // zaman asimi: cikis
+    const bitis = Date.now() + ms(30000);
+    for (let sayfa = 0; Date.now() < bitis; sayfa ^= 1) {
+      if (sayfa === 0) ekran("A:Bakiye B:Cek", "C:Yatir D:Havale");
+      else ekran("#:PIN degistir", "*:Cikis");
+      const t = await tusBekleBitis(Math.min(bitis, Date.now() + ms(3000)), "ABCD#*");
+      if (t !== null) return t;
+    }
+    return "*";
   }
 
-  async function musteriOturumu(uid) {
+  // Eski PIN + yeni PIN iki kez. Sunucu eski PIN'i yeniden dogrular (acik oturum tek basina yetmez).
+  async function pinDegistir(token) {
+    const eski = await pinAl("Eski PIN:");
+    if (eski.length < 4) return iptalGoster();
+    const yeni = await pinAl("Yeni PIN:");
+    if (yeni.length < 4) return iptalGoster();
+    const tekrar = await pinAl("Yeni PIN tekrar:");
+    if (tekrar.length < 4) return iptalGoster();
+    if (yeni !== tekrar) {
+      ekran("PIN uyusmadi", "Degismedi");
+      bip(false);
+      await bekle(2000);
+      return;
+    }
+    ekran("Kontrol ediliyor");
+    const c = await komut(`PINDEGIS|${token}|${eski}|${yeni}`);
+    if (alan(c, 0) === "PINDEGIS") {
+      ekran("PIN degisti", "Yeni PIN gecerli");
+      bip(true);
+      await bekle(2500);
+    } else {
+      await hataGoster(c);
+    }
+  }
+
+  async function iptalGoster() {
+    ekran("Iptal edildi");
+    await bekle(1000);
+  }
+
+  async function musteriOturumu(olay) {
+    const uid = olay.uid;
     const pin = await pinAl("PIN girin:");
     if (pin.length < 4) {
       ekran("Iptal edildi");
@@ -403,7 +457,7 @@ function ATMSimulatoru(arayuz) {
       return;
     }
     ekran("Kontrol ediliyor");
-    const c = await komut(`PIN|${uid}|${pin}`);
+    const c = await komut(`PIN|${uid}|${pin}${imzaEki(olay)}`);
     if (alan(c, 0) !== "GIRIS") {
       await hataGoster(c);
       return;
@@ -420,6 +474,7 @@ function ATMSimulatoru(arayuz) {
       if (sec === "B") await islemYap(token, "C");
       if (sec === "C") await islemYap(token, "Y");
       if (sec === "D") await islemYap(token, "H");
+      if (sec === "#") await pinDegistir(token);
     }
     ekran("Cikis yapildi");
     await bekle(1000);
@@ -435,16 +490,18 @@ function ATMSimulatoru(arayuz) {
       } while (!olay || olay.tur !== "kart");
 
       ekran("Kart okundu", "Bekleyin...");
-      const c = await komut(`KART|${olay.uid}`);
+      const c = await komut(`KART|${olay.uid}${imzaEki(olay)}`);
       if (alan(c, 0) !== "TIP") {
         await hataGoster(c);
         continue;
       }
       const tip = alan(c, 1);
       if (tip === "MUSTERI") {
-        await musteriOturumu(olay.uid);
+        await musteriOturumu(olay);
       } else if (tip === "PERSONEL") {
-        await personelModu(olay.uid);
+        await personelModu(olay);
+      } else if (tip === "IMZASIZ") {
+        await imzasizGoster();
       } else if (tip === "BLOKE") {
         ekran("Kart bloke", "Subeye basvurun");
         bip(false);
@@ -535,6 +592,11 @@ function ATMSimulatoru(arayuz) {
     const k = p[0];
     if (yon === "→") {
       if (k === "PIN" && p.length > 2) p[2] = "****";
+      if (k === "PINDEGIS") {
+        if (p[1]) p[1] = p[1].slice(0, 6) + "…";
+        if (p.length > 2) p[2] = "****";
+        if (p.length > 3) p[3] = "****";
+      }
       if (k === "ONAY" && p.length > 3) p[3] = "****";
       if (k === "KASAAC" && p.length > 2) p[2] = "****";
       if ((k === "BAKIYE" || k === "ISLEM") && p[1]) p[1] = p[1].slice(0, 6) + "…";
@@ -665,10 +727,32 @@ function ATMSimulatoru(arayuz) {
   });
 
   // kartlar
-  function kartOkut(uid, eleman) {
+  // Kartin "cipi": secili okutma turune gore sunucudan imza alinir (gercek kart / klon / tekrar oynatma)
+  async function kartOkut(uid, eleman) {
     eleman.classList.add("okutuluyor");
     setTimeout(() => eleman.classList.remove("okutuluyor"), 700);
-    if (!sim.girdiVer({ tur: "kart", uid })) durumMesaji("Terminal meşgul: kart yok sayıldı");
+    const olay = { tur: "kart", uid };
+    try {
+      const r = await fetch(veri.kart_dokun_url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
+        body: JSON.stringify({ uid, mod: $("kart-modu").value }),
+      });
+      const j = await r.json();
+      if (j.hata) {
+        durumMesaji(j.hata);
+        return;
+      }
+      if (j.mac) {
+        olay.sayac = j.sayac;
+        olay.mac = j.mac;
+      }
+    } catch (e) {
+      durumMesaji("Kart çipi simülasyonuna ulaşılamadı");
+      return;
+    }
+    if (!sim.girdiVer(olay)) durumMesaji("Terminal meşgul: kart yok sayıldı");
   }
   function kartCiz(kap, liste, tur) {
     kap.textContent = "";
@@ -721,6 +805,8 @@ function ATMSimulatoru(arayuz) {
     const rozetler = el("div", "rozetler");
     [["Politika", v.durumlar.politika], ["Yetkili", v.durumlar.personel], ["Kart", v.durumlar.kart]].forEach(([ad, d]) =>
       rozetler.appendChild(el("span", "rozet " + DURUM_SINIF[d], `${ad}: ${d === "tutarli" ? "tutarlı" : d === "tutarsiz" ? "TUTARSIZ" : "başlangıç yok"}`)));
+    rozetler.appendChild(el("span", "rozet " + (v.kart_imza_zorunlu ? "ok" : "uyari"),
+      `Kart imzası: ${v.kart_imza_zorunlu ? "zorunlu" : "kapalı"}`));
     rozetler.appendChild(el("span", "rozet " + (v.anomali_sayisi ? "uyari" : "ok"), `Anomali: ${v.anomali_sayisi}`));
     if (sonZincir) rozetler.appendChild(el("span", "rozet " + (sonZincir.saglam ? "ok" : "kotu"),
       sonZincir.saglam ? `Zincir sağlam (${sonZincir.kayit_sayisi})` : "ZİNCİR BOZUK"));

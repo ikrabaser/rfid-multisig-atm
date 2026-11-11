@@ -89,10 +89,9 @@ def _onay(anahtar):
 
 def _rastgele_pin():
     """Tahmin edilmesi kolay PIN'lerden (aynı rakam, ardışık) kaçınır."""
-    ardisik = {"0123", "1234", "2345", "3456", "4567", "5678", "6789", "9876", "8765", "7654", "6543", "5432", "4321", "3210"}
     while True:
         pin = f"{secrets.randbelow(10000):04d}"
-        if len(set(pin)) > 1 and pin not in ardisik:
+        if not services.pin_zayif_mi(pin):
             return pin
 
 

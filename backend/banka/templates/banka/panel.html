@@ -20,7 +20,8 @@
 </head>
 <body>
   <h1>Banka ve Kasa Paneli</h1>
-  <p class="not">Sayfa 5 saniyede bir yenilenir. <a href="/admin/">Yönetim paneli</a></p>
+  <div class="not">Sayfa 5 saniyede bir yenilenir. <a href="/admin/">Yönetim paneli</a> · {{ user.get_username }} · <a href="{% url 'sifre_degistir' %}">Parola</a> ·
+    <form method="post" action="{% url 'cikis' %}" style="display:inline">{% csrf_token %}<button type="submit" style="background:none;border:0;padding:0;color:#06c;cursor:pointer;font:inherit">Çıkış</button></form></div>
 
   <h2>Denetim zinciri</h2>
   {% if zincir.saglam %}

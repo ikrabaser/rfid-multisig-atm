@@ -40,6 +40,9 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Maker-checker**: politika değişikliği 2 farklı kullanıcının onayını ister, korkuluklar, onaysız değişiklik tespiti | `politika_degisikligi.py` | admin → Politika değişikliği talepleri |
 | **RBAC**: rol → yetki matrisi, admin grupları koddan, görev ayrımı denetimi | `rbac.py` | `python manage.py rbac_denetimi` |
 | **Hassas yönetim işlemleri için maker-checker** (yetkili ekleme, rol, PIN, bloke, limit, terminal) | `yonetim_talepleri.py` | admin → Yönetim talepleri |
+| **Web girişi**: hatalı deneme sınırı (kullanıcı ve IP başına, hash zincirinden sayılır), boşta oturum sonu, parola değiştirme, `/admin/login/` yan kapısı yok | `webgiris.py` | `/giris/` |
+| **Müşteri PIN'ini terminalde kendisi değiştirir** (menüde `#`): açık oturum + eski PIN yeniden doğrulanır, yeni PIN iki kez girilir, mühür yenilenir, müşteriye SMS ile haber verilir | `services.pin_degistir` | simülatör: giriş → `#` |
+| **İmzalı kart (simülasyon)**: NTAG 424 DNA mantığı; kartın çipi her okutmada artan sayaç + MAC üretir, sunucu doğrular, klon ve tekrar oynatma reddedilir | `kart_imzasi.py` | simülatör: "Kart okutma türü" seçicisi |
 | **Müşteri kartı ve PIN'i maker-checker'da**: kart tanımlama, PIN sıfırlama, telefon; PIN müşterinin telefonuna gider | `yonetim_talepleri.py` | admin → Yönetim talepleri |
 | **Kart bütünlüğü**: satır başına HMAC mührü, sahte/değiştirilmiş kart yalnızca kendisi kapanır, ölçeklenir | `kart_butunlugu.py` | `python manage.py kart_goruntu_al` |
 | **Bloke bütünlüğü**: veritabanından bloke kaldırma/ekleme log'dan türetilen beklenen durumla yakalanır | `bloke_butunlugu.py` | `python manage.py gun_sonu_mutabakat` |
@@ -177,7 +180,7 @@ Arduino pini kilidi süremez. 5V röle modülü araya girer, kilit **ayrı 12V a
 
 ## Terminal ekranları
 
-16x2 LCD'de görünen ekranlar. 1-10, 12, 17 ve 18 numaralı ekranlar `atm_terminal.ino` ile simülatörde aynıdır; 11 ve 13-16 numaralı
+16x2 LCD'de görünen ekranlar. 1-13, 15 ve 20-22 numaralı ekranlar `atm_terminal.ino` ile simülatörde aynıdır (11-13: PIN değiştirme, 22: imzalı kart reddi); 14 ve 16-19 numaralı
 para dağıtıcı ekranları (sayım, sıkışma, eksik verme, bağlantı kopması) yalnızca simülatörde oynatılır, çünkü Arduino'da dağıtıcı donanımı yoktur.
 Görsel `python docs/lcd_uret.py` ile üretilir:
 
@@ -620,6 +623,27 @@ rolün isteği `rol_yetersiz` ile reddedilir ve `rbac_reddi` olarak loga yazıl�
   `python manage.py rbac_denetimi` bunları denetler, ihlalde çıkış kodu 1 verir; superuser sayısını da uyarı olarak yazar
   (superuser her izne sahiptir, günlük işlerde kullanma).
 
+## Web girişi (Panel, Yönetim, simülatör)
+
+Django'nun hazır admin girişi parola tahminine sınır koymaz; bu yüzden kendi giriş sayfamız vardır (`/giris/`,
+`banka/webgiris.py`). `/admin/login/` da buraya yönlendirilir, yani kilidi aşan bir yan kapı yoktur.
+
+- **Hatalı deneme sınırı:** kullanıcı adı başına `GIRIS_MAKS_HATA` (5) ve IP başına `GIRIS_MAKS_HATA_IP` (20) hata,
+  `GIRIS_KILIT_SN` (10 dk) içinde. Sınır aşılınca **doğru parola bile reddedilir** (HTTP 429). Başarılı giriş o kullanıcının
+  sayacını sıfırlar. IP sınırı, farklı adlarla yapılan taramayı keser.
+- **Sayaç hash zincirinden okunur:** hatalı/başarılı giriş, çıkış ve parola değişikliği zincire yazılır (parola asla
+  yazılmaz). Sayaç süreçler arasında ortaktır, yeniden başlatmayla sıfırlanmaz ve silinemez. Kilitliyken gelen istekler
+  zincire **yazılmaz**, saldırgan logu şişiremez.
+- **Kullanıcı adı sızmaz:** olmayan kullanıcı ve yanlış parola aynı mesajı verir.
+- **Oturum:** boşta `OTURUM_ZAMAN_ASIMI_SN` (30 dk) sonra kapanır, tarayıcı kapanınca düşer. Çıkış yalnızca POST.
+  Girişten sonra oturum anahtarı yenilenir. `next` yalnızca bu siteye yönlendirir (açık yönlendirme yok). Yetkisi olmayan
+  kullanıcı yönlendirme döngüsüne girmez, 403 alır.
+- **Parola değiştirme** (`/sifre-degistir/`): en az 10 karakter, yalnızca rakam olmaz, yaygın parola olmaz, kullanıcı
+  adına benzemez. Değişince bu oturum açık kalır, diğerleri düşer.
+- **Dürüst sınırlar:** IP olarak yalnızca `REMOTE_ADDR` kullanılır; ters vekilin arkasında bu vekilin adresi olur ve IP
+  sınırı herkesi birden etkiler (vekil kullanılacaksa uyarlanmalı). Kilit, kullanıcı adını bilen birinin o kullanıcıyı
+  10 dakikalığına dışarıda bırakmasına izin verir (klasik takas). İkinci faktör yoktur.
+
 ## Hassas yönetim işlemleri (maker-checker)
 
 N-of-M onayın güvencesi, onaylayanların kim olduğuna bağlıdır. Yönetici tek başına sahte bir yetkili ekleyebilir, PIN'ini
@@ -665,6 +689,12 @@ Yetkililer korunuyordu ama bir yönetici admin'den müşteriye bilinen PIN'li bi
 - **Telefon, hesap ele geçirmenin kapısıdır, o yüzden kendisi de maker-checker'dadır:** yeni numara onaylayıcıya
   **tam**, eski numara maskeli gösterilir (müşteriyle doğrulansın diye). PIN talebi açıldıktan sonra numara
   değişirse talep **uygulanmaz** (talepte telefonun özeti saklanır), yani PIN yeni numaraya sızdırılamaz.
+- **Müşteri kendi PIN'ini değiştirebilir** (terminalde menüde `#`): açık oturum yetmez, **eski PIN yeniden sorulur** (açık
+  bırakılmış terminalden PIN çalınamasın); yeni PIN iki kez girilir, eskisinden farklı ve `0000`/`1234` gibi kolay
+  tahmin edilir olmamalıdır. Yanlış eski PIN normal sayaca işler (3'te bloke). Değişiklik **onaylı sayılır**: mühür ve
+  kart özeti yenilenir; kart kayıtları zaten tutarsızsa reddedilir (onaysız müdahale bu yolla meşrulaşmasın).
+  Müşterinin telefonuna "PIN'iniz değiştirildi" SMS'i gider (kendisi yapmadıysa fark etsin; SMS PIN içermez). PIN hiçbir
+  yere yazılmaz. Dürüst sınır: kart ve eski PIN'i bilen biri PIN'i değiştirebilir; bu, gerçek ATM'lerdeki durumla aynıdır.
 - **Kart bütünlüğü (kart başına, ölçeklenebilir):** Her kartın satırında bir **mühür** vardır:
   `HMAC(KART_MAC_ANAHTARI, uid | hesap no | PIN hash özeti)`. Mührü yalnızca onaylı işlemler (kart tanımlama, PIN sıfırlama) ve
   ilk kurulum üretir; anahtar **veritabanında değildir** (`KART_MAC_ANAHTARI` ortam değişkeni, `LOG_HMAC_ANAHTARI` gibi).
@@ -680,6 +710,60 @@ Yetkililer korunuyordu ama bir yönetici admin'den müşteriye bilinen PIN'li bi
   tutarsızken meşrulaştırmayı reddeder, `--zorla` ister ve denetim kaydına işler.
 - **Yükseltme:** Eski (satır listeli) görüntü başlangıç sayılmaz; `seed_demo` ya da `kart_goruntu_al` çalışana kadar kartlar
   zorlanmaz, yani yükseltme müşterileri kilitlemez.
+
+## İmzalı kart (klonlanamayan kimlik, simülasyon)
+
+**Sorun:** RC522 + MIFARE Classic kartta yalnızca UID okunur ve UID kopyalanabilir. UID'yi kopyalayan biri kartın "kendisi" gibi
+davranır; PIN'i de bilirse (omuz sörfü) parayı çeker, yetkili kartıysa onay verir.
+
+**Çözüm (NTAG 424 DNA'nın "güvenli dinamik mesaj" mantığı):** kartın çipi her okutmada artan bir **sayaç** tutar ve `(UID, sayaç)`
+üzerinden çipin içindeki gizli anahtarla bir **MAC** üretir. Anahtar çipten çıkmaz; UID'yi kopyalamak anahtarı kopyalamaz.
+Sunucu aynı anahtarı bilir, MAC'i doğrular ve sayacın **öncekinden büyük** olmasını ister.
+
+```
+cip_anahtari = HMAC(KART_IMZA_ANAHTARI, "banka.kart-cipi|" + uid)     # çipin içindeki anahtar (veritabanında YOK)
+mac          = HMAC(cip_anahtari, uid + "|" + sayac)[:16 hex]
+```
+
+Sunucu yalnızca `imza_sayaci` ve `imza_zamani` tutar (`Kart`, `Personel`). Sayaç ilerletme **atomiktir** (karşılaştır-ve-yaz):
+aynı imzayı iki istek aynı anda sunarsa yalnızca biri kazanır. İmza; müşteri girişinde (`KART`, `PIN`) ve yetkili adımlarında
+(`KART`, `ONAY`, `KASAAC`) doğrulanır ve **PIN denemesinden önce** bakılır, yani klon bir kart PIN deneme sayacını kurcalayamaz.
+
+| Durum | Sonuç |
+|---|---|
+| Geçerli MAC, sayaç ilerledi | kabul |
+| Aynı okutma (aynı sayaç) `KART_IMZA_GECERLILIK_SN` (90 sn) içinde yeniden sunuldu | kabul (aynı akışın KART → PIN → ONAY adımları) |
+| MAC yanlış (klon, başka kartın MAC'i) | ret, `kart_imza_gecersiz` |
+| Eski sayaç ya da pencere dışında aynı sayaç (dinlenmiş okutmanın tekrarı) | ret, `kart_tekrar_oynatma` |
+| İmza yok, `KART_IMZA_ZORUNLU=1` | ret, `kart_imzasiz` |
+| İmza yok, `KART_IMZA_ZORUNLU` kapalı (varsayılan) | kabul (RC522 imza üretemez) |
+
+Her ihlal hash zincirine yazılır (aynı karttan aynı ihlal 10 dakikada bir) ve anomali taraması **`kart_klon_suphesi`** (yüksek)
+bulgusu üretir. İmza GÖNDERİLMİŞ ve geçersizse mod ne olursa olsun reddedilir.
+
+**Simülatörde deneme:** sol paneldeki **"Kart okutma türü"** seçicisi çipi oynatır:
+
+- *Gerçek kart:* çip sayacı artırır ve imza üretir (`SimulatorKartCipi`, yalnızca simülasyon).
+- *Klon (yalnız UID):* UID kopyalanmış, anahtar yok, imza gönderilmez. `KART_IMZA_ZORUNLU=1` iken **Kart reddedildi / Klon suphesi**.
+- *Tekrar oynatma:* çipin bir önceki okutmasının imzası yeniden gönderilir (önce aynı kartı gerçek kartla iki kez okut).
+
+```bat
+set KART_IMZA_ZORUNLU=1
+python manage.py runserver
+```
+
+Şeritte "Kart imzası: zorunlu/kapalı" rozeti görünür.
+
+**Dürüst sınırlar:**
+
+- RC522, NTAG 424 DNA'nın AES kimlik doğrulamasını yapamaz; gerçek donanım için **PN532** gibi bir okuyucu gerekir. Arduino
+  firmware'i imza üretmez ya da okumaz, yalnızca `TIP|IMZASIZ` cevabını gösterir. İmza simülatörde oynatılır, köprü `sayac|mac`
+  alanlarını geçirir.
+- Aynı okutmanın imzası 90 sn pencere içinde yeniden kabul edilir; bu sürede ele geçirilmiş imza PIN olmadan işe yaramaz ama
+  tek başına PIN şartını kaldırmaz.
+- Ana anahtar (`KART_IMZA_ANAHTARI`) sızarsa tüm çip anahtarları türetilebilir; gerçek sistemde anahtarlar HSM'de tutulur ve
+  kartlara kişiselleştirme sırasında yazılır.
+- Admin panelinde sayaçlar salt okunurdur; sayacı geri almak tekrar oynatma korumasını kaldırır.
 
 ## Bloke durumunun bütünlüğü
 
@@ -758,7 +842,8 @@ Deneme senaryoları:
    Görevli kartıyla (Ayşe) denersen "Bu rol kasa acma talebi baslatam..." hatasını görürsün (RBAC).
 4. **Kuruş:** tutarda `C` ondalık noktasıdır (`1 0 0 C 5` → `100.5`); yalnızca yatırma ve havalede geçerlidir, nakit çekmede tutar banknotla verilebilmelidir.
 5. **Para dağıtıcı arızaları:** sol paneldeki "Arıza" seçicisinden sıkışma, eksik verme, bağlantı kopması ya da yanıt kaybı seç, sonra bir çekim yap.
-6. **📱 Telefonlar:** yeni kart/yetkili PIN'i gibi SMS'lerin geldiği simülasyon gelen kutusu (yalnızca dosya sağlayıcıdayken).
+6. **İmzalı kart:** `KART_IMZA_ZORUNLU=1` ile başla, "Kart okutma türü"nü Klon ya da Tekrar oynatma yap, kartı okut (ayrıntı: "İmzalı kart" bölümü).
+7. **📱 Telefonlar:** yeni kart/yetkili PIN'i gibi SMS'lerin geldiği simülasyon gelen kutusu (yalnızca dosya sağlayıcıdayken).
 
 **Nasıl çalışır:** Tarayıcıdaki sanal terminal, firmware'in konuştuğu **aynı satır protokolünü** (`KART|uid`, `PIN|uid|pin`, `ISLEM|...`)
 sunucuya yollar; sunucu bunları doğrudan servis katmanına çevirir (`simulator.py`) ve firmware'in beklediği cevap satırlarını döner.
@@ -773,7 +858,7 @@ Köprü API anahtarı tarayıcıya **verilmez**; simülatör oturum açmış kul
 - Simülatör donanımı taklit etmez: RFID okuma süresi, keypad sekmesi, LCD piksel fontu ve gerçek röle yoktur.
 - Gerçek bir ATM'deki gibi tek kullanıcı: bir oturum bitmeden başka kart okutulursa kart yok sayılır.
 
-JavaScript ekran akışı (12 senaryo: çekim, kuruş, yanlış PIN, onaylı çekim, kasa açma, ters kayıt, sunucu kopması...) Node ile test edilir:
+JavaScript ekran akışı (27 senaryo: çekim, kuruş, PIN değiştirme, imzalı kart, onaylı çekim, kasa açma, ters kayıt, sunucu kopması...) Node ile test edilir:
 
 ```bat
 node backend\js_testleri\simulator_akis.test.js
@@ -846,15 +931,16 @@ Tam liste `atm_terminal.ino` dosyasının başındaki yorumda. Özet:
 
 | Arduino → köprü | Cevap |
 |---|---|
-| `KART\|uid` | `TIP\|MUSTERI/PERSONEL/BLOKE/BILINMIYOR` |
-| `PIN\|uid\|pin` | `GIRIS\|token\|ad` |
+| `KART\|uid` ya da `KART\|uid\|sayac\|mac` (imzalı kart) | `TIP\|MUSTERI/PERSONEL/BLOKE/BILINMIYOR/IMZASIZ` |
+| `PIN\|uid\|pin` (+ `\|sayac\|mac`) | `GIRIS\|token\|ad` |
+| `PINDEGIS\|token\|eskiPin\|yeniPin` | `PINDEGIS\|TAMAM` |
 | `BAKIYE\|token` | `BAKIYE\|tutar` |
 | `ISLEM\|token\|C/Y/H\|tutar\|hedef\|anahtar` | `TAMAM\|bakiye\|islemId\|plan` (plan: nakit çekmede `200x8+100x2`) ya da `BEKLE\|talepId\|gereken` |
 | `TESLIM\|islemId\|A/H/S` ya da `TESLIM\|islemId\|K\|200x8` | `TESLIM\|ALINDI\|0.00`, `TESLIM\|GERI\|iade` (tam iade) ya da `TESLIM\|KISMI\|iade` (eksik verme) |
-| `KASAAC\|uid\|pin` | `BEKLE\|talepId\|gereken` |
+| `KASAAC\|uid\|pin` (+ `\|sayac\|mac`) | `BEKLE\|talepId\|gereken` |
 | `BEKLEYEN` | `BEKLEYEN\|YOK` ya da `BEKLEYEN\|id\|tur\|tutar\|verilen\|gereken` |
 | `DURUM\|talepId` | `DURUM\|verilen\|gereken\|durum\|kalanSn\|ustYetkili\|tur\|islemId\|plan` |
-| `ONAY\|talepId\|uid\|pin\|E/H` | `ONAY\|verilen\|gereken\|durum` |
+| `ONAY\|talepId\|uid\|pin\|E/H` (+ `\|sayac\|mac`) | `ONAY\|verilen\|gereken\|durum` |
 
 Hata her zaman `HATA|mesaj` (ascii, en fazla 32 karakter). `HATA|Sunucu...` ile başlayan hatalarda terminal `ISLEM`i
 aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içerebilir (`100.50`).
@@ -862,7 +948,8 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 ## Bilinen sınırlar
 
 - UID kopyalanabilir (MIFARE Classic UID'si klonlanır). Bu yüzden kart tek başına yetmez, PIN de isteniyor. Gerçek
-  güvenlik için imzalı/şifreli kart (NTAG 424 DNA, DESFire) ve PN532 gerekir.
+  güvenlik için imzalı/şifreli kart (NTAG 424 DNA, DESFire) ve PN532 gerekir. İmzalı kartın sunucu tarafı ve simülatörü
+  hazırdır ("İmzalı kart" bölümü), ama RC522'li gerçek donanım imza üretemez.
 - Arduino → köprü arası USB'de PIN düz metindir (aynı bilgisayarda). Köprü → API arası için HTTPS kullan.
 - Tutar klavyeden tam TL girilir (kuruş yok). Tek terminal hem müşteri hem yetkili modunda çalışır.
 - Terminal, idempotency için yalnızca yeniden deneme yapar; ISLEM cevabı hiç gelmezse işlem sunucuda uygulanmış olabilir ve
@@ -875,9 +962,8 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 
 1. Kullanıcı ve grup yönetimini de onaya bağlamak.
 2. Elle ters kayıt (dört göz ile).
-3. Müşteri PIN'ini müşterinin kendisinin değiştirmesi (terminalde, eski PIN ile).
-4. İmzalı kart (NTAG 424 DNA) ile klonlanamayan kimlik.
-5. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
-6. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
-7. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
-8. GitHub Actions ile her push'ta `python manage.py test`.
+3. İmzalı kartın gerçek donanımda çalışması: PN532 okuyucu + NTAG 424 DNA ve Arduino tarafında SDM okuma.
+4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
+5. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
+6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
+7. GitHub Actions ile her push'ta `python manage.py test`.

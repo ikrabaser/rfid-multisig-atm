@@ -13,10 +13,12 @@ import re
 import unicodedata
 
 from django.conf import settings
+from django.db import transaction
 
-from . import (anomali, baglam, kart_butunlugu, nakit, personel_butunlugu, politika_degisikligi, services, sms,
+from . import (anomali, baglam, kart_butunlugu, kart_imzasi, nakit, personel_butunlugu, politika_degisikligi, services, sms,
                terminal as terminal_modulu)
-from .models import Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol, Terminal
+from .models import (Hesap, HesapHareketi, Islem, Kart, LogKaydi, OnayTalebi, Personel, Rol, SimulatorKartCipi,
+                     Terminal, uid_duzelt)
 from .services import IslemHatasi
 
 ESLEME = str.maketrans({"ı": "i", "İ": "I", "ß": "ss"})
@@ -59,13 +61,24 @@ def isle(satir, terminal_kodu):
         return hata("Gecersiz komut")
 
 
+def _imza(a, bas):
+    """Protokolun sonundaki istege bagli |sayac|mac alanlari (imzali kart); yoksa None."""
+    return services.imza_coz(a[bas] if len(a) > bas else "", a[bas + 1] if len(a) > bas + 1 else "")
+
+
 def _isle(komut, a):
     if komut == "KART":
-        return f"TIP|{services.kart_tipi(a[0])}"
+        # KART|uid  ya da  KART|uid|sayac|mac  (imzali kart)
+        return f"TIP|{services.kart_tipi(a[0], _imza(a, 1))}"
 
     if komut == "PIN":
-        g = services.musteri_giris(a[0], a[1])
+        g = services.musteri_giris(a[0], a[1], _imza(a, 2))
         return f"GIRIS|{g['token']}|{ascii_yap(g['ad'])[:16]}"
+
+    if komut == "PINDEGIS":
+        # PINDEGIS|token|eskiPin|yeniPin
+        services.pin_degistir(a[0], a[1], a[2])
+        return "PINDEGIS|TAMAM"
 
     if komut == "BAKIYE":
         return f"BAKIYE|{services.bakiye_sorgula(a[0])['bakiye']}"
@@ -83,7 +96,7 @@ def _isle(komut, a):
         return f"TAMAM|{r['bakiye']}|{r['islem_id']}|{r.get('dagitim', '')}"
 
     if komut == "KASAAC":
-        r = services.kasa_acma_baslat(a[0], a[1])
+        r = services.kasa_acma_baslat(a[0], a[1], _imza(a, 2))
         return f"BEKLE|{r['talep_id']}|{r['gereken']}"
 
     if komut == "BEKLEYEN":
@@ -101,7 +114,7 @@ def _isle(komut, a):
 
     if komut == "ONAY":
         karar = "RED" if a[3].upper() == "H" else "ONAY"
-        r = services.onay_karar(int(a[0]), a[1], a[2], karar)
+        r = services.onay_karar(int(a[0]), a[1], a[2], karar, _imza(a, 4))
         return f"ONAY|{r['verilen']}|{r['gereken']}|{r['durum']}"
 
     if komut == "TESLIM":
@@ -144,6 +157,7 @@ def sayfa_verisi():
         "yetkililer": yetkililer,
         "terminaller": [{"kod": t.kod, "ad": t.ad} for t in Terminal.objects.filter(aktif=True)],
         "ipuclari_acik": bool(musteri_pin or personel_pin),
+        "kart_imza_zorunlu": bool(settings.KART_IMZA_ZORUNLU),
     }
 
 
@@ -202,6 +216,7 @@ def serit_verisi(zincir=False):
              "bakiye": f"{h.bakiye_sonrasi:.2f}"}
             for h in HesapHareketi.objects.select_related("hesap")[:8]
         ],
+        "kart_imza_zorunlu": bool(settings.KART_IMZA_ZORUNLU),
         "durumlar": {
             "politika": politika_degisikligi.butunluk_durumu(),
             "personel": personel_butunlugu.durum(),
@@ -247,3 +262,29 @@ def operator_eylemi(kullanici, govde):
     except IslemHatasi as e:
         return {"ok": False, "hata": e.mesaj}
     return {"ok": True, **r}
+
+
+def kart_dokun(uid, mod):
+    """Simülatörde bir kartın okutulması: "kart çipi" simülasyonu (kart_imzasi.py).
+
+    mod: "gercek"  -> çip sayacı artar, çipin anahtarıyla imza üretir (gerçek imzalı kart)
+         "klon"    -> UID kopyalanmış ama çipin anahtarı yok: imza yok
+         "tekrar"  -> daha önce dinlenmiş (eski) bir okutmanın imzası yeniden oynatılır
+    Dönüş: {"sayac", "mac"} (imzalı), {"imza": None} (imzasız) ya da {"hata": ...}.
+    """
+    uid = uid_duzelt(uid)
+    if mod == "klon":
+        return {"imza": None, "aciklama": "Klon: UID kopyalandı, çipin gizli anahtarı yok"}
+    if mod not in ("gercek", "tekrar"):
+        return {"hata": "Bilinmeyen kart türü"}
+    with transaction.atomic():
+        cip, _ = SimulatorKartCipi.objects.select_for_update().get_or_create(uid=uid)
+        if mod == "tekrar":
+            if cip.sayac < 2:
+                return {"hata": "Tekrar oynatılacak eski bir okutma yok: önce aynı kartı gerçek kartla iki kez okutun"}
+            sayac = cip.sayac - 1                      # dinlenmiş eski okutma
+        else:
+            cip.sayac += 1
+            cip.save(update_fields=["sayac"])
+            sayac = cip.sayac
+    return {"sayac": sayac, "mac": kart_imzasi.mac_hesapla(uid, sayac)}

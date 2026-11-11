@@ -2,21 +2,85 @@ import json
 from functools import wraps
 
 from django.conf import settings
-from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from . import anomali, kart_butunlugu, personel_butunlugu, politika_degisikligi, services, simulator
+from . import anomali, kart_butunlugu, personel_butunlugu, politika_degisikligi, services, simulator, webgiris
 from .hashlog import zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi, PolitikaDegisikligi,
                      Terminal, YonetimTalebi)
 
 
-@staff_member_required
+def personel_gerekli(view):
+    """Giriş yapmış ve is_staff olan kullanıcı. Girişsiz: kendi giriş sayfamız; yetkisiz: 403 (döngü olmasın)."""
+    @wraps(view)
+    def sarmal(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path(), settings.LOGIN_URL)
+        if not (request.user.is_active and request.user.is_staff):
+            raise PermissionDenied("Bu sayfa yalnızca yönetim kullanıcıları içindir")
+        return view(request, *args, **kwargs)
+    return sarmal
+
+
+def _guvenli_adres(request, adres):
+    ok = url_has_allowed_host_and_scheme(adres, allowed_hosts={request.get_host()},
+                                         require_https=request.is_secure())
+    return adres if ok else settings.LOGIN_REDIRECT_URL
+
+
+def giris_sayfa(request):
+    sonraki = request.POST.get("next") or request.GET.get("next") or ""
+    # Girişli kullanıcı otomatik yönlendirilmez: yetkisi olmayan sayfaya yönlendirip tekrar buraya dönmek döngü olurdu
+    hata = None
+    if request.method == "POST":
+        user, hata = webgiris.giris_yap(request, request.POST.get("username"), request.POST.get("password"))
+        if user is not None:
+            return redirect(_guvenli_adres(request, sonraki))
+    cevap = render(request, "banka/giris.html", {"hata": hata, "sonraki": sonraki, "oturum": request.user.is_authenticated,
+                                                  "kullanici": request.POST.get("username", "")[:150]},
+                   status=429 if hata == webgiris.KILIT_HATASI else 200)
+    cevap["Cache-Control"] = "no-store"
+    return cevap
+
+
+def admin_giris_yonlendir(request):
+    """/admin/login/ kilidi atlayan yan kapı olmasın: aynı giriş sayfasına yönlendirilir."""
+    adres = settings.LOGIN_URL
+    if request.GET.get("next"):
+        from urllib.parse import urlencode
+        adres += "?" + urlencode({"next": request.GET["next"]})
+    return redirect(adres)
+
+
+@require_POST
+def cikis(request):
+    webgiris.cikis_yap(request)
+    return redirect(settings.LOGIN_URL)
+
+
+@login_required
+def sifre_degistir(request):
+    form = PasswordChangeForm(request.user, request.POST or None)
+    basarili = False
+    if request.method == "POST" and form.is_valid():
+        user = form.save()
+        update_session_auth_hash(request, user)   # bu oturum açık kalır, diğerleri düşer
+        webgiris.sifre_degisti_kaydet(request, user)
+        form = PasswordChangeForm(request.user)
+        basarili = True
+    return render(request, "banka/sifre_degistir.html", {"form": form, "basarili": basarili})
+
+
+@personel_gerekli
 def panel(request):
     services.suresi_dolanlari_kapat()
     baglam = {
@@ -83,7 +147,7 @@ def simulator_sayfa(request):
     return render(request, "banka/simulator.html", {"veri": {
         **simulator.sayfa_verisi(),
         "komut_url": "/simulator/komut/", "serit_url": "/simulator/serit/", "telefon_url": "/simulator/telefon/",
-        "operator_url": "/simulator/operator/",
+        "operator_url": "/simulator/operator/", "kart_dokun_url": "/simulator/kart-dokun/",
     }})
 
 
@@ -119,6 +183,19 @@ def simulator_operator(request):
     except ValueError:
         return JsonResponse({"ok": False, "hata": "Geçersiz istek"}, status=400)
     return JsonResponse(simulator.operator_eylemi(request.user, govde))
+
+
+@simulator_kapisi
+@simulator_yetkisi
+@require_POST
+def simulator_kart_dokun(request):
+    try:
+        govde = json.loads(request.body or b"{}")
+        if not isinstance(govde, dict):
+            raise ValueError
+    except ValueError:
+        return JsonResponse({"hata": "Geçersiz istek"}, status=400)
+    return JsonResponse(simulator.kart_dokun(govde.get("uid"), govde.get("mod", "gercek")))
 
 
 @simulator_kapisi

@@ -217,6 +217,13 @@ def tara(saat=24, an=None):
                 "butunluk_ihlali", "yuksek",
                 f"Onaysız veri değişikliği tespit edildi: {k.olay_turu} (log #{k.sira})", sira=k.sira))
 
+    # 11b) Imzali kart: imza gecersiz (klon suphesi), tekrar oynatma ya da imzasiz kart (zorunlu modda)
+    for k, v in kayitlar:
+        if k.olay_turu in ("kart_imza_gecersiz", "kart_tekrar_oynatma", "kart_imzasiz"):
+            bulgular.append(_bulgu(
+                "kart_klon_suphesi", "yuksek",
+                f"Kart {v.get('uid', '?')} doğrulanamadı: {k.olay_turu} (log #{k.sira})", sira=k.sira))
+
     # 12) Para dagitici kapandi (siskma ya da eksik verme): teknik servis gerekir
     for k, v in kayitlar:
         if k.olay_turu == "dagitici_kapandi":

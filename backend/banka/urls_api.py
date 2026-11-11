@@ -6,6 +6,7 @@ urlpatterns = [
     path("kart/", api.kart),
     path("giris/", api.giris),
     path("bakiye/", api.bakiye),
+    path("pin-degistir/", api.pin_degistir),
     path("islem/", api.islem),
     path("kasa-ac/", api.kasa_ac),
     path("teslim/", api.teslim),

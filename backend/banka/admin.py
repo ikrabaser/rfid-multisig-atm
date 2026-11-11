@@ -34,7 +34,7 @@ class PersonelAdmin(admin.ModelAdmin):
     list_display = ("ad", "kart_uid", "rol", "eposta", "aktif", "bloke")
     list_filter = ("rol", "aktif", "bloke")
     exclude = ("pin_hash",)
-    readonly_fields = ("kart_uid", "rol", "aktif", "bloke", "hatali_deneme")
+    readonly_fields = ("kart_uid", "rol", "aktif", "bloke", "hatali_deneme", "imza_sayaci", "imza_zamani")
 
     def has_add_permission(self, request):
         return False

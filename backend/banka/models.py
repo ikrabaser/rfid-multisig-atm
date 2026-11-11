@@ -24,6 +24,9 @@ class PinliKimlik(models.Model):
     pin_hash = models.CharField("PIN (hash)", max_length=128)
     hatali_deneme = models.PositiveSmallIntegerField("Hatalı PIN sayısı", default=0)
     bloke = models.BooleanField("Bloke", default=False)
+    imza_sayaci = models.BigIntegerField("Son kart imza sayacı", default=0,
+                                         help_text="İmzalı kart (kart_imzasi.py): kabul edilen en büyük okutma sayacı.")
+    imza_zamani = models.DateTimeField("Son imzalı okutma", null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -587,3 +590,17 @@ class YonetimOyu(models.Model):
 
     def __str__(self):
         return f"{self.kullanici} → {self.karar} (talep #{self.talep_id})"
+
+
+class SimulatorKartCipi(models.Model):
+    """YALNIZCA SİMÜLATÖR: kartın çipinin kendi okutma sayacı (gerçek kartta çipin içindedir, sunucuda değil).
+
+    Sunucunun doğrulama durumu `Kart.imza_sayaci`dır; bu tablo kartı taklit eden tarafın durumudur. Üretimde yoktur.
+    """
+
+    uid = models.CharField(max_length=20, unique=True)
+    sayac = models.BigIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Simülatör kart çipi"
+        verbose_name_plural = "Simülatör kart çipleri"

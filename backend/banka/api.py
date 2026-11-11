@@ -49,12 +49,17 @@ def kopru_endpoint(fn):
 
 @kopru_endpoint
 def kart(g):
-    return {"tip": services.kart_tipi(g.get("uid"))}
+    return {"tip": services.kart_tipi(g.get("uid"), services.imza_coz(g.get("sayac"), g.get("mac")))}
 
 
 @kopru_endpoint
 def giris(g):
-    return services.musteri_giris(g.get("uid"), g.get("pin"))
+    return services.musteri_giris(g.get("uid"), g.get("pin"), services.imza_coz(g.get("sayac"), g.get("mac")))
+
+
+@kopru_endpoint
+def pin_degistir(g):
+    return services.pin_degistir(g.get("token"), g.get("eski"), g.get("yeni"))
 
 
 @kopru_endpoint
@@ -69,12 +74,13 @@ def islem(g):
 
 @kopru_endpoint
 def kasa_ac(g):
-    return services.kasa_acma_baslat(g.get("uid"), g.get("pin"))
+    return services.kasa_acma_baslat(g.get("uid"), g.get("pin"), services.imza_coz(g.get("sayac"), g.get("mac")))
 
 
 @kopru_endpoint
 def onay(g):
-    return services.onay_karar(g.get("talep_id"), g.get("uid"), g.get("pin"), g.get("karar", "ONAY"))
+    return services.onay_karar(g.get("talep_id"), g.get("uid"), g.get("pin"), g.get("karar", "ONAY"),
+                               services.imza_coz(g.get("sayac"), g.get("mac")))
 
 
 @kopru_endpoint

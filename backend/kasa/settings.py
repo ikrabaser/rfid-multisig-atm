@@ -91,7 +91,22 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-LOGIN_URL = "/admin/login/"
+LOGIN_URL = "/giris/"          # kendi giris sayfamiz (banka/webgiris.py); /admin/login/ da buraya yonlendirilir
+LOGIN_REDIRECT_URL = "/"
+
+# Web girisi: hatali deneme siniri (hash zincirinden sayilir), bosta kalma suresi, parola kurallari
+GIRIS_MAKS_HATA = _env_int("GIRIS_MAKS_HATA", 5, 3, 50)           # kullanici adi basina, pencere icinde
+GIRIS_MAKS_HATA_IP = _env_int("GIRIS_MAKS_HATA_IP", 20, 5, 500)   # IP basina (kullanici adi taramasini keser)
+GIRIS_KILIT_SN = _env_int("GIRIS_KILIT_SN", 600, 60, 86400)       # pencere = kilit suresi
+SESSION_COOKIE_AGE = _env_int("OTURUM_ZAMAN_ASIMI_SN", 1800, 120, 86400)   # bostayken oturum sonu (sn)
+SESSION_SAVE_EVERY_REQUEST = True                                  # her istekte yenilenir: bosta kalma suresi
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 
 # Testlerde PIN hash'leme hizli olsun
 if "test" in sys.argv:
@@ -174,6 +189,12 @@ SMS_KUTUSU_DOSYASI = BASE_DIR / "sms_kutusu.jsonl"   # simulasyon: telefonu tems
 
 # Kart satir muhru (HMAC) anahtari: veritabaninin DISINDA tutulmali; bilmeyen biri gecerli bir kart satiri uretemez.
 KART_MAC_ANAHTARI = os.environ.get("KART_MAC_ANAHTARI", "gelistirme-kart-mac-anahtari")
+
+# Imzali kart (NTAG 424 DNA simulasyonu, bkz. banka/kart_imzasi.py). Kapaliyken imzasiz kart kabul edilir
+# (RC522'li gercek donanim imza uretemez); imza gonderilmis ve gecersizse her zaman reddedilir.
+KART_IMZA_ZORUNLU = _env_bool("KART_IMZA_ZORUNLU", False)
+KART_IMZA_ANAHTARI = os.environ.get("KART_IMZA_ANAHTARI", "gelistirme-kart-imza-anahtari")   # veritabaninda degil
+KART_IMZA_GECERLILIK_SN = _env_int("KART_IMZA_GECERLILIK_SN", 90, 10, 600)
 
 # Web ATM simulatoru (/simulator/): yalnizca gelistirme icin. Kapaliyken tum uclari 404 verir.
 SIMULATOR_AKTIF = _env_bool("SIMULATOR_AKTIF", DEBUG)

@@ -197,3 +197,18 @@ def pin_ilet(personel, pin, neden):
         )
     except Exception:
         log.exception("PIN iletimi kaydedilemedi")
+
+
+def pin_degisti(musteri):
+    """Müşteri PIN'ini değiştirince kendi telefonuna haber verir (kendisi yapmadıysa fark etsin). PIN yazılmaz."""
+    if not musteri or not musteri.telefon:
+        return
+    try:
+        sms.gonder(musteri.telefon, "PIN'iniz terminalde değiştirildi. Siz yapmadıysanız hemen şubeyi arayın.")
+        Bildirim.objects.create(
+            kanal=Bildirim.Kanal.SMS, durum=Bildirim.Durum.SIMULASYON, alici=musteri.ad, adres=musteri.telefon,
+            konu="PIN değiştirildi", metin="Müşteri PIN'ini terminalde değiştirdi; bilgi SMS'i gönderildi.",
+            olay="pin_degistirildi",
+        )
+    except Exception:
+        log.exception("PIN degisikligi bildirimi kaydedilemedi")

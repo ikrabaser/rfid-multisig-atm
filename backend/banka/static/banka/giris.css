@@ -1,0 +1,36 @@
+:root {
+  --arka: #101316; --panel: #181c21; --cizgi: #2a3038; --yazi: #e6e9ec; --soluk: #8b95a1;
+  --vurgu: #4aa3c7; --ok: #3fb76b; --kotu: #e05c5c; --uyari: #e0a23a;
+}
+@media (prefers-color-scheme: light) {
+  :root { --arka: #f4f6f8; --panel: #ffffff; --cizgi: #d5dbe1; --yazi: #1c2630; --soluk: #5b6775; --vurgu: #1d6f93; --kotu: #b3261e; --ok: #1f7a46; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+  background: var(--arka); color: var(--yazi); font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+main { width: 100%; max-width: 380px; }
+.kart { background: var(--panel); border: 1px solid var(--cizgi); border-radius: 12px; padding: 26px 26px 22px; }
+h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+.alt { margin: 0 0 18px; color: var(--soluk); font-size: 13px; }
+label { display: block; margin: 14px 0 5px; font-size: 13px; color: var(--soluk); }
+input[type=text], input[type=password] {
+  width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--cizgi);
+  background: transparent; color: var(--yazi); font: inherit;
+}
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--vurgu); outline-offset: 2px; }
+button.ana {
+  width: 100%; margin-top: 20px; padding: 10px; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--vurgu); color: #fff; font: inherit; font-weight: 600;
+}
+button.ana:hover { filter: brightness(1.08); }
+button.bag { background: none; border: 0; padding: 0; color: var(--vurgu); cursor: pointer; font: inherit; }
+.hata { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--kotu); color: var(--kotu); font-size: 14px; }
+.tamam { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--ok); color: var(--ok); font-size: 14px; }
+.bilgi { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--cizgi); color: var(--soluk); font-size: 14px; }
+.not { margin: 14px 0 0; color: var(--soluk); font-size: 12.5px; }
+.alanhata { margin: 4px 0 0; color: var(--kotu); font-size: 12.5px; }
+ul.kural { margin: 6px 0 0; padding-left: 18px; color: var(--soluk); font-size: 12.5px; }
+a { color: var(--vurgu); }
+.baglar { display: flex; gap: 14px; margin-top: 14px; font-size: 13px; }
