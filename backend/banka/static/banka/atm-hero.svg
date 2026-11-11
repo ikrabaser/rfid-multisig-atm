@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 550" fill="none" role="img" aria-label="ATM terminali ve temassız RFID kartı illüstrasyonu">
+  <defs>
+    <linearGradient id="atm-side" x1=".1" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#5c7e9e"/><stop offset=".16" stop-color="#1d3e5a"/><stop offset=".72" stop-color="#071625"/><stop offset="1" stop-color="#0c2133"/></linearGradient>
+    <linearGradient id="atm-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#375674"/><stop offset=".2" stop-color="#101f32"/><stop offset=".73" stop-color="#0a192a"/><stop offset="1" stop-color="#264661"/></linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#bdedff"/><stop offset=".4" stop-color="#2585c7"/><stop offset=".8" stop-color="#00e3ec"/><stop offset="1" stop-color="#113e67"/></linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0e3855"/><stop offset=".64" stop-color="#032038"/><stop offset="1" stop-color="#071625"/></linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0de6f4"/><stop offset=".15" stop-color="#08758f"/><stop offset=".63" stop-color="#081c32"/><stop offset="1" stop-color="#091321"/></linearGradient>
+    <linearGradient id="card-stroke" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a3f7ff"/><stop offset=".5" stop-color="#00e7f2"/><stop offset="1" stop-color="#1882cd"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#05ccff" stop-opacity=".31"/><stop offset="1" stop-color="#05ccff" stop-opacity="0"/></radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"/></filter>
+    <filter id="glow-filter" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="line-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
+  </defs>
+  <ellipse cx="437" cy="396" rx="300" ry="150" fill="url(#glow)"/>
+  <ellipse cx="381" cy="520" rx="315" ry="24" fill="#00050b" opacity=".8" filter="url(#shadow)"/>
+  <g opacity=".62" stroke="#06afdb" stroke-width="2.5">
+    <path d="M610 159a148 148 0 0 1 0 291" opacity=".24"/>
+    <path d="M608 195a115 115 0 0 1 0 223" opacity=".32"/>
+    <path d="M606 233a79 79 0 0 1 0 147" opacity=".49"/>
+  </g>
+  <!-- ATM main body: stylized three-quarter perspective -->
+  <path d="M54 112 133 85l351 76 42 36-3 338-398 0Z" fill="url(#atm-side)" stroke="#305c7e" stroke-width="3"/>
+  <path d="m55 113 77-28 352 76-54 30Z" fill="#294c69" stroke="#92cde9" stroke-width="2"/>
+  <path d="m132 85 352 76 39 38-40 9-350-79Z" fill="#1c3853" stroke="#6dadd1" stroke-width="1.5"/>
+  <path d="m132 127 352 80-1 292-352-45Z" fill="url(#atm-face)" stroke="url(#edge)" stroke-width="3.2"/>
+  <path d="m55 113 78 14-2 327-4 81-72-35Z" fill="#1a3247" stroke="#456f90" stroke-width="2"/>
+  <path d="M65 120 115 130 113 517l-46-19Z" fill="#0c1b2c" opacity=".55"/>
+  <path d="m133 128 351 79" stroke="#95e3fd" opacity=".9" stroke-width="2.5"/>
+  <!-- screen casing -->
+  <path d="m163 164 262 57-2 200-260-35Z" fill="#020a13" stroke="#336487" stroke-width="6"/>
+  <path d="m177 180 230 48-1 175-228-30Z" fill="url(#screen)" stroke="#092d45" stroke-width="2"/>
+  <path d="m187 184 123 25-117 166-15-2Z" fill="#9de4f5" opacity=".045"/>
+  <g transform="translate(293 299) rotate(10)">
+    <g stroke="#32d9ff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M-39-20 0-43 39-20Z"/>
+      <path d="M-35-10h70M-40 24h80M-44 33h88M-27-7v29M-9-7v29M9-7v29M27-7v29"/>
+    </g>
+    <g opacity=".5" filter="url(#glow-filter)" stroke="#32d9ff" stroke-width="10"><path d="M-39-20 0-43 39-20Z"/><path d="M-40 24h80"/></g>
+  </g>
+  <!-- side interface buttons -->
+  <g fill="#385670" stroke="#68a4c5" stroke-width="1.6">
+    <path d="m446 265 23 5-1 22-22-3Z"/><path d="m447 305 22 4-1 23-21-3Z"/><path d="m447 347 22 4-1 23-21-3Z"/><path d="m448 388 22 3-1 21-21-3Z"/>
+  </g>
+  <path d="m174 405 229 29 0 13-229-24Z" fill="#08111d" stroke="#315878" stroke-width="2"/>
+  <!-- ATM cash slot -->
+  <path d="m223 461 159 16 21 33-170-3Z" fill="#09121e" stroke="#427996" stroke-width="2"/>
+  <path d="m250 476 116 11 8 9-119-4Z" fill="#07364d" stroke="#05d3f1" stroke-width="3"/>
+  <path d="m254 486 120 10" stroke="#00eaff" stroke-width="5" opacity=".65" filter="url(#glow-filter)"/>
+  <path d="m131 454 352 45-1 39-352-3Z" fill="#1b344a" stroke="#376b87" stroke-width="2"/>
+  <!-- RFID reader -->
+  <path d="m426 251 57 10-4 35-53-8Z" fill="#06101b" stroke="#2f5877" stroke-width="2"/>
+  <path d="m436 260 36 6" stroke="#19f1fc" stroke-width="6" stroke-linecap="round"/>
+  <path d="m436 260 36 6" stroke="#19f1fc" stroke-width="14" opacity=".5" filter="url(#glow-filter)"/>
+  <!-- Floating RFID card -->
+  <g transform="translate(422 307) rotate(-10)">
+    <rect x="-2" y="0" width="294" height="168" rx="16" fill="#01cde7" opacity=".45" filter="url(#glow-filter)"/>
+    <rect width="288" height="164" rx="15" fill="url(#card)" stroke="url(#card-stroke)" stroke-width="3"/>
+    <path d="M15 19q60-11 122-10" stroke="#b7ffff" opacity=".45" stroke-width="1.5"/>
+    <text x="25" y="47" fill="#e7ffff" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700">RFID</text>
+    <text x="25" y="72" fill="#85ddf4" font-family="Segoe UI,Arial,sans-serif" font-size="10" letter-spacing="3">SECURE ACCESS</text>
+    <g fill="none" stroke="#6deeff" stroke-linecap="round" stroke-width="5">
+      <path d="M208 75c16 12 16 33 0 45M228 59c28 24 28 56 0 79M188 87c7 6 7 17 0 23"/>
+      <path d="M168 98h1" stroke-width="9"/>
+    </g>
+    <path d="M21 136h243" stroke="#25d4f5" opacity=".24"/>
+    <g stroke="#6deeff" stroke-width="1.2" opacity=".8"><rect x="25" y="89" width="32" height="22" rx="4"/><path d="M32 89v22m16-22v22m-23-11h32"/></g>
+    <circle cx="267" cy="20" r="3" fill="#d9ffff" opacity=".65"/>
+  </g>
+</svg>

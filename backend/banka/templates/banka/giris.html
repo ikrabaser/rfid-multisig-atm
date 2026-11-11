@@ -3,36 +3,115 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex">
-  <title>Giriş</title>
-  <link rel="stylesheet" href="{% static 'banka/giris.css' %}">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#06121e">
+  <title>Giriş | RFID Banka + Kasa</title>
+  <link rel="stylesheet" href="{% static 'banka/giris-premium.css' %}">
+  <script src="{% static 'banka/giris-premium.js' %}" defer></script>
 </head>
-<body>
-<main>
-  <div class="kart">
-    <h1>RFID Banka + Kasa</h1>
-    <p class="alt">Yönetim, panel ve simülatör girişi</p>
-    {% if oturum %}
-      <p class="bilgi"><strong>{{ user.get_username }}</strong> olarak giriş yaptınız.
-        {% if sonraki %}İstediğiniz sayfa için yetkiniz olmayabilir.{% endif %}</p>
-      <div class="baglar">
-        <a href="/">Panel</a><a href="/admin/">Yönetim</a><a href="{% url 'sifre_degistir' %}">Parola</a>
-        <form method="post" action="{% url 'cikis' %}">{% csrf_token %}<button class="bag" type="submit">Çıkış</button></form>
+<body class="premium-login">
+  <!-- Inline SVG icon set: no external CSS, icons or fonts are needed. -->
+  <svg class="svg-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="m3 9 9-5 9 5M4 10h16M5 20h14M7 11v7m5-7v7m5-7v7M3 22h18"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A11.5 11.5 0 0 1 12 6c6.5 0 10 6 10 6a16 16 0 0 1-3.1 3.6M6 8.4C3.5 10 2 12 2 12s3.5 6 10 6c1.7 0 3.2-.4 4.5-1"/><path d="M10 10a3 3 0 0 0 4 4"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 2 8 4v5c0 5.5-3.4 9.4-8 11-4.6-1.6-8-5.5-8-11V6l8-4Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20m-15 5h5"/></symbol>
+    <symbol id="i-atm" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><rect x="7" y="6" width="10" height="7" rx="1"/><path d="M7 17h10m-5-2v2"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Zm-9 10 9 5 9-5M3 17l9 5 9-5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  </svg>
+
+  <div class="page-aura" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="{% url 'giris' %}" aria-label="RFID Banka + Kasa giriş sayfası">
+        <span class="brand-symbol"><svg><use href="#i-bank"/></svg></span>
+        <span class="brand-name">RFID Banka <span class="brand-plus">+</span> Kasa</span>
+      </a>
+      <div class="brand-divider" aria-hidden="true"></div>
+      <span class="topbar-product">Web ATM Simülatörü</span>
+      <div class="topbar-spacer"></div>
+      <div class="status-list" aria-label="Sistem özellikleri">
+        <span class="status-pill"><svg><use href="#i-shield"/></svg> Yetki kontrollü</span>
+        <span class="status-pill"><svg><use href="#i-card"/></svg> RFID simülasyonu</span>
       </div>
-      <p class="not">Başka bir hesapla girmek için aşağıdaki formu kullanın.</p>
-    {% endif %}
-    {% if hata %}<p class="hata" role="alert">{{ hata }}</p>{% endif %}
-    <form method="post" autocomplete="on">
-      {% csrf_token %}
-      <input type="hidden" name="next" value="{{ sonraki }}">
-      <label for="kullanici">Kullanıcı adı</label>
-      <input id="kullanici" type="text" name="username" value="{{ kullanici }}" autocomplete="username" autofocus required>
-      <label for="parola">Parola</label>
-      <input id="parola" type="password" name="password" autocomplete="current-password" required>
-      <button class="ana" type="submit">Giriş yap</button>
-    </form>
-    <p class="not">Çok sayıda hatalı denemede hesap geçici olarak kilitlenir. Boşta kalan oturum otomatik kapanır.</p>
-  </div>
-</main>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="intro" aria-labelledby="hero-title">
+      <div class="eyebrow"><span class="eyebrow-line"></span>BANKA <b>·</b> KASA <b>·</b> ATM SİMÜLASYONU</div>
+      <h1 id="hero-title">Güvenli bankacılık.<br><span>Akıllı operasyon.</span></h1>
+      <p class="hero-subtitle">RFID Banka + Kasa</p>
+      <p class="hero-description">Kart yönetimi, çoklu yetkili onayları ve ATM işlemleri tek bir simülasyon platformunda.</p>
+      <div class="feature-strip" aria-label="Platform modülleri">
+        <span class="feature"><span class="feature-icon"><svg><use href="#i-card"/></svg></span>Kart Yönetimi</span>
+        <span class="feature"><span class="feature-icon"><svg><use href="#i-atm"/></svg></span>ATM Simülatörü</span>
+        <span class="feature"><span class="feature-icon"><svg><use href="#i-layers"/></svg></span>Kasa Operasyonları</span>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="hero-rings"></div>
+        <img src="{% static 'banka/atm-hero.svg' %}" alt="" loading="eager" fetchpriority="high">
+      </div>
+    </section>
+
+    <section class="login-area" aria-labelledby="login-title">
+      <div class="login-panel">
+        <div class="panel-glow" aria-hidden="true"></div>
+        <div class="panel-heading">
+          <div class="panel-logo"><svg><use href="#i-bank"/></svg></div>
+          <div class="panel-tag">YÖNETİM PORTALI</div>
+          <h2 id="login-title">Tekrar hoş geldiniz.</h2>
+          <p>Yönetim paneline ve simülatöre giriş yapın.</p>
+        </div>
+
+        {% if oturum %}
+        <div class="auth-info" role="status">
+          <svg><use href="#i-check"/></svg>
+          <div><strong>{{ user.get_username }}</strong> olarak giriş yaptınız.
+            {% if sonraki %}<span>İstediğiniz sayfaya erişim yetkiniz olmayabilir.</span>{% endif %}
+          </div>
+        </div>
+        <nav class="logged-links" aria-label="Hesap seçenekleri">
+          <a href="/">Panel</a>
+          <a href="/admin/">Yönetim</a>
+          <a href="{% url 'sifre_degistir' %}">Parola değiştir</a>
+          <form method="post" action="{% url 'cikis' %}">{% csrf_token %}<button type="submit">Çıkış yap</button></form>
+        </nav>
+        <p class="logged-caption">Başka bir hesapla giriş yapabilirsiniz.</p>
+        {% endif %}
+
+        {% if hata %}<div class="form-error" role="alert">{{ hata }}</div>{% endif %}
+
+        <form method="post" class="login-form" autocomplete="on" id="login-form">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ sonraki }}">
+          <label for="kullanici"><svg><use href="#i-user"/></svg>Kullanıcı adı</label>
+          <div class="input-frame">
+            <input id="kullanici" type="text" name="username" value="{{ kullanici }}" placeholder="Kullanıcı adınızı girin" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="150" autofocus required>
+          </div>
+          <label for="parola"><svg><use href="#i-lock"/></svg>Parola</label>
+          <div class="input-frame password-frame">
+            <input id="parola" type="password" name="password" placeholder="Parolanızı girin" autocomplete="current-password" required>
+            <button class="password-toggle" type="button" aria-label="Parolayı göster" aria-pressed="false" title="Parolayı göster">
+              <svg class="eye-off"><use href="#i-eye-off"/></svg>
+              <svg class="eye-on"><use href="#i-eye"/></svg>
+            </button>
+          </div>
+          <button class="submit-button" type="submit"><svg><use href="#i-lock"/></svg><span>Giriş yap</span><svg class="submit-arrow"><use href="#i-arrow"/></svg></button>
+        </form>
+
+        <div class="security-divider"><span></span><svg><use href="#i-shield"/></svg><span></span></div>
+        <p class="security-caption">Çok sayıda hatalı denemede hesap geçici olarak kilitlenir.<br>Boşta kalan oturum otomatik kapanır.</p>
+      </div>
+      <p class="login-footnote">Erişim yalnızca yetkili kullanıcılar içindir. <span>•</span> RFID Banka + Kasa</p>
+    </section>
+  </main>
+  <div class="bottom-grid" aria-hidden="true"></div>
 </body>
 </html>
