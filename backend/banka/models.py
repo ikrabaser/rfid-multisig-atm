@@ -531,6 +531,7 @@ class YonetimTalebi(models.Model):
         KART_TANIMLA = "KART_TANIMLA", "Müşteriye kart tanımla"
         KART_PIN_SIFIRLA = "KART_PIN_SIFIRLA", "Müşteri kartının PIN'ini sıfırla"
         MUSTERI_TELEFON = "MUSTERI_TELEFON", "Müşteri telefonunu değiştir"
+        NAKIT_COZ = "NAKIT_COZ", "Belirsiz nakit teslimini sonuçlandır"
 
     class Durum(models.TextChoices):
         BEKLIYOR = "BEKLIYOR", "Bekliyor"

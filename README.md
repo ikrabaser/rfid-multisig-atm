@@ -83,7 +83,7 @@ anomali rozeti de uyarıya döner).
 | `backend/banka/baglam.py` | İsteğin terminalini log katmanına taşıyan bağlam |
 | `backend/banka/politika_degisikligi.py` | Maker-checker, korkuluklar, politika bütünlüğü (onaylı görüntü) |
 | `backend/banka/rbac.py` | Rol → yetki matrisi, admin grupları, görev ayrımı denetimi |
-| `backend/banka/yonetim_talepleri.py` | Hassas yönetim işlemleri için maker-checker (7 işlem türü) |
+| `backend/banka/yonetim_talepleri.py` | Hassas yönetim işlemleri için maker-checker (11 işlem türü, nakit çözümü dahil) |
 | `backend/banka/personel_butunlugu.py` | Yetkili kümesinin onaylı görüntüsü ve sapma tespiti |
 | `backend/banka/kart_butunlugu.py` | Kart satırı mührü (HMAC), onaylı özet ve kart başına O(1) doğrulama |
 | `backend/banka/bloke_butunlugu.py` | Bloke durumunu log'dan türetip veritabanıyla karşılaştırır |
@@ -560,13 +560,20 @@ python manage.py dagitici_ac --terminal ATM-01 --yapan "Ali Teknisyen" --neden "
   Para **otomatik iade edilmez**: müşteri parayı almış olabilir, iade çift ödeme olurdu. Banknotlar rezerve kalır, anomali
   uyarısı çıkar. Geç gelen **"para alındı"** bildirimi güvenle kabul edilir (hiçbir parayı geri vermez); iade gerektiren
   geç bildirimler reddedilir.
-- *Operatör çözümü:* Teknisyen kasetleri sayıp sonuçlandırır. Kim yaptığı ve gerekçesi hash zincirine yazılır:
+- *Operatör çözümü (dört göz):* Teknisyen kasetleri sayar ve bir **`NAKIT_COZ` yönetim talebi** açar; başka bir yönetim
+  kullanıcısı onaylayınca sonuç uygulanır. Talep açmak hiçbir şeyi değiştirmez, kimse kendi talebini onaylayamaz. Para
+  müşteriye geri yazılan sonuçlar daha ağır sayılır: `VERILDI` 1 onay, `VERILMEDI`/`KISMI` (iade) 2 onay
+  (`YONETIM_ONAY_SAYILARI`). Talepten sonra çekmenin durumu değişirse (ör. geç gelen "para alındı") talep **uygulanmaz**
+  (`BASARISIZ`), böylece çifte işlem olmaz. Hash zincirine talep eden, onaylayanlar ve gerekçe yazılır:
 
 ```bat
-python manage.py nakit_coz --islem 12 --sonuc VERILMEDI --yapan "Ali Teknisyen" --neden "Kaset sayimi: banknotlar yerinde"
-python manage.py nakit_coz --islem 13 --sonuc VERILDI   --yapan "Ali Teknisyen" --neden "Kasa sayimi: banknot eksik"
-python manage.py nakit_coz --islem 14 --sonuc KISMI --verilen 200x8 --yapan "Ali Teknisyen" --neden "2 banknot eksik"
+python manage.py nakit_coz --islem 12 --sonuc VERILMEDI --talep-eden yonetim_talep --gerekce "Kaset sayimi: banknotlar yerinde"
+python manage.py nakit_coz --islem 14 --sonuc KISMI --verilen 200x8 --talep-eden yonetim_talep --gerekce "2 banknot eksik"
 ```
+
+  Talepler admin → Yönetim talepleri ekranından da açılır (tür "Belirsiz nakit teslimini sonuçlandır"; hedef = işlem no,
+  yeni değer = `VERILDI`/`VERILMEDI`/`KISMI`). Tek kişilik yol (`nakit_coz --dogrudan --yapan ... --neden ...`) yalnızca
+  `NAKIT_COZ_TEK_KISI` açıkken çalışır (varsayılan `DEBUG`); simülatörün operatör düğmeleri de bu geliştirme yolunu kullanır.
 
 **Defter ve denetim:** `gun_sonu_mutabakat` artık eksik vermedeki kısmi ters kaydı da doğrular ve **kaset rezervlerini**
 açık dağıtımların toplamıyla karşılaştırır (sızan ya da iki kez kapatılan rezervasyon fark olarak çıkar).
@@ -577,8 +584,8 @@ için sıkışma, eksik verme, bağlantı kopması ya da yanıt kaybını (işle
 anahtarla yeniden dener) oynatır. Belirsiz teslimler şeritte görünür ve oradan operatör çözümü verilir.
 
 **Sınırlar (dürüstçe):** Gerçek dağıtıcının sayaç/sensör bilgisi simüle edilir; sunucu eksik verme bildirimine güvenir ve
-bunu denetim kaydına ve kaset sayımına (mutabakat) bırakır. Operatör çözümü şimdilik tek kişilik komuttur ve yapan kişi
-loglanır; gerçek bankada dört göz (maker-checker) ister. Arduino donanımında dağıtıcı olmadığı için firmware yalnızca
+bunu denetim kaydına ve kaset sayımına (mutabakat) bırakır. Operatör çözümü dört gözlüdür (`NAKIT_COZ` yönetim talebi);
+yalnızca simülatör ve `NAKIT_COZ_TEK_KISI` açıkken tek kişilik yol vardır. Arduino donanımında dağıtıcı olmadığı için firmware yalnızca
 `A`/`H` bildirir (para sıkışması ve eksik verme simülatörde oynatılır).
 
 ## RBAC: roller ve yetkiler
@@ -630,6 +637,7 @@ yapılır: bir kullanıcı talep açar, işlemin ağırlığına göre BAŞKA ku
 | Müşteriye kart tanımla | 2 | Kart UID tekil, hesap başına en fazla 3 kart, müşterinin telefonu kayıtlı olmalı |
 | Müşteri kartının PIN'ini sıfırla | 2 | Müşterinin telefonu kayıtlı olmalı |
 | Müşteri telefonunu değiştir | 2 | Onaylayıcı yeni numarayı tam, eskisini maskeli görür |
+| Belirsiz nakit teslimini sonuçlandır | verildi 1, iade (verilmedi/kısmi) 2 | Teslim gerçekten belirsiz olmalı; onay anında yeniden doğrulanır, durum değiştiyse uygulanmaz |
 
 Koruyucu yönler (rol düşürme, pasif yapma, limit azaltma, terminal kapatma) az onay, genişletici yönler çok onay ister.
 Onay sayıları `YONETIM_ONAY_SAYILARI` ayarındadır.

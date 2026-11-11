@@ -160,6 +160,8 @@ YONETIM_ONAY_SAYILARI = {
     "GUNLUK_LIMIT_ARTIR": 2, "GUNLUK_LIMIT_AZALT": 1,
     "TERMINAL_AKTIF_ET": 2, "TERMINAL_PASIF_ET": 1,
     "KART_TANIMLA": 2, "KART_PIN_SIFIRLA": 2, "MUSTERI_TELEFON": 2,
+    # Belirsiz nakit teslimi: "verildi" para hareketi yaratmaz (1 onay); iade (VERILMEDI/KISMI) müşteriye para geri yazar (2 onay)
+    "NAKIT_COZ_VERILDI": 1, "NAKIT_COZ_IADE": 2,
 }
 MAKS_KART_SAYISI = 3                               # bir hesaba en fazla bu kadar kart tanimlanabilir
 YONETIM_TALEP_SURE_SAAT = 24
@@ -175,3 +177,6 @@ KART_MAC_ANAHTARI = os.environ.get("KART_MAC_ANAHTARI", "gelistirme-kart-mac-ana
 
 # Web ATM simulatoru (/simulator/): yalnizca gelistirme icin. Kapaliyken tum uclari 404 verir.
 SIMULATOR_AKTIF = _env_bool("SIMULATOR_AKTIF", DEBUG)
+# Belirsiz nakit teslimini TEK kişinin sonuçlandırmasına (nakit_coz --dogrudan) izin verir. Üretimde kapalı kalmalı:
+# yol, NAKIT_COZ yönetim talebidir (talep eden + başka onaylayan). Simülatör zaten ayrı bir geliştirme aracıdır.
+NAKIT_COZ_TEK_KISI = _env_bool("NAKIT_COZ_TEK_KISI", DEBUG)

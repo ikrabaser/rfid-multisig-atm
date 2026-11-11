@@ -6,7 +6,7 @@ boşa gider. Bu yüzden aşağıdaki işlemler doğrudan değiştirilemez; bir k
 ağırlığına göre 1-3 BAŞKA kullanıcı onaylar (checker), son onayda uygulanır:
 
     PERSONEL_EKLE, PERSONEL_ROL, PERSONEL_DURUM, PERSONEL_PIN_SIFIRLA, BLOKE_KALDIR, GUNLUK_LIMIT, TERMINAL_DURUM,
-    KART_TANIMLA, KART_PIN_SIFIRLA, MUSTERI_TELEFON
+    KART_TANIMLA, KART_PIN_SIFIRLA, MUSTERI_TELEFON, NAKIT_COZ
 
 Kurallar (politika değişikliğindekilerle aynı): talep eden kendi talebini onaylayamaz, aynı kullanıcı iki kez
 sayılmaz, herhangi bir onaylayan reddedebilir, süresi dolan talep düşer, aynı hedef için tek bekleyen talep olur.
@@ -31,16 +31,17 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
-from . import bildirim, bloke_butunlugu, kart_butunlugu, personel_butunlugu
+from . import bildirim, bloke_butunlugu, kart_butunlugu, nakit, personel_butunlugu, services
 from .hashlog import kayit_ekle
 from .kilit import zincir_kilidi
-from .models import Hesap, Kart, Musteri, Personel, Rol, Terminal, YonetimOyu, YonetimTalebi, uid_duzelt
+from .models import Hesap, Islem, Kart, Musteri, Personel, Rol, Terminal, YonetimOyu, YonetimTalebi, uid_duzelt
 
 T = YonetimTalebi.Tur
 UID_DESENI = re.compile(r"[0-9a-f]{8,20}")
 TELEFON_DESENI = re.compile(r"\+?\d{10,15}")
 PERSONEL_TURLERI = {T.PERSONEL_EKLE, T.PERSONEL_ROL, T.PERSONEL_DURUM, T.PERSONEL_PIN_SIFIRLA}
 KART_TURLERI = {T.KART_TANIMLA, T.KART_PIN_SIFIRLA}
+BAGLAMLI_TURLER = {T.NAKIT_COZ}   # uygulayici talebin kendisini de ister (yapan/onaylayanlar logda gorunsun)
 
 
 class YonetimHatasi(Exception):
@@ -418,6 +419,51 @@ def _uygula_musteri_telefon(veri):
     return {}
 
 
+def _hazirla_nakit_coz(ham):
+    """Belirsiz teslimi sonuçlandırma talebi. Yalnızca teslimi gerçekten belirsiz olan nakit çekme."""
+    islem_id = _int(ham.get("islem_id"), "İşlem no")
+    sonuc = str(ham.get("sonuc") or "").strip().upper()
+    if sonuc not in services.NAKIT_COZUM_SONUCLARI:
+        raise YonetimHatasi("Sonuç VERILDI, VERILMEDI ya da KISMI olmalı", "gecersiz")
+    islem = Islem.objects.filter(id=islem_id).first()
+    if (islem is None or islem.tur != Islem.Tur.CEKME or islem.durum != Islem.Durum.UYGULANDI
+            or not islem.teslim):
+        raise YonetimHatasi("Nakit çekme bulunamadı", "hedef")
+    if not services.belirsiz_mi(islem):
+        raise YonetimHatasi("Bu çekmenin teslimi belirsiz değil (bekleniyor ya da zaten sonuçlanmış)", "durum")
+    verilen = ""
+    if sonuc == "KISMI":
+        try:
+            plan = nakit.plan_coz(ham.get("verilen"))
+            planlanan = nakit.plan_coz(islem.dagitim_plani)
+        except nakit.NakitHatasi as e:
+            raise YonetimHatasi(e.mesaj, "gecersiz")
+        tutar = nakit.plan_tutari(plan)
+        if not plan or not nakit.plan_icinde_mi(plan, planlanan) or not (0 < tutar < islem.tutar):
+            raise YonetimHatasi("Fiilen verilen banknotlar planın içinde ve tutardan az olmalı (örn. 200x8)", "gecersiz")
+        verilen = nakit.plan_yaz(plan)
+    etiket = {"VERILDI": "para müşteriye gitti", "VERILMEDI": "hiç verilmedi (iade)",
+              "KISMI": f"eksik verildi: {verilen} (fark iade)"}[sonuc]
+    return {
+        "veri": {"islem_id": islem.id, "sonuc": sonuc, "verilen": verilen, "tutar": f"{islem.tutar:.2f}"},
+        "ozet": f"Nakit çekme #{islem.id} ({islem.tutar:,.2f} TL) sonuçlandır: {etiket}",
+        "gereken": _onay("NAKIT_COZ_VERILDI" if sonuc == "VERILDI" else "NAKIT_COZ_IADE"),
+        "hedef": f"nakit_coz:{islem.id}",
+    }
+
+
+def _uygula_nakit_coz(veri, talep):
+    onaylayanlar = sorted(o.kullanici.get_username()
+                          for o in talep.oylar.filter(karar=YonetimOyu.Karar.ONAY).select_related("kullanici"))
+    plan = nakit.plan_coz(veri["verilen"]) if veri["sonuc"] == "KISMI" else None
+    hata, ters, _ = services._nakit_coz_islemi(
+        veri["islem_id"], veri["sonuc"], f"talep#{talep.id}:{talep.talep_eden.get_username()}"[:60], talep.gerekce,
+        plan, ek={"talep_id": talep.id, "onaylayanlar": ",".join(onaylayanlar)})
+    if hata:
+        raise YonetimHatasi(hata[0], hata[1])
+    return {"ters_kayit": ters}
+
+
 ISLEYICILER = {
     T.PERSONEL_EKLE: (_hazirla_personel_ekle, _uygula_personel_ekle),
     T.PERSONEL_ROL: (_hazirla_personel_rol, _uygula_personel_rol),
@@ -429,6 +475,7 @@ ISLEYICILER = {
     T.KART_TANIMLA: (_hazirla_kart_tanimla, _uygula_kart_tanimla),
     T.KART_PIN_SIFIRLA: (_hazirla_kart_pin_sifirla, _uygula_kart_pin_sifirla),
     T.MUSTERI_TELEFON: (_hazirla_musteri_telefon, _uygula_musteri_telefon),
+    T.NAKIT_COZ: (_hazirla_nakit_coz, _uygula_nakit_coz),
 }
 
 
@@ -515,7 +562,7 @@ def _uygula(talep):
     veri = json.loads(talep.veri)
     hazirla, uygula = ISLEYICILER[talep.tur]
     hazirla(veri)  # durum talepten sonra degismis olabilir: yeniden dogrula
-    sonuc = uygula(veri)
+    sonuc = uygula(veri, talep) if talep.tur in BAGLAMLI_TURLER else uygula(veri)
     if personel_ilgili:
         personel_butunlugu.goruntu_kaydet(f"yonetim_talebi #{talep.id}", talep_id=talep.id)
     if kart_ilgili:
@@ -529,7 +576,7 @@ def oy_ver(talep_id, kullanici, karar):
         raise YonetimHatasi("Yönetim işlemini onaylama yetkiniz yok", "yetki")
     karar = YonetimOyu.Karar.RED if str(karar).upper() == "RED" else YonetimOyu.Karar.ONAY
     Durum = YonetimTalebi.Durum
-    hata, sonradan = None, []
+    hata, sonradan, ters_kayitlar = None, [], []
     with transaction.atomic():
         zincir_kilidi()
         talep = YonetimTalebi.objects.select_for_update().filter(id=talep_id).first()
@@ -559,11 +606,15 @@ def oy_ver(talep_id, kullanici, karar):
                         kayit_ekle("yonetim_talebi_uygulandi", {"talep_id": talep.id, "tur": talep.tur, "ozet": talep.ozet})
                         if sonuc.get("pin_ilet"):
                             sonradan.append(sonuc["pin_ilet"])
+                        if sonuc.get("ters_kayit"):
+                            ters_kayitlar.append(sonuc["ters_kayit"])
                     except YonetimHatasi as e:
                         _kapat(talep, Durum.BASARISIZ)
                         kayit_ekle("yonetim_talebi_uygulanamadi", {"talep_id": talep.id, "sebep": e.mesaj})
     for personel, pin, neden in sonradan:
         bildirim.pin_ilet(personel, pin, neden)  # commit sonrasi: PIN yalnizca yetkilinin kendi telefonuna
+    for ters in ters_kayitlar:
+        bildirim.ters_kayit(ters)  # commit sonrasi: musteriye iade bildirimi
     if hata:
         raise YonetimHatasi(*hata)
     talep.refresh_from_db()

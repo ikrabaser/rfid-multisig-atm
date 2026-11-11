@@ -538,10 +538,17 @@ def _teslim_alindi(islem, planlanan, olay="teslim_onayi"):
     kayit_ekle(olay, {"islem_id": islem.id})
 
 
+def belirsiz_mi(islem):
+    """Teslimi BELIRSIZ olan ya da teslim penceresi dolmus ve sonucu gelmemis cekme mi? (yazmaz)"""
+    T = Islem.Teslim
+    return islem.teslim == T.BELIRSIZ or (
+        islem.teslim == T.BEKLIYOR and bool(islem.tamamlanma)
+        and simdi() - islem.tamamlanma > timedelta(seconds=settings.TESLIM_PENCERESI_SN))
+
+
 def _belirsiz_isaretle(islem):
     """Teslim penceresi gecmis ve sonuc gelmemis cekmeyi BELIRSIZ yapar (islem kilitliyken)."""
-    if (islem.teslim == Islem.Teslim.BEKLIYOR and islem.tamamlanma
-            and simdi() - islem.tamamlanma > timedelta(seconds=settings.TESLIM_PENCERESI_SN)):
+    if islem.teslim == Islem.Teslim.BEKLIYOR and belirsiz_mi(islem):
         islem.teslim = Islem.Teslim.BELIRSIZ
         islem.save(update_fields=["teslim"])
         kayit_ekle("teslim_belirsiz_isaretlendi", {"islem_id": islem.id, "terminal": islem.terminal})
@@ -688,15 +695,46 @@ def belirsizleri_isaretle():
 NAKIT_COZUM_SONUCLARI = {"VERILDI", "VERILMEDI", "KISMI"}
 
 
-@kilit.yeniden_dene
-def nakit_coz(islem_id, sonuc, yapan, neden, verilen=None):
-    """Teslimi BELIRSIZ kalan nakit cekmeyi, operator kasetleri/kasayi SAYDIKTAN sonra sonuclandirir.
+def _nakit_coz_islemi(islem_id, sonuc, yapan, neden, verilen_plan, ek=None):
+    """Belirsiz teslimi sonuclandirir. transaction.atomic() icinde ve zincir kilidi alinmis olarak cagrilir.
 
-    sonuc: VERILDI (para musteriye gitti) | VERILMEDI (hic dagitilmadi; banknotlar kasette) |
-           KISMI (verilen = fiilen cikan banknotlar, fark iade edilir; kalanlar iade kutusuna).
-    yapan ve neden (en az 5 karakter) zorunludur ve hash zincirine yazilir. Bu, dort goz (maker-checker)
-    akisina baglanabilecek tek noktadir.
+    (hata, ters, cevap) doner; hata (mesaj, kod) ise hicbir sonuc uygulanmamistir (yalnizca BELIRSIZ isareti
+    yazilmis olabilir). `ek`, 'nakit_cozuldu' log kaydina eklenir (dort goz talebi ve onaylayanlar gibi).
     """
+    T = Islem.Teslim
+    hata, ters, cevap = None, None, None
+    islem = Islem.objects.select_for_update().select_related("hesap").filter(id=islem_id).first()
+    if islem is None or islem.tur != Islem.Tur.CEKME or islem.durum != Islem.Durum.UYGULANDI or not islem.teslim:
+        return ("İşlem bulunamadı ya da nakit çekme değil", "yok"), None, None
+    _belirsiz_isaretle(islem)
+    if islem.teslim == T.BEKLIYOR:
+        return ("Teslim hâlâ bekleniyor; süre dolunca çözülebilir", "bekliyor"), None, None
+    if islem.teslim != T.BELIRSIZ:
+        return ("Bu işlem zaten sonuçlanmış", "sonuclanmis"), None, None
+    planlanan = nakit.plan_coz(islem.dagitim_plani)
+    if sonuc == "VERILDI":
+        _teslim_alindi(islem, planlanan, olay="teslim_operator_onayi")
+    elif sonuc == "VERILMEDI":
+        _stok_isle(islem, planlanan, verilen={}, kutuya={}, kasete_geri=planlanan)
+        ters = _ters_kayit_uygula(islem, "OPERATOR_VERILMEDI")
+    else:
+        verilen_tutar = nakit.plan_tutari(verilen_plan or {})
+        if (not verilen_plan or not nakit.plan_icinde_mi(verilen_plan, planlanan)
+                or not (0 < verilen_tutar < islem.tutar)):
+            return ("Geçersiz eksik verme bildirimi", "plan"), None, None
+        iade = islem.tutar - Decimal(verilen_tutar)
+        _stok_isle(islem, planlanan, verilen=verilen_plan, kutuya=nakit.plan_cikar(planlanan, verilen_plan))
+        islem.verilen_plani = nakit.plan_yaz(verilen_plan)
+        islem.iade_tutari = iade
+        ters = _ters_kayit_uygula(islem, "OPERATOR_KISMI", tutar=iade, teslim=T.KISMI)
+    kayit_ekle("nakit_cozuldu", {"islem_id": islem.id, "sonuc": sonuc, "yapan": yapan[:60],
+                                 "neden": neden[:200], "verilen": islem.verilen_plani, **(ek or {})})
+    cevap = _teslim_cevabi(islem)
+    return hata, ters, cevap
+
+
+def nakit_coz_girdisi(islem_id, sonuc, yapan, neden, verilen=None):
+    """nakit_coz girdilerini dogrular; (islem_id, sonuc, yapan, neden, verilen_plan) doner."""
     sonuc = str(sonuc).upper()
     if sonuc not in NAKIT_COZUM_SONUCLARI:
         raise IslemHatasi("Geçersiz sonuç", "sonuc")
@@ -713,43 +751,24 @@ def nakit_coz(islem_id, sonuc, yapan, neden, verilen=None):
             verilen_plan = nakit.plan_coz(verilen)
         except nakit.NakitHatasi as e:
             raise IslemHatasi(e.mesaj, e.kod)
+    return islem_id, sonuc, yapan, neden, verilen_plan
 
-    T = Islem.Teslim
-    hata, ters, cevap = None, None, None
+
+@kilit.yeniden_dene
+def nakit_coz(islem_id, sonuc, yapan, neden, verilen=None):
+    """Teslimi BELIRSIZ kalan nakit cekmeyi, operator kasetleri/kasayi SAYDIKTAN sonra TEK KISI sonuclandirir.
+
+    sonuc: VERILDI (para musteriye gitti) | VERILMEDI (hic dagitilmadi; banknotlar kasette) |
+           KISMI (verilen = fiilen cikan banknotlar, fark iade edilir; kalanlar iade kutusuna).
+    yapan ve neden (en az 5 karakter) zorunludur ve hash zincirine yazilir.
+
+    DIKKAT: tek kisilik yoldur (simulator ve acil durum icin). Uretimde yol, NAKIT_COZ yonetim talebidir
+    (yonetim_talepleri): talep eden + baska onaylayan(lar). Ayni cekirdegi (_nakit_coz_islemi) kullanir.
+    """
+    islem_id, sonuc, yapan, neden, verilen_plan = nakit_coz_girdisi(islem_id, sonuc, yapan, neden, verilen)
     with transaction.atomic():
         kilit.zincir_kilidi()
-        islem = Islem.objects.select_for_update().select_related("hesap").filter(id=islem_id).first()
-        if islem is None or islem.tur != Islem.Tur.CEKME or islem.durum != Islem.Durum.UYGULANDI or not islem.teslim:
-            hata = ("İşlem bulunamadı ya da nakit çekme değil", "yok")
-        else:
-            _belirsiz_isaretle(islem)
-            if islem.teslim == T.BEKLIYOR:
-                hata = ("Teslim hâlâ bekleniyor; süre dolunca çözülebilir", "bekliyor")
-            elif islem.teslim != T.BELIRSIZ:
-                hata = ("Bu işlem zaten sonuçlanmış", "sonuclanmis")
-        if hata is None:
-            planlanan = nakit.plan_coz(islem.dagitim_plani)
-            if sonuc == "VERILDI":
-                _teslim_alindi(islem, planlanan, olay="teslim_operator_onayi")
-            elif sonuc == "VERILMEDI":
-                _stok_isle(islem, planlanan, verilen={}, kutuya={}, kasete_geri=planlanan)
-                ters = _ters_kayit_uygula(islem, "OPERATOR_VERILMEDI")
-            else:
-                verilen_tutar = nakit.plan_tutari(verilen_plan or {})
-                if (not verilen_plan or not nakit.plan_icinde_mi(verilen_plan, planlanan)
-                        or not (0 < verilen_tutar < islem.tutar)):
-                    hata = ("Geçersiz eksik verme bildirimi", "plan")
-                else:
-                    iade = islem.tutar - Decimal(verilen_tutar)
-                    _stok_isle(islem, planlanan, verilen=verilen_plan,
-                               kutuya=nakit.plan_cikar(planlanan, verilen_plan))
-                    islem.verilen_plani = nakit.plan_yaz(verilen_plan)
-                    islem.iade_tutari = iade
-                    ters = _ters_kayit_uygula(islem, "OPERATOR_KISMI", tutar=iade, teslim=T.KISMI)
-            if hata is None:
-                kayit_ekle("nakit_cozuldu", {"islem_id": islem.id, "sonuc": sonuc, "yapan": yapan[:60],
-                                             "neden": neden[:200], "verilen": islem.verilen_plani})
-                cevap = _teslim_cevabi(islem)
+        hata, ters, cevap = _nakit_coz_islemi(islem_id, sonuc, yapan, neden, verilen_plan)
     if hata:
         raise IslemHatasi(*hata)
     if ters:

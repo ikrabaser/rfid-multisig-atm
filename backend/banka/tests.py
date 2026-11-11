@@ -3202,15 +3202,148 @@ class DagitimHataTestleri(NakitYardimci, TestCase):
             services.nakit_coz(yatirma["islem_id"], "VERILDI", "Ali Teknisyen", "sayim yapildi")
         self.assertEqual(e.exception.kod, "yok")
 
-    def test_nakit_coz_komutu(self):
+    @override_settings(NAKIT_COZ_TEK_KISI=True)
+    def test_nakit_coz_komutu_dogrudan_yol_yalniz_ayar_aciksa(self):
         r = self.belirsiz_cekim("2000")
         cikti = io.StringIO()
         call_command("nakit_durumu", stdout=cikti)
         self.assertIn("nakit_coz", cikti.getvalue())   # belirsiz çekme listelenir ve yol gösterilir
-        call_command("nakit_coz", "--islem", str(r["islem_id"]), "--sonuc", "VERILMEDI", "--yapan", "Ali Teknisyen",
-                     "--neden", "Kaset sayimi tamam", stdout=cikti)
+        call_command("nakit_coz", "--dogrudan", "--islem", str(r["islem_id"]), "--sonuc", "VERILMEDI",
+                     "--yapan", "Ali Teknisyen", "--neden", "Kaset sayimi tamam", stdout=cikti)
         self.assertIn("sonuçlandı", cikti.getvalue())
         self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+
+    @override_settings(NAKIT_COZ_TEK_KISI=False)
+    def test_nakit_coz_komutu_tek_kisiye_kapali_talep_acar(self):
+        r = self.belirsiz_cekim("2000")
+        cikti = io.StringIO()
+        with self.assertRaises(CommandError):   # tek kişilik yol kapalı
+            call_command("nakit_coz", "--dogrudan", "--islem", str(r["islem_id"]), "--sonuc", "VERILMEDI",
+                         "--yapan", "Ali Teknisyen", "--neden", "Kaset sayimi tamam", stdout=cikti)
+        with self.assertRaises(CommandError):   # talep eden şart
+            call_command("nakit_coz", "--islem", str(r["islem_id"]), "--sonuc", "VERILMEDI", stdout=cikti)
+        call_command("nakit_coz", "--islem", str(r["islem_id"]), "--sonuc", "VERILMEDI", "--talep-eden", "yonetim_talep",
+                     "--gerekce", "Kaset sayimi: banknotlar yerinde", stdout=cikti)
+        self.assertIn("Henüz hiçbir işlem yapılmadı", cikti.getvalue())
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BELIRSIZ")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))
+        self.assertEqual(YonetimTalebi.objects.get(tur="NAKIT_COZ").durum, "BEKLIYOR")
+
+
+@override_settings(MESAI_DISI_KURALI=False)
+class NakitCozDortGozTestleri(NakitYardimci, TestCase):
+    """Belirsiz teslimi sonuçlandırmak tek kişilik değildir: talep eden + başka onaylayan(lar) (maker-checker)."""
+
+    def setUp(self):
+        self.hazirla()
+        U = get_user_model()
+        self.maker = U.objects.get(username="yonetim_talep")
+        self.c1, self.c2 = (U.objects.get(username=f"yonetim_onay{i}") for i in (1, 2))
+
+    def talep(self, islem_id, sonuc, verilen="", kullanici=None):
+        return yonetim_talepleri.talep_olustur(
+            kullanici or self.maker, "NAKIT_COZ", {"islem_id": islem_id, "sonuc": sonuc, "verilen": verilen}, GEREKCE)
+
+    def test_verildi_bir_onayla_sonuclanir_ve_log_onaylayani_yazar(self):
+        r = self.belirsiz_cekim("2000")
+        t = self.talep(r["islem_id"], "VERILDI")
+        self.assertEqual(t.gereken_onay, 1)
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BELIRSIZ")   # talep açmak hiçbir şeyi değiştirmez
+        t = yonetim_talepleri.oy_ver(t.id, self.c1, "ONAY")
+        self.assertEqual(t.durum, "UYGULANDI")
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "ALINDI")
+        olay = json.loads(LogKaydi.objects.filter(olay_turu="nakit_cozuldu").get().veri)
+        self.assertEqual((olay["sonuc"], olay["talep_id"], olay["onaylayanlar"]), ("VERILDI", t.id, "yonetim_onay1"))
+        self.assertEqual(olay["yapan"], f"talep#{t.id}:yonetim_talep")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    def test_iade_iki_onay_ister_ve_iade_son_onayda_yazilir(self):
+        r = self.belirsiz_cekim("2000")
+        t = self.talep(r["islem_id"], "VERILMEDI")
+        self.assertEqual(t.gereken_onay, 2)
+        t = yonetim_talepleri.oy_ver(t.id, self.c1, "ONAY")
+        self.assertEqual(t.durum, "BEKLIYOR")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))               # henüz iade yok
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BELIRSIZ")
+        t = yonetim_talepleri.oy_ver(t.id, self.c2, "ONAY")
+        self.assertEqual(t.durum, "UYGULANDI")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertEqual(self.kaset(200).rezerve, 0)
+        olay = json.loads(LogKaydi.objects.filter(olay_turu="nakit_cozuldu").get().veri)
+        self.assertEqual(olay["onaylayanlar"], "yonetim_onay1,yonetim_onay2")
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_kismi_eksik_verme_farki_iade_eder(self):
+        r = self.belirsiz_cekim("2000")
+        t = self.talep(r["islem_id"], "KISMI", "200x8")
+        t = self.talep_onayla(t, self.c1, self.c2)
+        self.assertEqual(t.durum, "UYGULANDI")
+        o = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual((o.teslim, o.verilen_plani, o.iade_tutari), ("KISMI", "200x8", Decimal("400.00")))
+        self.assertEqual(self.yenile(self.ali), Decimal("998400.00"))
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def talep_onayla(self, t, *kullanicilar):
+        for k in kullanicilar:
+            t = yonetim_talepleri.oy_ver(t.id, k, "ONAY")
+        return t
+
+    def test_talep_eden_kendi_talebini_onaylayamaz_red_hicbir_sey_degistirmez(self):
+        r = self.belirsiz_cekim("2000")
+        from django.contrib.auth.models import Permission
+        self.c1.user_permissions.add(Permission.objects.get(codename="yonetim_talep_et"))
+        c1 = get_user_model().objects.get(pk=self.c1.pk)   # izin önbelleği tazelensin
+        t = self.talep(r["islem_id"], "VERILMEDI", kullanici=c1)
+        with self.assertRaises(YonetimHatasi) as e:
+            yonetim_talepleri.oy_ver(t.id, c1, "ONAY")
+        self.assertEqual(e.exception.kod, "kendi_talebi")
+        t = yonetim_talepleri.oy_ver(t.id, self.c2, "RED")
+        self.assertEqual(t.durum, "REDDEDILDI")
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).teslim, "BELIRSIZ")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))
+        self.assertFalse(LogKaydi.objects.filter(olay_turu="nakit_cozuldu").exists())
+
+    def test_belirsiz_olmayan_ya_da_gecersiz_talep_reddedilir(self):
+        r = self.cek("2000")   # teslim hâlâ bekleniyor
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep(r["islem_id"], "VERILDI")
+        self.assertEqual(e.exception.kod, "durum")
+        b = self.belirsiz_cekim("1000")
+        for sonuc, verilen in (("BELKI", ""), ("KISMI", ""), ("KISMI", "200x5"), ("KISMI", "100x10"), ("KISMI", "200x10")):
+            with self.assertRaises(YonetimHatasi, msg=(sonuc, verilen)):
+                self.talep(b["islem_id"], sonuc, verilen)
+        with self.assertRaises(YonetimHatasi):
+            self.talep(999999, "VERILDI")
+
+    def test_ayni_islem_icin_tek_bekleyen_talep(self):
+        r = self.belirsiz_cekim("2000")
+        self.talep(r["islem_id"], "VERILDI")
+        with self.assertRaises(YonetimHatasi) as e:
+            self.talep(r["islem_id"], "VERILMEDI")
+        self.assertEqual(e.exception.kod, "cakisan")
+
+    def test_talep_sonrasi_durum_degisirse_uygulanmaz(self):
+        r = self.belirsiz_cekim("2000")
+        t = self.talep(r["islem_id"], "VERILMEDI")
+        services.nakit_coz(r["islem_id"], "VERILDI", "Ali Teknisyen", "Acil sayim: banknot gitmis")   # araya giren çözüm
+        t = self.talep_onayla(t, self.c1, self.c2)
+        self.assertEqual(t.durum, "BASARISIZ")
+        self.assertEqual(self.yenile(self.ali), Decimal("998000.00"))   # çifte işlem yok
+        self.assertEqual(Islem.objects.filter(tur="TERS_KAYIT").count(), 0)
+
+    def test_admin_formundan_talep_acilir(self):
+        r = self.belirsiz_cekim("2000")
+        self.maker.is_staff = True
+        self.maker.save()
+        self.client.force_login(self.maker)
+        cevap = self.client.post("/admin/banka/yonetimtalebi/add/", {
+            "tur": "NAKIT_COZ", "gerekce": GEREKCE, "hedef_no": str(r["islem_id"]), "deger": "KISMI",
+            "verilen": "200x9"})
+        self.assertEqual(cevap.status_code, 302, getattr(cevap, "context", None) and cevap.context["adminform"].form.errors)
+        t = YonetimTalebi.objects.get(tur="NAKIT_COZ")
+        self.assertEqual((t.durum, t.gereken_onay, t.hedef), ("BEKLIYOR", 2, f"nakit_coz:{r['islem_id']}"))
 
 
 @override_settings(MESAI_DISI_KURALI=False)

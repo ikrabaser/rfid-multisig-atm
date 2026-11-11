@@ -21,6 +21,6 @@ class Command(BaseCommand):
             w(f"   kullanılabilir nakit: {toplam:,} TL")
         belirsiz = Islem.objects.filter(tur=Islem.Tur.CEKME, durum=Islem.Durum.UYGULANDI, teslim=Islem.Teslim.BELIRSIZ)
         if belirsiz:
-            w(self.style.WARNING("Teslimi BELİRSİZ nakit çekmeler (kasetleri sayıp 'nakit_coz' ile sonuçlandırın):"))
+            w(self.style.WARNING("Teslimi BELİRSİZ nakit çekmeler (kasetleri sayıp 'nakit_coz' ile dört göz talebi açın):"))
             for i in belirsiz:
                 w(f"   işlem #{i.id}  {i.tutar} TL  terminal {i.terminal or '-'}  plan {i.dagitim_plani or '-'}")

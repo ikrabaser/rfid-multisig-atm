@@ -48,7 +48,7 @@ yapılmaz, yalnızca denetim günlüğü biriktirilir ve bağlantı gelince yük
 - Para dağıtıcı donanımı yoktur; sıkışma ve eksik verme simülatörde oynatılır, sunucu terminalin bildirimine güvenir ve
   bunu kaset sayımına (mutabakat) bırakır.
 - Hash zinciri tek sıralı olduğu için yazan işlemler sıraya girer: doğruluk için bilinçli bir takas, yatay ölçeklemeyi sınırlar.
-- Operatör çözümü (`nakit_coz`) tek kişilik bir komuttur; gerçek bankada dört göz ister.
+- Simülatörün operatör düğmeleri ve `nakit_coz --dogrudan` tek kişilik geliştirme yoludur; gerçek yol dört gözlü `NAKIT_COZ` talebidir.
 - Yük testi yapılmadı; eşzamanlılık testleri küçük ölçekli yarış testleridir.
 
 ## Çalıştırma

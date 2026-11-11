@@ -260,18 +260,22 @@ def _ham(veri):
         return {"kart_id": veri.get("hedef_no")}
     if tur == T.MUSTERI_TELEFON:
         return {"musteri_id": veri.get("hedef_no"), "yeni_telefon": veri.get("telefon")}
+    if tur == T.NAKIT_COZ:
+        return {"islem_id": veri.get("hedef_no"), "sonuc": veri.get("deger"), "verilen": veri.get("verilen")}
     return {"kod": veri.get("hedef_no"), "aktif": veri.get("deger")}  # TERMINAL_DURUM
 
 
 class YonetimTalebiFormu(forms.ModelForm):
     hedef_no = forms.CharField(label="Hedef", required=False,
-                               help_text="Personel no / kart no / hesap no / müşteri no / terminal kodu")
+                               help_text="Personel no / kart no / hesap no / müşteri no / terminal kodu / nakit çekme işlem no")
     hedef_turu = forms.ChoiceField(label="Hedef türü (yalnızca bloke kaldırma)", required=False,
                                    choices=[("", "—"), ("personel", "Yetkili"), ("kart", "Müşteri kartı")])
     deger = forms.CharField(label="Yeni değer", required=False,
-                            help_text="Rol 1-3 / aktif ya da pasif / günlük limit (TL)")
+                            help_text="Rol 1-3 / aktif ya da pasif / günlük limit (TL) / nakit çözümü: VERILDI, VERILMEDI ya da KISMI")
     ad = forms.CharField(label="Ad (yeni yetkili)", required=False)
     kart_uid = forms.CharField(label="Kart UID (yeni yetkili ya da yeni müşteri kartı)", required=False)
+    verilen = forms.CharField(label="Fiilen verilen banknotlar (yalnızca nakit çözümü, KISMI)", required=False,
+                              help_text="Örn. 200x8 ya da 200x8+100x2")
     eposta = forms.EmailField(label="E-posta (yeni yetkili)", required=False)
     telefon = forms.CharField(label="Telefon (yeni yetkili ya da müşteri)", required=False,
                               help_text="Yeni yetkilide ilk PIN bu telefona gider; hiçbir ekranda gösterilmez.")
