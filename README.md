@@ -417,7 +417,36 @@ sequenceDiagram
   idempotency anahtarıyla tekrar dener.
 - Dosya 1000 satırı geçmez (en eskiler atılır).
 
-Çevrimdışıyken bile işlem yapılabilen bir "stand-in" mod (önceden yetkilendirilmiş küçük limit) bilinçli olarak yok; bkz. sıradaki fikirler.
+Çevrimdışıyken bile işlem yapılabilen bir "stand-in" mod (önceden yetkilendirilmiş küçük limit) **henüz yok**; tasarım taslağı aşağıda.
+
+### Tasarım taslağı: stand-in mod (uygulanmadı)
+
+Gerçek bankalarda "stand-in processing": ATM sunucuya ulaşamazken, sunucunun önceden verdiği küçük bir yetkiyle işlem yapar.
+Risk, baştan kabul edilmiş tavan sınırlarla çevrelenir.
+
+**Akış**
+
+1. Sunucu çevrimiçiyken terminale kısa ömürlü, HMAC imzalı bir **stand-in belgesi** verir: terminal kodu, geçerlilik süresi,
+   işlem başına limit, terminal toplam limiti, kart başına çevrimdışı günlük limit (ör. 500 TL / 3.000 TL / 1.000 TL).
+2. Sunucu kapanırsa köprü belgeyi kullanır; yalnızca **imzalı kartla** ("İmzalı kart" bölümü)
+   ve belge limitleri içinde nakit çekime izin verir. Sayaç ve harcama toplamı köprüde tutulur, işlem kuyruğa yazılır.
+3. Sunucu dönünce kuyruk, idempotency anahtarlarıyla sırayla yüklenir ve deftere işlenir. Bakiye yetmeyen işlem
+   "risk üstlenildi" olarak işaretlenir (hesap eksiye düşebilir), anomali olarak raporlanır ve müşteriye bildirilir.
+4. Belge süresi dolarsa ya da toplam limit biterse terminal yine "Sunucu kapali" der.
+
+**Açık sorunlar ve kararlar**
+
+| Sorun | Taslak karar |
+|---|---|
+| Çevrimdışı PIN doğrulanamaz (doğrulayıcı yalnızca sunucuda) | PIN'i terminale koymuyoruz. Çevrimdışıyken PIN yerine imzalı kart + düşük limit; gerçek çözüm EMV'deki çevrimdışı PIN (çipli kart) |
+| Aynı kart iki terminalde çevrimdışı harcayabilir (çift harcama) | Kart başına çevrimdışı limit belgede, sayaç terminal başına; yükleme sırasında aşım tespit edilip kayda geçer. Tamamen kapanmaz, limit riski sınırlar |
+| Terminalin zamanı güvenilmez | Belgenin süresi sunucu zamanıyla verilir; yüklenen satırlar `zaman_guvenilir` mantığıyla işaretlenir |
+| Köprüdeki belge çalınabilir | Belge yalnızca o terminale ve kısa süreliğine geçerli; sunucu belgeyi iptal listesine alabilir, yükleme sırasında doğrular |
+| Yükleme tekrarı ya da çift gönderim | Her çevrimdışı işlemin benzersiz kimliği ve idempotency anahtarı var; sunucu bir kez uygular |
+| Çevrimdışı işlemin hash zincirine eklenmesi | Zincire yükleme anında eklenir; orijinal terminal zamanı ayrı alanda tutulur |
+
+**Uygulanırsa:** `StandInBelgesi` modeli ve imzası, köprüde belge/limit/kuyruk, `/api/standin/` (belge al, işlemleri yükle),
+anomali kuralı (aşım, risk üstlenilen işlem), simülatörde "sunucuyu kes" düğmesi ve testler.
 
 ## Bildirimler
 
@@ -968,6 +997,6 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 1. Kullanıcı ve grup yönetimini de onaya bağlamak.
 2. Elle ters kayıt (dört göz ile).
 3. İmzalı kartın gerçek donanımda çalışması: PN532 okuyucu + NTAG 424 DNA ve Arduino tarafında SDM okuma.
-4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir.
+4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir (tasarım taslağı "Çevrimdışı davranış" bölümünde).
 5. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
 6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
