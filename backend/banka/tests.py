@@ -416,9 +416,9 @@ class WebGirisTestleri(TestCase):
         self.assertEqual(self.c.get("/giris/?next=/").status_code, 200)   # yönlendirme döngüsü yok
         self.c.post("/cikis/")
         r = self.giris(next="https://kotu.example/")
-        self.assertEqual(r["Location"], "/")                              # dış adrese yönlendirme yok
+        self.assertEqual(r["Location"], settings.LOGIN_REDIRECT_URL)                          # dış adrese yönlendirme yok
         r = self.giris(next="//kotu.example/x")
-        self.assertEqual(r["Location"], "/")
+        self.assertEqual(r["Location"], settings.LOGIN_REDIRECT_URL)
 
     def test_cikis_yalniz_post_ve_oturumu_kapatir(self):
         self.giris()
