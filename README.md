@@ -177,7 +177,9 @@ Arduino pini kilidi süremez. 5V röle modülü araya girer, kilit **ayrı 12V a
 
 ## Terminal ekranları
 
-16x2 LCD'de görünen ekranlar (metinler `atm_terminal.ino` içindekilerle aynı):
+16x2 LCD'de görünen ekranlar. 1-10, 12, 17 ve 18 numaralı ekranlar `atm_terminal.ino` ile simülatörde aynıdır; 11 ve 13-16 numaralı
+para dağıtıcı ekranları (sayım, sıkışma, eksik verme, bağlantı kopması) yalnızca simülatörde oynatılır, çünkü Arduino'da dağıtıcı donanımı yoktur.
+Görsel `python docs/lcd_uret.py` ile üretilir:
 
 ![Terminal LCD ekranları](docs/lcd-ekranlari.svg)
 
