@@ -92,7 +92,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "/giris/"          # kendi giris sayfamiz (banka/webgiris.py); /admin/login/ da buraya yonlendirilir
-LOGIN_REDIRECT_URL = "/admin/"
+LOGIN_REDIRECT_URL = "/"
 
 # Web girisi: hatali deneme siniri (hash zincirinden sayilir), bosta kalma suresi, parola kurallari
 GIRIS_MAKS_HATA = _env_int("GIRIS_MAKS_HATA", 5, 3, 50)           # kullanici adi basina, pencere icinde

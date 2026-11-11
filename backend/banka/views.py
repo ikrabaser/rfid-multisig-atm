@@ -13,7 +13,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from . import anomali, kart_butunlugu, personel_butunlugu, politika_degisikligi, services, simulator, webgiris
+from . import dashboard_data, anomali, kart_butunlugu, personel_butunlugu, politika_degisikligi, services, simulator, webgiris
 from .hashlog import zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, LogKaydi, OnayTalebi, PolitikaDegisikligi,
                      Terminal, YonetimTalebi)
@@ -113,6 +113,7 @@ def panel(request):
         }[kart_butunlugu.durum()],
         "terminaller": Terminal.objects.all(),
     }
+    baglam.update(dashboard_data.panel_ozeti(baglam["anomaliler"]))
     return render(request, "banka/panel.html", baglam)
 
 
