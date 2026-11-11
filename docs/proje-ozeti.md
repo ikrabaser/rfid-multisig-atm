@@ -37,7 +37,7 @@ yapılmaz, yalnızca denetim günlüğü biriktirilir ve bağlantı gelince yük
 
 ## Nasıl doğrulandı
 
-- **363 Python testi** (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
+- **381 Python testi** (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
   banknot stoğu, idempotency ve 3 yanlış PIN sınırı aşılamıyor, zincir bozulmuyor).
 - **27 JavaScript akış testi** (simülatörün ekran akışı, sahte sunucuya karşı, Windows zamanlayıcısı taklit edilerek de).
 - Banknot bölme algoritması, rastgele stok ve tutarlarda kaba kuvvet çözümüyle karşılaştırıldı.
@@ -71,7 +71,7 @@ Ayrıntılar ve tüm kurallar için [README](../README.md).
   HMAC'li hash zincirli denetim logu, maker-checker ve RBAC.
 - Nakit çekimde banknot stoğu, sıkışma/eksik verme/bağlantı kopması yönetimi ve PostgreSQL üzerinde eşzamanlılık güvenceleri
   (satır ve danışma kilitleri, idempotency, deadlock'ta yeniden deneme) tasarlayıp gerçek thread'li testlerle doğruladım.
-- 363 Python ve 27 JavaScript testi; tarayıcıda çalışan, hata enjeksiyonlu Web ATM simülatörü.
+- 381 Python ve 27 JavaScript testi; tarayıcıda çalışan, hata enjeksiyonlu Web ATM simülatörü.
 
 **English**
 
@@ -79,4 +79,4 @@ Ayrıntılar ve tüm kurallar için [README](../README.md).
   N-of-M approvals, an HMAC hash-chained audit log, maker-checker and RBAC.
 - Designed banknote inventory handling for cash withdrawals, including safe recovery from jams, short dispenses and lost
   connections, and PostgreSQL concurrency guarantees (row and advisory locks, idempotency, deadlock retry), verified with real-thread tests.
-- 363 Python and 27 JavaScript tests; a browser-based ATM simulator with fault injection.
+- 381 Python and 27 JavaScript tests; a browser-based ATM simulator with fault injection.

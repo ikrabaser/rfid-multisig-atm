@@ -79,6 +79,8 @@ def talep_acildi(talep):
         metin = (f"{islem.get_tur_display()} {tl(islem.tutar)}, hesap {islem.hesap.hesap_no}. "
                  f"{talep.gereken_onay} onay gerekli (en az biri: {rol_adi}). "
                  f"{son} sn içinde terminalde kartınızı okutun.")
+        if islem.risk_skoru:
+            metin += f" Risk skoru {islem.risk_skoru}: {islem.risk_notu}"
     return yetkililere_bildir("talep_acildi", konu, metin, talep.id, haric_uid=islem.baslatan_uid)
 
 
@@ -197,6 +199,22 @@ def pin_ilet(personel, pin, neden):
         )
     except Exception:
         log.exception("PIN iletimi kaydedilemedi")
+
+
+def risk_reddi(musteri, bloke):
+    """Risk motoru işlemi reddedince (ya da kartı bloke edince) müşterinin kendi telefonuna haber verir."""
+    if not musteri or not musteri.telefon:
+        return
+    metin = ("Hesabınızda şüpheli bir işlem denemesi tespit edildi ve kartınız bloke edildi. Şubeye başvurun."
+             if bloke else "Hesabınızda şüpheli bir işlem denemesi reddedildi. Siz yapmadıysanız hemen şubeyi arayın.")
+    try:
+        sms.gonder(musteri.telefon, metin)
+        Bildirim.objects.create(
+            kanal=Bildirim.Kanal.SMS, durum=Bildirim.Durum.SIMULASYON, alici=musteri.ad, adres=musteri.telefon,
+            konu="Şüpheli işlem" + (" (kart bloke)" if bloke else ""), metin=metin, olay="risk_reddi",
+        )
+    except Exception:
+        log.exception("Risk bildirimi kaydedilemedi")
 
 
 def pin_degisti(musteri):

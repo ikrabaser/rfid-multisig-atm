@@ -191,6 +191,8 @@ class Islem(models.Model):
         verbose_name="Ters kaydedilen işlem",
     )
     ters_neden = models.CharField(max_length=20, blank=True, default="")
+    risk_skoru = models.PositiveSmallIntegerField("Risk skoru", default=0, help_text="Satır içi risk motoru (risk.py)")
+    risk_notu = models.CharField("Risk gerekçesi", max_length=200, blank=True, default="")
     dagitim_plani = models.CharField(
         "Dağıtım planı", max_length=80, blank=True, default="",
         help_text="Nakit çekmede planlanan banknotlar, örn. 200x8+100x2",

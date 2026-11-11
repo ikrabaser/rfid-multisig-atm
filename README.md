@@ -44,6 +44,7 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Hassas yönetim işlemleri için maker-checker** (yetkili ekleme, rol, PIN, bloke, limit, terminal) | `yonetim_talepleri.py` | admin → Yönetim talepleri |
 | **Web girişi**: hatalı deneme sınırı (kullanıcı ve IP başına, hash zincirinden sayılır), boşta oturum sonu, parola değiştirme, `/admin/login/` yan kapısı yok | `webgiris.py` | `/giris/` |
 | **Müşteri PIN'ini terminalde kendisi değiştirir** (menüde `#`): açık oturum + eski PIN yeniden doğrulanır, yeni PIN iki kez girilir, mühür yenilenir, müşteriye SMS ile haber verilir | `services.pin_degistir` | simülatör: giriş → `#` |
+| **Satır içi risk motoru**: çekme/havale uygulanmadan önce puanlanır; puana göre geçer, ek onay ister, reddedilir ya da kart bloke edilir; karar nedenleriyle zincire yazılır | `risk.py` | simülatör: farklı terminallerde aynı kart + hatalı PIN |
 | **İmzalı kart (simülasyon)**: NTAG 424 DNA mantığı; kartın çipi her okutmada artan sayaç + MAC üretir, sunucu doğrular, klon ve tekrar oynatma reddedilir | `kart_imzasi.py` | simülatör: "Kart okutma türü" seçicisi |
 | **Müşteri kartı ve PIN'i maker-checker'da**: kart tanımlama, PIN sıfırlama, telefon; PIN müşterinin telefonuna gider | `yonetim_talepleri.py` | admin → Yönetim talepleri |
 | **Kart bütünlüğü**: satır başına HMAC mührü, sahte/değiştirilmiş kart yalnızca kendisi kapanır, ölçeklenir | `kart_butunlugu.py` | `python manage.py kart_goruntu_al` |
@@ -81,7 +82,8 @@ anomali rozeti de uyarıya döner).
 | `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, HesapHareketi, OnayTalebi, Onay, LogKaydi |
 | `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika, onay akışı, idempotency, limit, kasa açma |
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
-| `backend/banka/anomali.py` | Log üzerinde anomali kuralları |
+| `backend/banka/anomali.py` | Log üzerinde anomali kuralları (sonradan tarama) |
+| `backend/banka/risk.py` | Satır içi risk motoru: işlem anında puan, ek onay / ret / bloke |
 | `backend/banka/hashlog.py` | Hash zinciri ekleme ve doğrulama |
 | `backend/banka/terminal.py` | Terminal doğrulama, çevrimdışı günlüğün yüklenmesi |
 | `backend/banka/bildirim.py` | E-posta ve SMS (simülasyon) bildirimleri |
@@ -320,9 +322,56 @@ python manage.py anomali_tara --saat 24        :: yüksek ciddiyette bulgu varsa
 | `uzun_cevrimdisi` | orta | Terminal 30 dk'dan uzun çevrimdışı kaldı (terminalin kendi beyanı) |
 | `teslim_belirsiz` | orta | Nakit çekmenin para teslimi 5 dk'dan uzun süredir bildirilmedi |
 | `cok_ters_kayit` | orta | Aynı hesapta 60 dk içinde 3+ ters kayıt (dağıtıcı arızası ya da suistimal) |
+| `kart_klon_suphesi` | yüksek | İmzalı kartta geçersiz imza, tekrar oynatma ya da imzasız kart (zorunlu modda) |
+| `riskli_islem` | orta / yüksek | Risk motoru ek onay istedi (orta), işlemi reddetti ya da kartı bloke etti (yüksek) |
+
+Bu kurallar olaylara **sonradan** bakar ve rapor eder. İşlem anında durduran kısım aşağıdaki "Satır içi risk motoru"dur.
 
 Kurallar hash zincirli logdaki olaylara bakar, bulgular panelin üstünde görünür. Kimlik başına son görüldüğü terminal tutulur; terminal koordinatları varsa haversine mesafesi ve hız hesaplanır.
 `python manage.py anomali_tara --bildir` yüksek ciddiyetteki bulguları müdür yardımcısı ve üstüne bildirir.
+
+## Satır içi risk motoru
+
+`anomali.py` raporlar; `risk.py` ise para çekme ve havale anında, hesap satırı ve zincir kilidi **altında** çalışır ve işlemi durdurabilir.
+Yatırma ve bakiye sorgusu kapsam dışıdır (para vermezler).
+
+Puan, bağımsız faktörlerin toplamıdır:
+
+| Faktör | Puan | Ne yakalar |
+|---|---|---|
+| `pin_hatali` | 15 (en çok 45) | Son 30 dk'da bu kartta hatalı PIN, her biri için |
+| `imkansiz_seyahat` | 60 | Aynı kart 30 dk içinde uzak bir terminalde de kullanıldı, hız eşiği aşılıyor |
+| `farkli_terminal` | 25 | Aynı kart 10 dk içinde başka terminalde de kullanıldı (konum yok ya da hız makul) |
+| `olagan_disi_tutar` | 30 | Tutar, hesabın 90 günlük ortalamasının 3 katından ve geçmiş en büyüğünden fazla (en az 3 işlem varsa) |
+| `yeni_hesap_buyuk` | 15 | Geçmişi az (3'ten az işlem) hesapta `RISK_YENI_HESAP_TUTAR` ve üstü |
+| `islem_hizi` | 20 / 35 | Hesapta son 10 dk'da 3+ / 5+ çekme ya da havale |
+| `gece` | 10 | 00:00–05:00 arası |
+| `kart_imzasi` | 40 | Son 24 saatte bu kartta imza ihlali (klon, tekrar oynatma, imzasız) |
+
+| Puan | Karar | Ne olur |
+|---|---|---|
+| < 40 | geç | Normal akış (puan işlemde saklanır) |
+| ≥ 40 | **ek onay** | Politika ne derse desin en az 1 yetkili onayı (`RISK_EK_ONAY_SAYISI`); politika daha fazlasını istiyorsa o geçerlidir. Yetkililere giden bildirimde risk gerekçesi yazar |
+| ≥ 80 | **ret** | İşlem oluşmaz, müşterinin telefonuna SMS gider |
+| ≥ 120 | **bloke** | Ret + kart bloke. Beklenen durum log'dan türetilir (`risk_bloke`), yani veritabanından blokeyi silmek işe yaramaz; kaldırma maker-checker talebiyle olur |
+
+Her karar `risk_karari` olayıyla (puan, faktör kodları) hash zincirine yazılır ve işlemde `risk_skoru` / `risk_notu` olarak görünür;
+anomali taraması `riskli_islem` bulgusu üretir. Eşikler ayarlardan değişir (`.env.example`: `RISK_*`). Açık oturum token'ı, kart
+sonradan bloke edilse de (ya da bloke alanı veritabanında sıfırlansa da) işlem yaptıramaz.
+
+**Dürüst sınırlar:**
+
+- Faktörler ve eşikler elle seçilmiştir; gerçek dolandırıcılık verisiyle ayarlanmamıştır. Yanlış pozitif meşru müşteriyi engelleyebilir,
+  bu yüzden önce ek onay basamağı vardır ve bloke yalnızca birkaç güçlü sinyal birleşince olur (ör. imkânsız seyahat + imza ihlali + hatalı PIN).
+- Eşikler Politika tablosunda değil ayarlardadır; yani maker-checker ile değişmezler (kod/ortam değişikliği gerektirir).
+- Testlerde varsayılan olarak kapalıdır (`RISK_MOTORU_AKTIF`); risk testleri açıkça açar. Üretimde açık olmalıdır.
+- Bir ML katmanı (RandomForest/IsolationForest gibi) yoktur; eklenirse kural skorunu değiştirmez, yanına bir sinyal olarak girer.
+
+**Simülatörde deneme:** (şeritte "Risk motoru: açık" rozeti görünür)
+
+1. ATM-01'de müşteri kartıyla giriş yap, ardından ATM-02'de aynı kartla giriş yap ve çek: imkânsız seyahat (Istanbul → Ankara) puanı 60,
+   işlem **ek onay** bekler ("Onay gerekli" ekranı).
+2. Önce iki kez yanlış PIN gir (üçüncüsü kartı kilitler), sonra yukarıdaki adımları yap: puan 90, işlem **reddedilir**.
 
 ## HTTPS (PIN trafiği)
 
@@ -998,5 +1047,5 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 2. Elle ters kayıt (dört göz ile).
 3. İmzalı kartın gerçek donanımda çalışması: PN532 okuyucu + NTAG 424 DNA ve Arduino tarafında SDM okuma.
 4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir (tasarım taslağı "Çevrimdışı davranış" bölümünde).
-5. Anomali skorlamasında istatistik (ör. Isolation Forest) ve geçmiş davranış tabanlı eşikler.
+5. Risk motoruna ML sinyali (RandomForest / Isolation Forest, simülatörden üretilen sentetik veriyle) ve geçmiş davranış tabanlı eşikler.
 6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).

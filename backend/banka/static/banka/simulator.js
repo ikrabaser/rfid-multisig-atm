@@ -805,6 +805,8 @@ function ATMSimulatoru(arayuz) {
     const rozetler = el("div", "rozetler");
     [["Politika", v.durumlar.politika], ["Yetkili", v.durumlar.personel], ["Kart", v.durumlar.kart]].forEach(([ad, d]) =>
       rozetler.appendChild(el("span", "rozet " + DURUM_SINIF[d], `${ad}: ${d === "tutarli" ? "tutarlı" : d === "tutarsiz" ? "TUTARSIZ" : "başlangıç yok"}`)));
+    rozetler.appendChild(el("span", "rozet " + (v.risk_motoru_aktif ? "ok" : "uyari"),
+      `Risk motoru: ${v.risk_motoru_aktif ? "açık" : "kapalı"}`));
     rozetler.appendChild(el("span", "rozet " + (v.kart_imza_zorunlu ? "ok" : "uyari"),
       `Kart imzası: ${v.kart_imza_zorunlu ? "zorunlu" : "kapalı"}`));
     rozetler.appendChild(el("span", "rozet " + (v.anomali_sayisi ? "uyari" : "ok"), `Anomali: ${v.anomali_sayisi}`));

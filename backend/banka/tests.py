@@ -29,7 +29,7 @@ from django.utils import timezone
 from kasa import settings as proje_ayarlari
 
 from . import (anomali, baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, nakit, personel_butunlugu,
-               politika_degisikligi, rbac, services, simulator, sms, yonetim_talepleri)
+               politika_degisikligi, rbac, risk, services, simulator, sms, yonetim_talepleri)
 from .hashlog import kayit_ekle, zinciri_dogrula
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, OnayTalebi, Personel, Politika,
                      PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, Terminal, TerminalGunlukKaydi, YonetimTalebi)
@@ -3721,6 +3721,229 @@ class KartImzasiTestleri(ApiYardimci, TestCase):
         self.assertFalse(simulator.sayfa_verisi()["kart_imza_zorunlu"])
         with override_settings(KART_IMZA_ZORUNLU=True):
             self.assertTrue(simulator.sayfa_verisi()["kart_imza_zorunlu"])
+
+
+@override_settings(MESAI_DISI_KURALI=False, RISK_MOTORU_AKTIF=True)
+class RiskMotoruTestleri(ApiYardimci, TestCase):
+    """Satir ici risk motoru (risk.py): puan -> gec / ek onay / red / bloke; karar zincire ve islemee yazilir."""
+
+    UID = "a0a0a001"
+
+    def setUp(self):
+        self.api_hazirla()
+
+    # ---- yardimcilar
+    def giris_t(self, terminal="ATM-01", pin="1234"):
+        with baglam.terminal_baglami(terminal):
+            return services.musteri_giris(self.UID, pin)["token"]
+
+    def cek_t(self, token, tutar, terminal="ATM-01", tur="CEKME", **ek):
+        with baglam.terminal_baglami(terminal):
+            return services.islem_baslat(token, tur, tutar, **ek)
+
+    def yanlis_pin(self, n, terminal="ATM-01"):
+        for _ in range(n):
+            with baglam.terminal_baglami(terminal), self.assertRaises(IslemHatasi):
+                services.musteri_giris(self.UID, "0000")
+
+    def uzak_terminal_kullan(self):
+        """Ayni kart once ATM-01'de, hemen ardindan ATM-02'de (Istanbul -> Ankara, imkansiz seyahat)."""
+        self.giris_t("ATM-01")
+        return self.giris_t("ATM-02")
+
+    def konumsuz_terminaller(self):
+        Terminal.objects.update(enlem=None, boylam=None)
+
+    def karar_loglari(self):
+        return [json.loads(v) for v in LogKaydi.objects.filter(olay_turu="risk_karari").values_list("veri", flat=True)]
+
+    def kod_listesi(self):
+        kart, hesap = Kart.objects.get(uid=self.UID), Hesap.objects.get(hesap_no="100001")
+        return {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"))}
+
+    # ---- GEC
+    def test_temiz_islem_gecer_ve_risk_logu_yazilmaz(self):
+        r = self.cek_t(self.giris_t(), "500")
+        self.assertEqual(r["durum"], "uygulandi")
+        islem = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual((islem.risk_skoru, islem.risk_notu), (0, ""))
+        self.assertEqual(self.karar_loglari(), [])
+
+    def test_esik_altindaki_puan_islemde_saklanir_ama_islem_gecer(self):
+        self.yanlis_pin(2)                                           # 2 x 15 = 30 < 40
+        r = self.cek_t(self.giris_t(), "100")
+        self.assertEqual(r["durum"], "uygulandi")
+        islem = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual(islem.risk_skoru, 30)
+        self.assertIn("pin_hatali", islem.risk_notu)
+
+    # ---- EK_ONAY
+    def test_esikta_ek_onay_istenir_ve_onayla_uygulanir(self):
+        self.konumsuz_terminaller()
+        self.giris_t("ATM-01")
+        self.yanlis_pin(1, "ATM-02")                                 # 15
+        token = self.giris_t("ATM-02")                               # farkli terminal 25 -> toplam 40
+        r = self.cek_t(token, "100", "ATM-02")
+        self.assertEqual(r["durum"], "onay_bekliyor")
+        self.assertEqual(r["gereken"], 1)
+        islem = Islem.objects.get(id=r["islem_id"])
+        self.assertEqual(islem.risk_skoru, 40)
+        self.assertEqual([(l["karar"], l["skor"]) for l in self.karar_loglari()], [("EK_ONAY", 40)])
+        self.assertIn("riskli_islem", {b["kural"] for b in anomali.tara()})
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))   # onaysiz para hareketi yok
+        sonuc = services.onay_karar(r["talep_id"], "b0b0b001", "1111", "ONAY")
+        self.assertEqual(sonuc["durum"], "UYGULANDI")
+        self.assertEqual(self.yenile(self.ali), Decimal("999900.00"))
+        self.assertTrue(zinciri_dogrula()["saglam"])
+        self.assertTrue(ledger.mutabakat()["saglam"])
+
+    def test_imkansiz_seyahat_tek_basina_ek_onay(self):
+        token = self.uzak_terminal_kullan()
+        self.assertIn("imkansiz_seyahat", self.kod_listesi())
+        r = self.cek_t(token, "100", "ATM-02")
+        self.assertEqual(r["durum"], "onay_bekliyor")
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).risk_skoru, 60)
+        metinler = " ".join(Bildirim.objects.filter(olay="talep_acildi").values_list("metin", flat=True))
+        self.assertIn("Risk skoru 60", metinler)                    # yetkiliye neden onay istendigi soylenir
+
+    def test_ek_onay_politikadan_gelen_daha_yuksek_sayiyi_dusurmez(self):
+        politika_onay = services.gerekli_onay(Decimal("20000"))[0]
+        self.assertGreaterEqual(politika_onay, 1)
+        token = self.uzak_terminal_kullan()
+        r = self.cek_t(token, "20000", "ATM-02")
+        self.assertEqual(r["gereken"], politika_onay)
+
+    def test_ek_onay_icin_yetkili_yoksa_islem_reddedilir(self):
+        token = self.uzak_terminal_kullan()
+        Personel.objects.update(aktif=False)
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek_t(token, "100", "ATM-02")
+        self.assertEqual(e.exception.kod, "risk")
+        self.assertEqual(Islem.objects.count(), 0)
+
+    # ---- RED
+    def test_yuksek_puan_islemi_reddeder_musteriye_sms_gider(self):
+        self.yanlis_pin(2)                                           # 30
+        token = self.uzak_terminal_kullan()                          # + 60 = 90 >= 80
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek_t(token, "100", "ATM-02")
+        self.assertEqual(e.exception.kod, "risk")
+        self.assertEqual(Islem.objects.count(), 0)
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+        self.assertFalse(Kart.objects.get(uid=self.UID).bloke)
+        self.assertEqual([l["karar"] for l in self.karar_loglari()], ["RED"])    # log, hata firlatilsa da kalir
+        bulgu = [b for b in anomali.tara() if b["kural"] == "riskli_islem"]
+        self.assertEqual(bulgu[0]["ciddiyet"], "yuksek")
+        telefon = Kart.objects.get(uid=self.UID).hesap.musteri.telefon
+        self.assertTrue(any("reddedildi" in m for t, m in sms.BellekSmsSaglayici.gelen if t == telefon))
+        self.assertTrue(zinciri_dogrula()["saglam"])
+
+    # ---- BLOKE
+    def test_cok_yuksek_puan_karti_bloke_eder_ve_log_beklenen_durumu_kilitler(self):
+        self.yanlis_pin(2)                                           # 30
+        kayit_ekle("kart_imza_gecersiz", {"uid": self.UID})          # 40
+        token = self.uzak_terminal_kullan()                          # 60 -> 130 >= 120
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek_t(token, "100", "ATM-02")
+        self.assertEqual(e.exception.kod, "bloke")
+        kart = Kart.objects.get(uid=self.UID)
+        self.assertTrue(kart.bloke)
+        self.assertTrue(bloke_butunlugu.beklenen_bloke_mu("kart", kart.id, self.UID))
+        telefon = kart.hesap.musteri.telefon
+        self.assertTrue(any("bloke" in m for t, m in sms.BellekSmsSaglayici.gelen if t == telefon))
+        # acik oturumun token'i ile devam edilemez
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek_t(token, "50", "ATM-02")
+        self.assertEqual(e.exception.kod, "oturum")
+        # veritabaninda bloke alani onaysiz sifirlansa bile kart kapali kalir (beklenen durum log'dan gelir)
+        Kart.objects.filter(uid=self.UID).update(bloke=False)
+        with self.assertRaises(IslemHatasi) as e:
+            self.cek_t(token, "50", "ATM-02")
+        self.assertEqual(e.exception.kod, "bloke")
+        self.assertEqual(services.kart_tipi(self.UID), "BLOKE")
+        with self.assertRaises(IslemHatasi):
+            services.musteri_giris(self.UID, "1234")
+        self.assertEqual(self.yenile(self.ali), Decimal("1000000.00"))
+
+    # ---- faktorler
+    def test_olagan_disi_tutar_ve_yeni_hesap_faktorleri(self):
+        self.assertNotIn("yeni_hesap_buyuk", self.kod_listesi())
+        kart, hesap = Kart.objects.get(uid=self.UID), Hesap.objects.get(hesap_no="100001")
+        self.assertIn("yeni_hesap_buyuk", {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("5000"))})
+        token = self.giris_t()
+        for _ in range(3):
+            self.cek_t(token, "100", anahtar=None)
+        Islem.objects.update(olusturma=timezone.now() - datetime.timedelta(minutes=30))
+        kodlar = lambda t: {k for k, _, _ in risk.faktorler(kart, hesap, Decimal(t))}   # noqa: E731
+        self.assertNotIn("yeni_hesap_buyuk", kodlar("5000"))        # artik gecmisi var
+        self.assertIn("olagan_disi_tutar", kodlar("1000"))          # 3 x ortalamadan ve gecmis en buyuktan fazla
+        self.assertNotIn("olagan_disi_tutar", kodlar("250"))        # ortalamanin 3 katindan az
+        self.assertNotIn("olagan_disi_tutar", kodlar("100"))
+
+    def test_islem_hizi_faktoru(self):
+        token = self.giris_t()
+        for _ in range(3):
+            self.cek_t(token, "100")
+        self.assertIn("islem_hizi", self.kod_listesi())
+
+    def test_gece_faktoru(self):
+        kart, hesap = Kart.objects.get(uid=self.UID), Hesap.objects.get(hesap_no="100001")
+        def yerel(saat):
+            return timezone.make_aware(datetime.datetime(2026, 11, 11, saat, 30), ZoneInfo("Europe/Istanbul"))
+        gece = {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"), an=yerel(2))}
+        gunduz = {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"), an=yerel(14))}
+        self.assertIn("gece", gece)
+        self.assertNotIn("gece", gunduz)
+
+    def test_kart_imzasi_ihlali_faktoru(self):
+        self.assertNotIn("kart_imzasi", self.kod_listesi())
+        kayit_ekle("kart_tekrar_oynatma", {"uid": self.UID})
+        self.assertIn("kart_imzasi", self.kod_listesi())
+
+    # ---- ayarlar ve sinirlar
+    def test_motor_kapaliysa_hicbir_sey_degismez(self):
+        token = self.uzak_terminal_kullan()
+        with override_settings(RISK_MOTORU_AKTIF=False):
+            r = self.cek_t(token, "100", "ATM-02")
+        self.assertEqual(r["durum"], "uygulandi")
+        self.assertEqual(Islem.objects.get(id=r["islem_id"]).risk_skoru, 0)
+        self.assertEqual(self.karar_loglari(), [])
+
+    def test_esikler_ayarlardan_gelir(self):
+        self.yanlis_pin(2)                                           # 30
+        token = self.giris_t()
+        with override_settings(RISK_EK_ONAY_ESIGI=20):
+            self.assertEqual(self.cek_t(token, "100")["durum"], "onay_bekliyor")
+        self.assertEqual((risk.karar_ver(39), risk.karar_ver(40), risk.karar_ver(80), risk.karar_ver(120)),
+                         ("GEC", "EK_ONAY", "RED", "BLOKE"))
+
+    def test_yatirma_ve_bakiye_sorgusu_risk_disinda(self):
+        token = self.uzak_terminal_kullan()
+        r = self.cek_t(token, "100", "ATM-02", tur="YATIRMA")
+        self.assertEqual(r["durum"], "uygulandi")
+        self.assertEqual(services.bakiye_sorgula(token)["bakiye"], "1000100.00")
+
+    def test_ayni_idempotency_anahtari_riski_yeniden_degerlendirmez(self):
+        token = self.giris_t()
+        ilk = self.cek_t(token, "100", anahtar="k-risk-1")
+        self.yanlis_pin(2)
+        self.uzak_terminal_kullan()
+        tekrar = self.cek_t(token, "100", "ATM-02", anahtar="k-risk-1")
+        self.assertEqual(tekrar["islem_id"], ilk["islem_id"])        # ayni islem, tekrar degerlendirme yok
+
+    def test_simulator_risk_rozeti_icin_veri(self):
+        self.assertTrue(simulator.sayfa_verisi()["risk_motoru_aktif"])
+        self.assertTrue(simulator.serit_verisi()["risk_motoru_aktif"])
+        with override_settings(RISK_MOTORU_AKTIF=False):
+            self.assertFalse(simulator.serit_verisi()["risk_motoru_aktif"])
+
+    def test_api_risk_hatasini_kodla_dondurur(self):
+        for _ in range(2):
+            self.api("/api/giris/", {"uid": self.UID, "pin": "0000"}, terminal="ATM-01")
+        self.api("/api/giris/", {"uid": self.UID, "pin": "1234"}, terminal="ATM-01")
+        token = self.api("/api/giris/", {"uid": self.UID, "pin": "1234"}, terminal="ATM-02").json()["token"]
+        r = self.api("/api/islem/", {"token": token, "tur": "CEKME", "tutar": "100"}, terminal="ATM-02")
+        self.assertEqual((r.status_code, r.json()["kod"]), (400, "risk"))
 
 
 class PinSayaciTestleri(Yardimci, TestCase):

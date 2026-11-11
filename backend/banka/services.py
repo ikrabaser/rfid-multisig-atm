@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 
-from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, nakit, personel_butunlugu,
+from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, nakit, personel_butunlugu, risk,
                politika_degisikligi, rbac)
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
@@ -424,20 +424,28 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
         if hedef.id == kart.hesap_id:
             raise IslemHatasi("Kendi hesabınıza havale olmaz", "hedef")
 
-    hata, tekrar, talep, islem, hesap = None, None, None, None, None
+    hata, tekrar, talep, islem, hesap, risk_sonucu = None, None, None, None, None, None
     with transaction.atomic():
         kilit.zincir_kilidi()
         hesap = Hesap.objects.select_for_update().get(id=kart.hesap_id)
         if anahtar:  # kilit altinda tekrar bak: es zamanli ayni anahtarli istek az once tamamlanmis olabilir
             tekrar = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
-        if tekrar is None:
+        if tekrar is None and (Kart.objects.filter(pk=kart.pk, bloke=True).exists()
+                               or bloke_butunlugu.beklenen_bloke_mu("kart", kart.id, kart.uid)):
+            # oturum acikken kart bloke edildi (risk motoru, 3. yanlis PIN) ya da bloke alani onaysiz sifirlandi (log
+            # bloke diyor): token'la devam edilemez
+            hata, gereken, en_az = ("Kart bloke edildi", "bloke", {}), 0, int(Rol.GOREVLI)
+        elif tekrar is None:
             hata, gereken, en_az = _islem_kontrolleri(hesap, tur, tutar)
+            if hata is None and tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE):
+                hata, gereken, en_az, risk_sonucu = risk.kontrol(kart, hesap, tur, tutar, gereken, en_az)
             if hata is None:
                 try:
                     with transaction.atomic():
                         islem = Islem.objects.create(
                             hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar,
                             baslatan_uid=kart.uid, anahtar=anahtar, terminal=baglam.terminal(),
+                            risk_skoru=(risk_sonucu or {}).get("skor", 0), risk_notu=(risk_sonucu or {}).get("not", ""),
                         )
                 except IntegrityError:
                     tekrar = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
@@ -464,6 +472,8 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
     if tekrar is not None:
         return _tekrar_istegi(tekrar, tur, tutar, hedef_hesap_no)
     if hata:
+        if risk_sonucu and risk_sonucu["karar"] in ("RED", "BLOKE"):
+            bildirim.risk_reddi(kart.hesap.musteri, risk_sonucu["karar"] == "BLOKE")   # commit sonrasi
         raise IslemHatasi(hata[0], hata[1], **hata[2])
     if talep is None:
         return {"durum": "uygulandi", "islem_id": islem.id, "bakiye": para(hesap.bakiye),

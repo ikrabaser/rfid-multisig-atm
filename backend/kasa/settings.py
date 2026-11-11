@@ -145,6 +145,14 @@ if API_SADECE_HTTPS:
 VARSAYILAN_TERMINAL = "ATM-01"
 MAKS_SEYAHAT_HIZI_KMH = 150
 
+# Satir ici risk motoru (risk.py). Testlerde varsayilan kapali: eski testler saat/hiz gibi sinyallerden etkilenmesin.
+RISK_MOTORU_AKTIF = _env_bool("RISK_MOTORU_AKTIF", "test" not in sys.argv)
+RISK_EK_ONAY_ESIGI = _env_int("RISK_EK_ONAY_ESIGI", 40, 1, 1000)
+RISK_RED_ESIGI = _env_int("RISK_RED_ESIGI", 80, 1, 1000)
+RISK_BLOKE_ESIGI = _env_int("RISK_BLOKE_ESIGI", 120, 1, 1000)
+RISK_EK_ONAY_SAYISI = _env_int("RISK_EK_ONAY_SAYISI", 1, 1, 5)
+RISK_YENI_HESAP_TUTAR = Decimal(os.environ.get("RISK_YENI_HESAP_TUTAR", "5000"))
+
 # E-posta: varsayilan konsola yazar. Gercek SMTP icin DJANGO_EMAIL_BACKEND ve EMAIL_* ayarlarini ver.
 EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "banka@banka.example")

@@ -158,6 +158,7 @@ def sayfa_verisi():
         "terminaller": [{"kod": t.kod, "ad": t.ad} for t in Terminal.objects.filter(aktif=True)],
         "ipuclari_acik": bool(musteri_pin or personel_pin),
         "kart_imza_zorunlu": bool(settings.KART_IMZA_ZORUNLU),
+        "risk_motoru_aktif": bool(settings.RISK_MOTORU_AKTIF),
     }
 
 
@@ -217,6 +218,7 @@ def serit_verisi(zincir=False):
             for h in HesapHareketi.objects.select_related("hesap")[:8]
         ],
         "kart_imza_zorunlu": bool(settings.KART_IMZA_ZORUNLU),
+        "risk_motoru_aktif": bool(settings.RISK_MOTORU_AKTIF),
         "durumlar": {
             "politika": politika_degisikligi.butunluk_durumu(),
             "personel": personel_butunlugu.durum(),

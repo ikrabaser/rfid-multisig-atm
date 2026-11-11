@@ -90,7 +90,7 @@ class SadeceOkunur(admin.ModelAdmin):
 
 @admin.register(Islem)
 class IslemAdmin(SadeceOkunur):
-    list_display = ("id", "tur", "tutar", "hesap", "durum", "teslim", "dagitim_plani", "terminal", "olusturma")
+    list_display = ("id", "tur", "tutar", "hesap", "durum", "teslim", "risk_skoru", "dagitim_plani", "terminal", "olusturma")
     list_filter = ("tur", "durum", "teslim")
 
 

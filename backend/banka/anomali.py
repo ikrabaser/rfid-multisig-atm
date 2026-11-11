@@ -224,6 +224,15 @@ def tara(saat=24, an=None):
                 "kart_klon_suphesi", "yuksek",
                 f"Kart {v.get('uid', '?')} doğrulanamadı: {k.olay_turu} (log #{k.sira})", sira=k.sira))
 
+    # 11c) Satir ici risk motoru: islemi durdurdu (RED/BLOKE) ya da ek onay istedi
+    for k, v in kayitlar:
+        if k.olay_turu == "risk_karari" and v.get("karar") != "GEC":
+            ciddi = v.get("karar") in ("RED", "BLOKE")
+            bulgular.append(_bulgu(
+                "riskli_islem", "yuksek" if ciddi else "orta",
+                f"Kart {v.get('uid', '?')}: {v.get('tur', '?')} {v.get('tutar', '?')} TL, risk {v.get('skor', '?')} "
+                f"-> {v.get('karar')} ({', '.join(v.get('nedenler', []))}) (log #{k.sira})", sira=k.sira))
+
     # 12) Para dagitici kapandi (siskma ya da eksik verme): teknik servis gerekir
     for k, v in kayitlar:
         if k.olay_turu == "dagitici_kapandi":
