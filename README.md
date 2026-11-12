@@ -120,6 +120,8 @@ anomali rozeti de uyarıya döner).
 | `arduino/test/` | Firmware'i PC'de çalıştıran testler, gürültülü hat benzetimi ve C++ ⇄ Python birlikte çalışma (`make`) |
 | `arduino/araclar/avr_derle.sh` | Gerçek ATmega328P derlemesi ve flash/RAM ölçümü (donanımsız) |
 | `arduino/wokwi/`, `arduino/araclar/wokwi_hazirla.py` | Wokwi devresi (`diagram.json`) ve tek dosyalık sketch üretici |
+| `arduino/wasm/` | Firmware çekirdeğinin WebAssembly sarmalayıcısı (`vx_wasm.cpp`) ve `derle.sh` |
+| `backend/banka/firmware_lab.py`, `static/banka/firmware-lab/` | Firmware Laboratuvarı: sayfa, hat endpoint'i, arayüz ve derlenmiş wasm |
 | `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, HesapHareketi, OnayTalebi, Onay, LogKaydi |
 | `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika, onay akışı, idempotency, limit, kasa açma |
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
@@ -1206,6 +1208,29 @@ firmware simülatöründe `banka.test_wokwi_kartlari` testlerinde de çalıştı
 monitöründeki `XX:KART|...*CCCC` satırını konsola yapıştır, çıkan cevap çerçevesini Wokwi'nin seri giriş kutusuna yapıştır. `wokwi_hazirla.py`
 sketch'i varsayılan olarak 20 sn cevap bekleyecek şekilde üretir (`--gercek-zaman` ile 2 sn); bu ayar yalnızca üretilen dosyadadır, firmware
 varsayılanı değişmez. Otomatik köprü için `wokwi.toml` (RFC2217) hazırdır ama denenmedi.
+
+### Firmware Laboratuvarı (tarayıcıda gerçek firmware, gerçek köprü ve sunucu)
+
+`http://127.0.0.1:8000/firmware-lab/` (superuser, `SIMULATOR_AKTIF`): Uno'ya yüklenen **C++ çekirdeğinin kendisi** WebAssembly olarak
+tarayıcıda çalışır; sanal LCD, keypad, kartlar, röle ve LED ona bağlıdır. Mevcut ATM Laboratuvarı'ndan farkı: orada ekran akışı
+JavaScript ile yeniden yazılmıştır, burada firmware'in kendisi çalışır. Seri hat gerçek köprü koduna (`bridge/cerceve.py` `Oturum`) ve
+gerçek servis katmanına (`simulator.isle`: defter, onay kuralları, log, hash zinciri) bağlıdır.
+
+![Firmware Laboratuvarı](docs/firmware-lab.png)
+
+*Cevap kaybı denemesi: köprü 100 TL'lik çekimi işledi, cevap hatta kayboldu; terminal aynı çerçeveyi yeniden yolladı, köprü isteği tekrar
+çalıştırmadan önbellekten cevap verdi. Defterde tek hareket var.*
+
+- **Hat paneli:** her çerçeve, sıra numarası, CRC (tarayıcıda bağımsız hesaplanır), PIN/jeton maskeli. Bozuk satır, NAK, yeniden iletim ve
+  "önbellekten" cevaplar rozetle işaretlenir.
+- **Hattı bozma:** bit bozulması, bayt kaybı, sahte bayt (binde); **sonraki cevabı kaybet**; **köprüyü kes** ("Kopru yok!" göstergesi);
+  hız (1x/3x/10x); **güç kes/ver** (kalıcı açılış sayacı tarayıcıda saklanır, her açılışta işlem anahtarı değişir).
+- **Kartlar:** demo müşteriler ve yetkililer; Wokwi kartlarını da eklemek için `python manage.py wokwi_kartlari`.
+- **Güvenlik notu:** simülatörle aynı kapı (yalnızca geliştirme, superuser). Köprü oturumu sekmeye özeldir ve bellektedir.
+
+Firmware çekirdeği `arduino/wasm/derle.sh` ile (Emscripten gerekir) `backend/banka/static/banka/firmware-lab/vx_firmware.js` olarak derlenir; derlenmiş
+dosya repoda durur, Windows'ta Emscripten kurmak gerekmez. Testler: `node backend/js_testleri/firmware_wasm.test.js` (wasm çekirdeği, 7 test) ve
+`python manage.py test banka.test_firmware_lab` (erişim kuralları, CRC'li hat, aynı isteğin iki kez gelmesi).
 
 **Dürüst sınırlar.** Bu yazılım gerçek donanımda henüz denenmedi: RC522/keypad/LCD zamanlamaları, röle sürücüsü ve USB seri
 davranışı yalnızca arayüz düzeyinde sahtelenmiştir. WDT, eski ve klon Uno bootloader'larında reset sonrası döngüye girebilir

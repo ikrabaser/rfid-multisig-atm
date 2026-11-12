@@ -1,0 +1,73 @@
+/* Firmware Laboratuvarı: simulator.css'in (LCD, tuş, kilit, LED) üzerine ek stiller */
+.fl-bolme { color: var(--soluk); margin: 0 4px; font-weight: 400; }
+.fl-giris { padding: 18px 22px 6px; max-width: 1500px; margin: 0 auto; }
+.fl-giris h2 { margin: 2px 0 4px; font-size: 22px; }
+.fl-giris p { margin: 0; color: var(--soluk); max-width: 860px; }
+.fl-etiket { font-size: 11px; letter-spacing: .12em; color: var(--vurgu); font-weight: 600; }
+.fl-duzen {
+  display: grid; grid-template-columns: minmax(300px, 360px) minmax(420px, 1fr) minmax(260px, 320px);
+  gap: 18px; padding: 14px 22px 40px; max-width: 1500px; margin: 0 auto; align-items: start;
+}
+@media (max-width: 1100px) { .fl-duzen { grid-template-columns: 1fr; } }
+.fl-kutu { background: var(--panel); border: 1px solid var(--cizgi); border-radius: 12px; padding: 12px 14px; margin-top: 14px; }
+.fl-kutu:first-child { margin-top: 0; }
+.fl-kutu h3 { margin: 0 0 8px; font-size: 14px; }
+.fl-kutu h3 small { color: var(--soluk); font-weight: 400; margin-left: 6px; }
+.fl-terminal .atm { margin: 0; }
+
+.fl-kartlar { display: flex; flex-direction: column; gap: 6px; }
+.fl-kart {
+  display: flex; align-items: center; gap: 8px; text-align: left; padding: 7px 10px;
+  background: #1d232a; border: 1px solid var(--cizgi); border-radius: 8px; color: var(--yazi);
+}
+.fl-kart:hover { border-color: var(--vurgu); }
+.fl-kart .ad { flex: 1; }
+.fl-kart code { color: var(--soluk); font-size: 12px; }
+.fl-kart .rol { font-size: 11px; color: var(--vurgu); }
+.fl-kart .ipucu { font-size: 11px; color: var(--uyari); }
+.fl-kart.bloke { opacity: .5; }
+.fl-uid { display: flex; gap: 6px; margin-top: 10px; }
+.fl-uid input { flex: 1; background: #12161a; color: var(--yazi); border: 1px solid var(--cizgi); border-radius: 8px; padding: 6px 8px; }
+.fl-uid button, .fl-dugmeler button { background: #26313b; border: 1px solid var(--cizgi); border-radius: 8px; padding: 6px 10px; }
+.fl-uid button:hover, .fl-dugmeler button:hover { border-color: var(--vurgu); }
+
+.fl-hatkontrol { display: grid; gap: 6px; margin-bottom: 10px; font-size: 13px; }
+.fl-hatkontrol label { display: grid; grid-template-columns: 110px 1fr 36px; align-items: center; gap: 8px; color: var(--soluk); }
+.fl-hatkontrol output { text-align: right; color: var(--yazi); font-variant-numeric: tabular-nums; }
+.fl-dugmeler { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.fl-dugmeler label { display: flex; grid-template-columns: none; gap: 6px; }
+.fl-dugmeler button[aria-pressed="true"] { background: #4a2a2a; border-color: var(--kotu); color: #ffd0d0; }
+.fl-dugmeler button.bekliyor { background: #4a3d1e; border-color: var(--uyari); }
+
+.fl-hat {
+  height: 460px; overflow-y: auto; background: #0e1114; border: 1px solid var(--cizgi); border-radius: 8px;
+  font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.fl-satir { display: grid; grid-template-columns: 58px 22px 1fr auto; gap: 6px; padding: 3px 8px; border-bottom: 1px solid #171c21; align-items: baseline; }
+.fl-satir .t { color: var(--soluk); text-align: right; }
+.fl-satir .yon { text-align: center; font-weight: 700; }
+.fl-satir.tx .yon { color: var(--vurgu); }
+.fl-satir.rx .yon { color: var(--ok); }
+.fl-satir.not { color: var(--uyari); grid-template-columns: 58px 22px 1fr; }
+.fl-satir .yuk b { color: var(--yazi); }
+.fl-satir .ham { color: #5d6875; word-break: break-all; }
+.fl-satir.bozuk { background: #2a1717; }
+.fl-satir .rozetler { display: flex; gap: 4px; }
+.rozet { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--cizgi); white-space: nowrap; }
+.rozet.ok { color: var(--ok); border-color: #2c6b46; }
+.rozet.kotu { color: var(--kotu); border-color: #7a3030; }
+.rozet.uyari { color: var(--uyari); border-color: #7a6130; }
+
+.fl-ist { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 13px; }
+.fl-ist .k { color: var(--soluk); }
+.fl-ist .v { font-variant-numeric: tabular-nums; text-align: right; }
+.fl-ist .ayrac { grid-column: 1 / -1; font-size: 11px; letter-spacing: .08em; color: var(--vurgu); margin-top: 6px; }
+.fl-ist .kotu { color: var(--kotu); }
+.fl-yardim p { margin: 0 0 8px; color: var(--soluk); font-size: 13px; }
+.fl-yardim code { background: #12161a; padding: 0 4px; border-radius: 4px; }
+.fl-serit { font-size: 12px; display: grid; gap: 4px; }
+.fl-serit .b { color: var(--soluk); margin-top: 6px; font-size: 11px; letter-spacing: .08em; }
+.fl-serit .s { display: flex; justify-content: space-between; gap: 8px; }
+.fl-serit .s span:first-child { color: var(--yazi); }
+.fl-serit .s span:last-child { color: var(--soluk); text-align: right; }
+.ince { color: var(--soluk); font-size: 12px; }

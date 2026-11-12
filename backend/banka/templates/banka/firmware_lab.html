@@ -1,0 +1,102 @@
+{% load static %}<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Firmware Laboratuvarı | VAULTIX</title>
+  <link rel="icon" type="image/png" href="{% static 'banka/vaultix-favicon.png' %}">
+  <link rel="stylesheet" href="{% static 'banka/simulator.css' %}">
+  <link rel="stylesheet" href="{% static 'banka/firmware-lab/firmware-lab.css' %}">
+</head>
+<body>
+<header class="ust">
+  <h1><img src="{% static 'banka/vaultix-ikon.png' %}" width="26" height="26" alt="" style="vertical-align:-6px;border-radius:7px;margin-right:8px">VAULTIX <span class="fl-bolme">/</span> Firmware Laboratuvarı</h1>
+  <nav>
+    <a href="/">Panel</a>
+    <a href="/simulator/">ATM Laboratuvarı</a>
+    <a href="/admin/">Yönetim</a>
+    <form method="post" action="{% url 'cikis' %}" style="display:inline">{% csrf_token %}<button type="submit" class="kucuk">Çıkış</button></form>
+  </nav>
+  <div class="araclar">
+    <label>Terminal <select id="terminal"></select></label>
+    <label><input type="checkbox" id="ses"> Ses</label>
+  </div>
+</header>
+
+<div class="fl-giris">
+  <div>
+    <span class="fl-etiket">GERÇEK FİRMWARE</span>
+    <h2>Uno firmware'i tarayıcıda, gerçek köprü ve sunucuyla</h2>
+    <p>Aşağıdaki terminal, Arduino'ya yüklediğin C++ çekirdeğinin kendisidir (WebAssembly). Seri hat CRC'li çerçevelerle gerçek köprü koduna
+       ve sunucuya bağlıdır. Hattı boz, cevabı kaybet, köprüyü kes ve terminalin kendini nasıl toparladığını izle.</p>
+  </div>
+</div>
+
+<main class="fl-duzen">
+  <section class="fl-terminal">
+    <div class="atm v41-atm" id="atm">
+      <div class="marka"><span>FİRMWARE · ATmega328P benzetimi</span><span id="fl-zaman">0.0 sn</span></div>
+      <div class="cerceve"><div class="lcd" aria-live="polite">
+        <div class="lcd-satir" id="lcd0"></div>
+        <div class="lcd-satir" id="lcd1"></div>
+      </div></div>
+      <div class="durum-satiri">
+        <span class="gosterge"><span class="led" id="led"></span> Para çıkışı</span>
+        <span class="gosterge"><span class="kilit-kutu" id="kilit"><span id="kilit-yazi">KİLİTLİ</span></span> Kasa rölesi</span>
+      </div>
+      <div class="tuslar" id="tuslar"></div>
+    </div>
+    <p class="kisayol">Klavye: rakamlar, <kbd>A</kbd>–<kbd>D</kbd>, <kbd>*</kbd>, <kbd>Enter</kbd> = <kbd>#</kbd>, <kbd>Backspace</kbd> = <kbd>D</kbd>, <kbd>Esc</kbd> = <kbd>*</kbd>.</p>
+
+    <div class="fl-kutu">
+      <h3>Kartlar <small>(tıkla = okuyucuya tut)</small></h3>
+      <div id="fl-kartlar" class="fl-kartlar"></div>
+      <form id="fl-uid-form" class="fl-uid">
+        <input id="fl-uid" placeholder="Başka UID (hex), örn. 04112233445566" maxlength="20" autocomplete="off">
+        <button type="submit">Okut</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="fl-orta">
+    <div class="fl-kutu">
+      <h3>Seri hat <small>firmware ⇄ köprü</small></h3>
+      <div class="fl-hatkontrol">
+        <label>Bit bozulması <input type="range" id="g-bit" min="0" max="50" value="0"> <output id="g-bit-o">0</output></label>
+        <label>Bayt kaybı <input type="range" id="g-dusur" min="0" max="50" value="0"> <output id="g-dusur-o">0</output></label>
+        <label>Sahte bayt <input type="range" id="g-ekle" min="0" max="50" value="0"> <output id="g-ekle-o">0</output></label>
+        <div class="fl-dugmeler">
+          <button type="button" id="b-kayip">Sonraki cevabı kaybet</button>
+          <button type="button" id="b-kes" aria-pressed="false">Köprüyü kes</button>
+          <label>Hız <select id="hiz"><option value="1">1x</option><option value="3">3x</option><option value="10">10x</option></select></label>
+          <button type="button" id="b-baslat">Güç kes / ver</button>
+        </div>
+        <div class="ince">Bozulma oranları bayt başınadır (binde). 2 binde ≈ her 20 çerçeveden 1-2'si bozulur.</div>
+      </div>
+      <div class="fl-hat" id="fl-hat" role="log" aria-live="off"></div>
+    </div>
+  </section>
+
+  <aside class="fl-sag">
+    <div class="fl-kutu">
+      <h3>Sayaçlar</h3>
+      <div id="fl-ist" class="fl-ist"></div>
+    </div>
+    <div class="fl-kutu">
+      <h3>Nasıl okunur?</h3>
+      <div class="fl-yardim">
+        <p><b>→</b> firmware'in hatta yazdığı çerçeve, <b>←</b> terminale ulaşan çerçeve. <code>SS:yük*CCCC</code>: sıra no, yük, CRC.</p>
+        <p><span class="rozet ok">CRC ✓</span> tarayıcıda bağımsız hesaplanır; <span class="rozet kotu">CRC ✗</span> bozulmuş demektir, köprü NAK döner.</p>
+        <p><span class="rozet uyari">önbellekten</span> köprü aynı isteği ikinci kez çalıştırmadı (para tek kez çıkar).</p>
+        <p>Deneme: Ali'nin kartı → PIN → çekim, sonra bozulmayı artırıp tekrarla; defter yine tek hareket gösterir.</p>
+      </div>
+    </div>
+    <div class="fl-kutu"><h3>Defter / olay şeridi</h3><div id="fl-serit" class="fl-serit">Yükleniyor…</div></div>
+  </aside>
+</main>
+
+{{ veri|json_script:"fl-veri" }}
+<script src="{% static 'banka/firmware-lab/vx_firmware.js' %}"></script>
+<script src="{% static 'banka/firmware-lab/firmware-lab.js' %}"></script>
+</body>
+</html>

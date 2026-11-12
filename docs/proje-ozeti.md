@@ -13,7 +13,8 @@ kurallarını küçük ölçekte gösteren bir simülasyon. Para sanaldır; RC52
 - Tarayıcıda çalışan **Web ATM simülatörü** (sanal LCD, tuş takımı, kartlar, canlı şerit) tüm akışı Arduino olmadan gösterir.
 - **Gömülü yazılım (firmware v2):** Arduino'dan bağımsız çekirdek, engellemesiz durum makinesi, CRC-16'lı seri çerçeve + yeniden iletim,
   röle değişmezi ve kalıcı açılış sayacı; 51 testle PC'de ve gerçek ATmega328P derlemesiyle (flash %70,7, RAM %60,8) doğrulandı.
-  Gerçek donanımda henüz denenmedi.
+  Gerçek donanımda henüz denenmedi. **Firmware Laboratuvarı** (`/firmware-lab/`) aynı çekirdeği WebAssembly olarak tarayıcıda gerçek köprü
+  ve sunucuyla çalıştırır; hat bozulması, kayıp cevap ve yeniden başlatma canlı denenir.
 
 ## Mimari
 

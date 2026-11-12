@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import firmware_lab, views
 from .operasyon import gorunumler as op
 
 urlpatterns = [
@@ -14,6 +14,8 @@ urlpatterns = [
     path("simulator/telefon/", views.simulator_telefon, name="simulator_telefon"),
     path("simulator/operator/", views.simulator_operator, name="simulator_operator"),
     path("simulator/kart-dokun/", views.simulator_kart_dokun, name="simulator_kart_dokun"),
+    path("firmware-lab/", firmware_lab.sayfa, name="firmware_lab"),
+    path("firmware-lab/hat/", firmware_lab.hat, name="firmware_lab_hat"),
     path("operasyon/", op.liste, name="operasyon"),
     path("operasyon/baslat/", op.baslat, name="operasyon_baslat"),
     path("operasyon/<int:kosu_id>/", op.kosu, name="operasyon_kosu"),

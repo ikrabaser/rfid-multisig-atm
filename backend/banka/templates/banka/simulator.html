@@ -13,6 +13,7 @@
   <h1><img src="{% static 'banka/vaultix-ikon.png' %}" width="26" height="26" alt="" style="vertical-align:-6px;border-radius:7px;margin-right:8px">VAULTIX <span class="v41-divider">/</span> ATM Laboratuvarı</h1>
   <nav>
     <a href="/">Panel</a>
+    <a href="/firmware-lab/">Firmware Lab</a>
     <a href="/admin/">Yönetim</a>
     <form method="post" action="{% url 'cikis' %}" style="display:inline">{% csrf_token %}<button type="submit" class="kucuk">Çıkış</button></form>
   </nav>
