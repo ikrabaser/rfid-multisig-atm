@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Web ATM Simülatörü</title>
+  <title>ATM Laboratuvarı | RFID Banka + Kasa</title>
   <link rel="stylesheet" href="{% static 'banka/simulator.css' %}">
+  <link rel="stylesheet" href="{% static 'banka/simulator-v41.css' %}">
 </head>
 <body>
 <header class="ust">
-  <h1>Web ATM Simülatörü</h1>
+  <h1>RFID Banka <span class="v41-divider">/</span> ATM Laboratuvarı</h1>
   <nav>
     <a href="/">Panel</a>
     <a href="/admin/">Yönetim</a>
@@ -22,9 +23,22 @@
   </div>
 </header>
 
+<div class="v41-intro">
+  <div>
+    <span class="v41-eyebrow">TERMİNAL TEST ORTAMI</span>
+    <h2>ATM çalışma alanı</h2>
+    <p>Kart okutma, PIN, çoklu imza ve nakit dağıtım senaryolarını tek ekranda test edin.</p>
+  </div>
+  <div class="v41-workflow">
+    <span><b>01</b> Kart</span>
+    <span><b>02</b> PIN</span>
+    <span><b>03</b> İşlem</span>
+    <span><b>04</b> Yetki / Teslim</span>
+  </div>
+</div>
 <main class="duzen">
   <section class="sol">
-    <div id="atm" class="atm">
+    <div id="atm" class="atm v41-atm">
       <div class="marka"><span>MİNİ ATM · KASA</span><span>16×2 LCD</span></div>
       <div class="cerceve">
         <div class="lcd" aria-live="polite">

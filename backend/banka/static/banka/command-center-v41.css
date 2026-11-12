@@ -1,0 +1,260 @@
+/* RFID Banka + Kasa / Command Center V4.1 */
+:root {
+  --bg: #0d1118;
+  --header: #121822;
+  --surface: #171e29;
+  --surface-soft: #1d2633;
+  --border: #303b4a;
+  --border-soft: #283341;
+  --text: #eef2f7;
+  --muted: #a2aebb;
+  --purple: #a89ad9;
+}
+
+body {
+  font-size: 14px;
+  background: #0d1118;
+}
+
+.workspace {
+  max-width: 1600px;
+  padding: 34px 32px 70px;
+}
+
+.page-header h1 {
+  font-size: 30px;
+  letter-spacing: -.7px;
+}
+
+.page-header p,
+.card-head p {
+  font-size: 12px;
+}
+
+.operations-grid {
+  grid-template-columns: minmax(0, 1.55fr) minmax(365px, .9fr);
+  gap: 18px;
+}
+
+.card,
+.summary-strip,
+.notice {
+  border-radius: 9px;
+}
+
+.card-head {
+  padding: 19px 21px 16px;
+}
+
+.card-head h2 {
+  font-size: 16px;
+}
+
+th {
+  font-size: 11px;
+  padding: 12px 15px;
+}
+
+td {
+  font-size: 12px;
+  padding: 14px 15px;
+}
+
+.terminal-title strong {
+  font-size: 12px;
+}
+
+.terminal-title small,
+.case-row small {
+  font-size: 11px;
+}
+
+.summary-item strong {
+  letter-spacing: -.45px;
+}
+
+.priority-card {
+  border-top: 1px solid var(--border);
+}
+
+.v41-simulator-card {
+  overflow: hidden;
+}
+
+.v41-lab-tag {
+  color: #aab6c8;
+  border: 1px solid #445268;
+  padding: 4px 7px;
+  font: 10px Consolas, monospace;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.v41-simulator-body {
+  display: grid;
+  grid-template-columns: 138px minmax(0, 1fr);
+  gap: 23px;
+  padding: 8px 20px 22px;
+  align-items: center;
+}
+
+.v41-mini-atm {
+  width: 138px;
+  min-height: 230px;
+  background: linear-gradient(115deg, #343e4b, #222b37);
+  border: 4px solid #4a5565;
+  border-radius: 14px 14px 7px 7px;
+  padding: 12px 12px 10px;
+  box-shadow: inset 0 1px #8592a350, 0 12px 20px #0003;
+}
+
+.v41-mini-brand {
+  color: #f4f5f9;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: .13em;
+  font-weight: 800;
+  margin-bottom: 13px;
+}
+
+.v41-mini-screen {
+  height: 82px;
+  border: 5px solid #10161f;
+  background: #b7c5a7;
+  color: #28382a;
+  border-radius: 4px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.v41-mini-screen span,
+.v41-mini-screen small {
+  font: 8px Consolas, monospace;
+  opacity: .7;
+}
+
+.v41-mini-screen strong {
+  font: bold 10px Consolas, monospace;
+}
+
+.v41-mini-slots {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 13px;
+}
+
+.v41-mini-slots i {
+  width: 39px;
+  height: 5px;
+  background: #070b10;
+  border: 1px solid #718093;
+  border-radius: 2px;
+}
+
+.v41-mini-slots i:last-child {
+  width: 27px;
+  border-color: #a89ad9;
+}
+
+.v41-mini-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 88px;
+  margin: 13px auto 0;
+}
+
+.v41-mini-keys i {
+  font-style: normal;
+  text-align: center;
+  color: #e8edf4;
+  background: #576375;
+  border: 1px solid #708096;
+  border-radius: 3px;
+  font-size: 9px;
+  height: 14px;
+  line-height: 12px;
+}
+
+.v41-mini-cash {
+  width: 82px;
+  height: 6px;
+  margin: 12px auto 0;
+  background: #090d13;
+  border: 1px solid #697588;
+  border-radius: 2px;
+}
+
+.v41-lab-info {
+  min-width: 0;
+}
+
+.v41-lab-info > strong {
+  font-size: 14px;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.v41-lab-info p {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.v41-lab-info ul {
+  padding-left: 16px;
+  margin: 0 0 18px;
+  color: #b6c2d0;
+  font-size: 11px;
+  line-height: 1.95;
+}
+
+.v41-open-lab,
+.v41-lab-locked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #6f5da5;
+  color: #fff;
+  border: 1px solid #8c7ab8;
+  border-radius: 6px;
+  padding: 11px 13px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.v41-open-lab:hover {
+  background: #806eb6;
+}
+
+.v41-lab-locked {
+  background: #313846;
+  border-color: #454e5d;
+  color: #b6c0cc;
+}
+
+.v41-card-note {
+  border-top: 1px solid var(--border-soft);
+  padding: 11px 20px;
+  color: #93a1b3;
+  font-size: 11px;
+}
+
+@media(max-width: 1000px) {
+  .operations-grid { grid-template-columns: 1fr; }
+}
+
+@media(max-width: 700px) {
+  .workspace { padding: 22px 14px 45px; }
+  .v41-simulator-body { grid-template-columns: 138px 1fr; gap: 14px; }
+}
+
+@media(max-width: 400px) {
+  .v41-simulator-body { grid-template-columns: 1fr; }
+  .v41-mini-atm { margin: auto; }
+}

@@ -1,0 +1,377 @@
+/* RFID Banka + Kasa / Simulator V4.1 */
+:root {
+  --arka: #0d1118;
+  --panel: #171e29;
+  --cizgi: #303b4a;
+  --yazi: #eef2f7;
+  --soluk: #a0adbd;
+  --vurgu: #a69ad6;
+  --ok: #73caa3;
+  --kotu: #e88790;
+  --uyari: #e7b277;
+  --lcd-zemin: #bacbac;
+  --lcd-yazi: #263728;
+}
+
+body {
+  background: var(--arka);
+  font-size: 14px;
+  color: var(--yazi);
+}
+
+.ust {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 67px;
+  padding: 12px max(20px, calc((100vw - 1630px)/2));
+  background: #121822;
+  border-bottom: 1px solid var(--cizgi);
+  gap: 22px;
+}
+
+.ust h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.3px;
+  white-space: nowrap;
+}
+
+.v41-divider {
+  color: #9386bd;
+  margin: 0 5px;
+  font-weight: 400;
+}
+
+.ust nav {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.ust nav a {
+  color: #b6c2d2;
+  font-size: 12px;
+}
+
+.ust nav a:hover {
+  color: #fff;
+}
+
+.araclar {
+  gap: 10px;
+  font-size: 12px;
+}
+
+.araclar select,
+.araclar button,
+button.kucuk {
+  background: #202938;
+  border: 1px solid #3c4a5a;
+  padding: 8px 11px;
+  border-radius: 6px;
+}
+
+.v41-intro {
+  max-width: 1630px;
+  margin: 0 auto;
+  padding: 32px 22px 20px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 25px;
+}
+
+.v41-eyebrow {
+  font-size: 10px;
+  letter-spacing: .16em;
+  color: #a89ad9;
+  font-weight: 700;
+}
+
+.v41-intro h2 {
+  color: #f4f5fa;
+  margin: 7px 0 5px;
+  font-size: 28px;
+  letter-spacing: -.8px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.v41-intro p {
+  color: #a6b3c2;
+  font-size: 12px;
+  margin: 0;
+}
+
+.v41-workflow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.v41-workflow span {
+  border: 1px solid #354357;
+  background: #17202d;
+  padding: 8px 10px;
+  border-radius: 5px;
+  color: #b8c3d1;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.v41-workflow b {
+  color: #a99cdb;
+  font-family: Consolas, monospace;
+  margin-right: 7px;
+}
+
+.duzen {
+  max-width: 1630px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(345px, 445px) minmax(350px, 1fr) minmax(290px, 350px);
+  align-items: start;
+  padding: 0 22px 45px;
+  gap: 16px;
+}
+
+.duzen > .sol,
+.duzen > .orta,
+.duzen > .sag {
+  min-width: 0;
+}
+
+.duzen > .orta {
+  border: 1px solid #303b4a;
+  background: #171e29;
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.duzen h2 {
+  color: #c5cfdd;
+  font-size: 12px;
+  letter-spacing: .06em;
+  margin-bottom: 12px;
+}
+
+.atm.v41-atm {
+  background: linear-gradient(135deg, #303c4a, #202936 72%);
+  border: 5px solid #465364;
+  border-radius: 20px 20px 13px 13px;
+  padding: 23px 24px 27px;
+  box-shadow: 0 18px 30px #0005, inset 0 1px #ffffff1a;
+}
+
+.marka {
+  color: #cbd5e2;
+  font-weight: 700;
+  letter-spacing: .09em;
+}
+
+.cerceve {
+  background: #0b1017;
+  border: 5px solid #1b2531;
+  border-radius: 11px;
+  padding: 12px;
+}
+
+.lcd {
+  border: 1px solid #93a488;
+  background: #bacbac;
+  color: #263728;
+  padding: 17px 13px;
+  min-height: 112px;
+  font-size: clamp(17px, 1.65vw, 23px);
+  box-shadow: inset 0 5px 15px #4c60482c;
+}
+
+.lcd-satir {
+  justify-content: flex-start;
+}
+
+.durum-satiri {
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 17px;
+  color: #d0d8e4;
+}
+
+.kilit-kutu {
+  background: #332b22;
+}
+
+.tuslar {
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.tus {
+  height: 56px;
+  background: linear-gradient(#465363, #334050);
+  border: 1px solid #68778b;
+  border-radius: 8px;
+  color: #f4f6fa;
+  font-size: 19px;
+  box-shadow: 0 3px 0 #17212d;
+}
+
+.tus.harf {
+  background: #35475e;
+  border-color: #5a7290;
+  color: #c0dcff;
+}
+
+.tus:hover {
+  border-color: #b6a8e8;
+}
+
+.yuva {
+  height: 9px;
+  border: 2px solid #5c6d80;
+  background: #080c12;
+  margin-top: 25px;
+}
+
+.dagitici-kutusu,
+.protokol-kutusu,
+.yardim {
+  border: 1px solid #303b4a;
+  background: #171e29;
+  border-radius: 10px;
+  padding: 17px;
+}
+
+.dagitici-kutusu {
+  margin-top: 15px;
+}
+
+.protokol-kutusu {
+  margin-top: 17px;
+}
+
+#protokol {
+  background: #101720;
+  border: 1px solid #344154;
+  max-height: 200px;
+}
+
+.kisayol {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #93a1b4;
+}
+
+.kart-liste {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 9px;
+}
+
+.kart {
+  background: #1e2937;
+  border: 1px solid #3b4a5d;
+  border-radius: 7px;
+  padding: 13px 12px;
+  min-height: 84px;
+}
+
+.kart::before {
+  width: 3px;
+  background: #9286c4;
+}
+
+.kart.yetkili::before {
+  background: #d4a96e;
+}
+
+.kart:hover {
+  transform: none;
+  background: #253348;
+  border-color: #8798ad;
+}
+
+.kart-ad {
+  font-size: 13px;
+}
+
+.kart-alt {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ariza select {
+  padding: 9px 11px;
+  background: #202938;
+  border: 1px solid #435164;
+  color: #edf1f7;
+}
+
+.sag {
+  background: #171e29;
+  border: 1px solid #303b4a;
+  border-radius: 10px;
+  padding: 19px;
+  top: 81px;
+  max-height: calc(100vh - 100px);
+}
+
+.sag h2 {
+  font-size: 14px;
+  color: #f2f4f8;
+  margin-bottom: 15px;
+}
+
+.talep {
+  background: #202a39;
+  border: 1px solid #3b4a5d;
+  border-radius: 6px;
+}
+
+#telefon {
+  background: #171f2a;
+  border: 1px solid #4b5b70;
+  border-radius: 12px;
+}
+
+@media(max-width: 1250px) {
+  .duzen {
+    grid-template-columns: minmax(330px, .85fr) minmax(350px, 1.15fr);
+  }
+  .duzen > .sag {
+    grid-column: 1 / -1;
+    position: static;
+    max-height: none;
+  }
+}
+
+@media(max-width: 850px) {
+  .ust {
+    position: static;
+    padding: 13px 16px;
+  }
+  .v41-intro {
+    display: block;
+    padding: 23px 16px 18px;
+  }
+  .v41-workflow {
+    margin-top: 18px;
+  }
+  .duzen {
+    grid-template-columns: 1fr;
+    padding: 0 16px 30px;
+  }
+  .duzen > .sag {
+    grid-column: auto;
+  }
+  .atm.v41-atm {
+    max-width: 475px;
+    margin: 0 auto;
+  }
+}
+
+@media(prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+  }
+}
