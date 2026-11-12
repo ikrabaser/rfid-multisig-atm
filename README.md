@@ -1221,6 +1221,16 @@ gerçek servis katmanına (`simulator.isle`: defter, onay kuralları, log, hash 
 *Cevap kaybı denemesi: köprü 100 TL'lik çekimi işledi, cevap hatta kayboldu; terminal aynı çerçeveyi yeniden yolladı, köprü isteği tekrar
 çalıştırmadan önbellekten cevap verdi. Defterde tek hareket var.*
 
+Boşta (sağlıklı hat): açılışta `HELLO|2` el sıkışması, sonra 10 sn'de bir `PING`/`PONG`. Her satırda tarayıcıda bağımsız hesaplanan CRC ✓ görünür.
+
+![Boşta: HELLO ve PING/PONG](docs/firmware-lab-bekleme.png)
+
+Aşırı gürültü (bit bozulması 18‰, bayt kaybı 43‰, sahte bayt 23‰; gerçek bir kablodan çok daha kötü, bilerek zorlanmış): bozuk çerçeveler **CRC ✗**,
+çerçeve olmayan artıklar "çerçeve değil" olarak işaretlenir, köprü `NAK|CRC` döner (NAK'ın kendisi de bozulabilir). Firmware yeniden dener,
+sonunda zaman aşımına düşer ve LCD'de "Kopru yok!" gösterir; sayaçlarda yeniden iletim, NAK, bozuk cevap ve zaman aşımı birikir.
+
+![Gürültülü hat: CRC hataları, NAK ve zaman aşımı](docs/firmware-lab-gurultu.png)
+
 - **Hat paneli:** her çerçeve, sıra numarası, CRC (tarayıcıda bağımsız hesaplanır), PIN/jeton maskeli. Bozuk satır, NAK, yeniden iletim ve
   "önbellekten" cevaplar rozetle işaretlenir.
 - **Hattı bozma:** bit bozulması, bayt kaybı, sahte bayt (binde); **sonraki cevabı kaybet**; **köprüyü kes** ("Kopru yok!" göstergesi);
