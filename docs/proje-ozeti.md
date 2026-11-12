@@ -11,11 +11,14 @@ kurallarını küçük ölçekte gösteren bir simülasyon. Para sanaldır; RC52
 - Para çekerken tutar **eldeki banknotlarla** verilebilmelidir; plan rezerve edilir, sıkışma, eksik verme ve bağlantı kopması
   para kaybı ya da çift ödeme olmadan yönetilir.
 - Tarayıcıda çalışan **Web ATM simülatörü** (sanal LCD, tuş takımı, kartlar, canlı şerit) tüm akışı Arduino olmadan gösterir.
+- **Gömülü yazılım (firmware v2):** Arduino'dan bağımsız çekirdek, engellemesiz durum makinesi, CRC-16'lı seri çerçeve + yeniden iletim,
+  röle değişmezi ve kalıcı açılış sayacı; 51 testle PC'de ve gerçek ATmega328P derlemesiyle (flash %70,7, RAM %60,8) doğrulandı.
+  Gerçek donanımda henüz denenmedi.
 
 ## Mimari
 
 {F}
-Arduino terminal --(seri, düz metin)--> Python köprüsü --(HTTPS/JSON)--> Django backend --> PostgreSQL
+Arduino terminal --(seri, CRC'li çerçeve)--> Python köprüsü --(HTTPS/JSON)--> Django backend --> PostgreSQL
                                                                          \--> panel, admin, web ATM simülatörü
 {F}
 
@@ -72,7 +75,8 @@ Ayrıntılar ve tüm kurallar için [README](../README.md).
 - Nakit çekimde banknot stoğu, sıkışma/eksik verme/bağlantı kopması yönetimi ve PostgreSQL üzerinde eşzamanlılık güvenceleri
   (satır ve danışma kilitleri, idempotency, deadlock'ta yeniden deneme) tasarlayıp gerçek thread'li testlerle doğruladım.
 - Panelden başlatılan banka operasyon simülasyonu: sanal müşterilerle yük üretir, ATM yoğunluğunu, kuyrukları, başarısız işlemleri ve onay gecikmelerini ölçer (ayrı sandbox veritabanı, Procrastinate görevleri, Centrifugo canlı akışı).
-- 443 Python ve 27 JavaScript testi; tarayıcıda çalışan, hata enjeksiyonlu Web ATM simülatörü.
+- Uno firmware'ini Arduino'dan bağımsız bir çekirdek olarak yeniden yazdım: CRC-16 çerçeveli seri protokol, kayıp/bozuk cevapta güvenli yeniden iletim, röle değişmezi; 51 firmware testi, fuzz ve gürültülü hat benzetimi, C++ firmware ile Python köprüsünün birlikte testi.
+- 450+ Python ve 27 JavaScript testi; tarayıcıda çalışan, hata enjeksiyonlu Web ATM simülatörü.
 
 **English**
 
@@ -81,4 +85,5 @@ Ayrıntılar ve tüm kurallar için [README](../README.md).
 - Designed banknote inventory handling for cash withdrawals, including safe recovery from jams, short dispenses and lost
   connections, and PostgreSQL concurrency guarantees (row and advisory locks, idempotency, deadlock retry), verified with real-thread tests.
 - Added a bank operations simulation started from the admin panel: virtual customers generate load while the system measures ATM load, queues, failed transactions and approval delays (isolated sandbox database, Procrastinate tasks, live Centrifugo stream).
-- 443 Python and 27 JavaScript tests; a browser-based ATM simulator with fault injection.
+- Rewrote the Uno firmware as a hardware-independent core: CRC-16 framed serial protocol, safe retransmission on lost or corrupted replies, a relay safety invariant; 51 firmware tests with fuzzing and a noisy-line simulation, plus co-simulation of the C++ firmware against the real Python bridge.
+- 450+ Python and 27 JavaScript tests; a browser-based ATM simulator with fault injection.

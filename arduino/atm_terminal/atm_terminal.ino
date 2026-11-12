@@ -1,11 +1,23 @@
 /*
-  RFID Banka + Cok Imzali Kasa - Terminal (Arduino)
+  VAULTIX - RFID Banka + Cok Imzali Kasa - Terminal (Arduino Uno)
 
   Bu kod HICBIR karar vermez. Kart UID'sini ve tuslanan degerleri seri porttan
   Python koprusune yollar, cevaba gore ekrana yazar. PIN dogrulama, bakiye,
   politika ve onay kurallari sunucudadir (backend/).
 
-  Seri protokol (satir satir, alanlar '|' ile ayrilir, 9600 baud):
+  Yazilim mimarisi (bu dosya yalnizca ince bir "donanim sarmalayicisi"dir):
+    donanim.h   : donanim arayuzu (HAL)       terminal.*  : bloklamayan durum makinesi (FSM)
+    baglanti.*  : zaman asimi + yeniden iletim cerceve.* : CRC-16 cerceveleme (kopru ile ayni)
+    metin.*     : String'siz, tasmaya dayanikli metin yardimcilari
+  Cekirdek Arduino'dan bagimsizdir; PC'de test edilir: arduino/test/ (make -C arduino/test).
+
+  HAT CERCEVESI (protokol v2, bridge/cerceve.py ile ayni):
+    SS:yuk*CCCC\n     SS = sira no (2 hane onaltilik)   CCCC = "SS:yuk" icin CRC-16/CCITT-FALSE
+    Terminal acilista "HELLO|2" yollar, kopru "HELLO|OK|2" ile surumu dogrular. Cevap yoksa ya da bozuksa ayni istek
+    ayni sira no ile yeniden yollanir; kopru tekrar gelen istegi ISLEMEZ, onbellekten cevaplar (para iki kez cekilmez).
+    Bos modda her 10 sn'de PING; cevap yoksa ekranda "Kopru yok!" yazar.
+
+  Seri protokol - YUK (alanlar '|' ile ayrilir, 9600 baud). Hatta CERCEVE icinde gider, asagiya bak:
 
     Arduino -> PC                       PC -> Arduino
     KART|uid                            TIP|MUSTERI | PERSONEL | BLOKE | BILINMIYOR | IMZASIZ
@@ -36,6 +48,12 @@
   Idempotency: ISLEM'in son alani rastgele bir anahtardir. Cevap gelmezse AYNI anahtarla
   yeniden denenir; sunucu ayni islemi ikinci kez uygulamaz.
 
+  Guvenlik / saglamlik:
+    * Kasa roleisi YALNIZCA kasa acma talebi UYGULANDI olunca 5 sn acilir; baska hicbir durumda acilamaz (her turda denetlenir).
+    * PIN ve oturum jetonu kullanilir kullanilmaz RAM'den silinir. Hicbir yerde String/delay/bloklayan okuma yok.
+    * Watchdog (BEKCI_ETKIN): donma olursa 2 sn'de reset; role reset sirasinda kapali kalir.
+      Eski/klon kartlardaki bootloader watchdog resetinde dongüye girebilir: sorun olursa BEKCI_ETKIN 0 yapin.
+
   Kutuphaneler (Library Manager): MFRC522, Keypad, LiquidCrystal I2C
 */
 
@@ -44,6 +62,32 @@
 #include <Keypad.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <EEPROM.h>
+
+#include "terminal.h"
+
+// Watchdog: Uno (optiboot) icin acik. Eski bootloader'li kartlarda sorun cikarirsa 0 yapin.
+#ifndef BEKCI_ETKIN
+#if defined(ARDUINO_AVR_UNO)
+#define BEKCI_ETKIN 1
+#else
+#define BEKCI_ETKIN 0
+#endif
+#endif
+
+#if BEKCI_ETKIN
+#include <avr/wdt.h>
+// Watchdog resetinden sonra bekcinin hemen kapatilmasi gerekir (yoksa reset dongusu); reset nedeni saklanir.
+uint8_t mcusr_kopya __attribute__((section(".noinit")));
+void bekci_ilk_kapat(void) __attribute__((naked, used, section(".init3")));
+void bekci_ilk_kapat(void) {
+  mcusr_kopya = MCUSR;
+  MCUSR = 0;
+  wdt_disable();
+}
+#else
+static uint8_t mcusr_kopya = 0;
+#endif
 
 #define RST_PIN 9
 #define SS_PIN 10
@@ -52,11 +96,6 @@
 #define ROLE_PIN A3        // kasa kilidi roleisi (cogu modulde LOW = role ceker)
 #define ROLE_ACIK LOW
 #define ROLE_KAPALI HIGH
-#define KILIT_ACIK_MS 5000UL
-#define PARA_ALMA_MS 8000UL   // para alinmazsa geri cekilmis sayilir
-
-// Metinleri flash'ta tutar (Uno'nun 2KB RAM'i icin onemli)
-#define S(x) String(F(x))
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -73,477 +112,72 @@ byte satirPin[SATIR] = {2, 3, 4, 5};
 byte sutunPin[SUTUN] = {6, 7, 8, A0};
 Keypad keypad = Keypad(makeKeymap(tuslar), satirPin, sutunPin, SATIR, SUTUN);
 
-bool bostaEkran = false;
+// Gercek donanim: cekirdegin gordugu tek sey bu sinifin arayuzudur.
+class ArduinoDonanim : public vx::Donanim {
+ public:
+  uint32_t simdi_ms() { return millis(); }
+  char tus() { return keypad.getKey(); }
 
-// ---------------------------------------------------------------- ekran / ses
-
-void satirYaz(byte satir, String s) {
-  while (s.length() < 16) s += ' ';
-  lcd.setCursor(0, satir);
-  lcd.print(s.substring(0, 16));
-}
-
-void ekran(String a, String b = String()) {
-  satirYaz(0, a);
-  satirYaz(1, b);
-}
-
-void bip(bool basarili) {
-  if (basarili) {
-    tone(BUZZER_PIN, 1800, 120);
-  } else {
-    tone(BUZZER_PIN, 400, 400);
-  }
-}
-
-// Kasa dairesi kilidini role ile birkac saniye acar
-void kilitAc() {
-  ekran(S("Kasa acildi"), S("5 sn acik"));
-  bip(true);
-  digitalWrite(ROLE_PIN, ROLE_ACIK);
-  delay(KILIT_ACIK_MS);
-  digitalWrite(ROLE_PIN, ROLE_KAPALI);
-}
-
-// ---------------------------------------------------------------- seri protokol
-
-String komut(const String &satir, unsigned long beklemeMs = 4000) {
-  while (Serial.available()) Serial.read();  // eski cevaplari temizle
-  Serial.println(satir);
-  Serial.setTimeout(beklemeMs);
-  String cevap = Serial.readStringUntil('\n');
-  cevap.trim();
-  if (cevap.length() == 0) return S("HATA|Sunucu yanitsiz");
-  return cevap;
-}
-
-// "A|B|C" icinden n. alani (0'dan baslar) dondurur
-String alan(const String &s, byte n) {
-  int bas = 0;
-  for (byte i = 0; i < n; i++) {
-    bas = s.indexOf('|', bas);
-    if (bas < 0) return String();
-    bas++;
-  }
-  int son = s.indexOf('|', bas);
-  if (son < 0) son = s.length();
-  return s.substring(bas, son);
-}
-
-void hataGoster(const String &cevap) {
-  String m = alan(cevap, 1);
-  if (m.length() == 0) m = cevap;
-  ekran(m.substring(0, 16), m.substring(16));
-  bip(false);
-  delay(2500);
-}
-
-// Parayi verir (LED) ve alinmasini bekler (A tusu = "para alindi" sensoru). Alinmazsa sunucu islemi
-// ters kaydeder. true: islem geri alindi.
-bool paraVer(const String &islemId) {
-  digitalWrite(PARA_LED_PIN, HIGH);
-  ekran(S("Parayi alin"), S("A: Aldim"));
-  bool alindi = false;
-  unsigned long bas = millis();
-  while (millis() - bas < PARA_ALMA_MS) {
-    if (keypad.getKey() == 'A') {
-      alindi = true;
-      break;
+  bool kart_oku(char *uid_hex, size_t kap) {
+    if (!mfrc522.PICC_IsNewCardPresent()) return false;
+    if (!mfrc522.PICC_ReadCardSerial()) return false;
+    size_t n = 0;
+    for (byte i = 0; i < mfrc522.uid.size && n + 2 < kap; i++) {
+      byte b = mfrc522.uid.uidByte[i];
+      uid_hex[n++] = "0123456789abcdef"[b >> 4];
+      uid_hex[n++] = "0123456789abcdef"[b & 0xF];
     }
-  }
-  digitalWrite(PARA_LED_PIN, LOW);
-  if (islemId.length() == 0) return false;
-
-  ekran(S("Kaydediliyor..."));
-  String satir = S("TESLIM|") + islemId + "|" + (alindi ? "A" : "H");
-  String c = komut(satir, 5000);
-  for (byte deneme = 0; deneme < 2 && c.startsWith(S("HATA|Sunucu")); deneme++) {
-    c = komut(satir, 5000);  // ayni bildirim tekrar: sunucuda idempotent
-  }
-  if (alan(c, 0) != S("TESLIM")) {
-    hataGoster(c);
-    return false;
-  }
-  if (alan(c, 1) == S("GERI")) {
-    ekran(S("Para alinmadi"), S("Islem iptal"));
-    bip(false);
-    delay(2500);
+    uid_hex[n] = 0;
+    mfrc522.PICC_HaltA();
     return true;
   }
-  return false;
-}
 
-// ---------------------------------------------------------------- kart / tus
-
-String uidYazi() {
-  String s = "";
-  for (byte i = 0; i < mfrc522.uid.size; i++) {
-    if (mfrc522.uid.uidByte[i] < 0x10) s += "0";
-    s += String(mfrc522.uid.uidByte[i], HEX);
-  }
-  return s;  // kucuk harfli, sifir dolgulu
-}
-
-bool kartOku(String &uid) {
-  if (!mfrc522.PICC_IsNewCardPresent()) return false;
-  if (!mfrc522.PICC_ReadCardSerial()) return false;
-  uid = uidYazi();
-  mfrc522.PICC_HaltA();
-  return true;
-}
-
-// 4 haneli PIN alir. Bos string: iptal ya da zaman asimi.
-// PIN satiri: "PIN: ***    D:sil" (16 karakter; D tusu son rakami siler)
-String pinSatiri(const String &yildiz) {
-  String s = S("PIN: ") + yildiz;
-  while (s.length() < 11) s += ' ';
-  return s + S("D:sil");
-}
-
-// 4 haneli PIN alir. D: son rakami siler, *: iptal (bos string), 20 sn zaman asimi.
-String pinAl(const String &baslik) {
-  String pin = "";
-  String yildiz = "";
-  ekran(baslik, pinSatiri(yildiz));
-  unsigned long bas = millis();
-  while (pin.length() < 4) {
-    if (millis() - bas > 20000UL) return String();
-    char t = keypad.getKey();
-    if (!t) continue;
-    if (t >= '0' && t <= '9') {
-      pin += t;
-      yildiz += '*';
-      satirYaz(1, pinSatiri(yildiz));
-    } else if (t == 'D') {
-      if (pin.length() > 0) {
-        pin.remove(pin.length() - 1);
-        yildiz.remove(yildiz.length() - 1);
-        satirYaz(1, pinSatiri(yildiz));
-      }
-    } else if (t == '*') {
-      return String();
-    }
-  }
-  return pin;
-}
-
-// Rakam alir. #: onay, *: iptal, D: geri sil. Bos string: iptal.
-// ondalik=true ise C tusu ondalik noktasi koyar (en fazla 2 kurus hanesi).
-String sayiAl(const String &baslik, byte maksUzunluk, bool ondalik = false) {
-  String s = "";
-  ekran(baslik, "");
-  unsigned long bas = millis();
-  while (true) {
-    if (millis() - bas > 30000UL) return String();
-    char t = keypad.getKey();
-    if (!t) continue;
-    bas = millis();
-    if (t >= '0' && t <= '9') {
-      int nokta = s.indexOf('.');
-      bool kurusDolu = (nokta >= 0 && (int)s.length() - nokta > 2);
-      if (!kurusDolu && s.length() < maksUzunluk) s += t;
-    } else if (t == 'C' && ondalik) {
-      if (s.length() > 0 && s.indexOf('.') < 0 && s.length() < maksUzunluk) s += '.';
-    } else if (t == '#') {
-      if (s.length() > 0) {
-        if (s.endsWith(".")) s.remove(s.length() - 1);
-        return s;
-      }
-    } else if (t == '*') {
-      return String();
-    } else if (t == 'D') {
-      if (s.length() > 0) s.remove(s.length() - 1);
-    }
-    satirYaz(1, s);
-  }
-}
-
-// ---------------------------------------------------------------- yetkili (personel)
-
-void personelKarar(const String &talepId, const String &uid) {
-  String c = komut(S("KART|") + uid);
-  if (alan(c, 1) != S("PERSONEL")) {
-    ekran(S("Yetkili karti"), S("degil"));
-    bip(false);
-    delay(1200);
-    return;
+  void lcd_satir(uint8_t satir, const char *metin16) {
+    lcd.setCursor(0, satir);
+    lcd.print(metin16);
   }
 
-  ekran(S("A:Onayla B:Red"), S("*:Iptal"));
-  char t = 0;
-  unsigned long bas = millis();
-  while (millis() - bas < 10000UL) {
-    t = keypad.getKey();
-    if (t == 'A' || t == 'B' || t == '*') break;
-    t = 0;
-  }
-  if (t != 'A' && t != 'B') return;
-
-  String pin = pinAl(S("Yetkili PIN:"));
-  if (pin.length() < 4) return;
-
-  ekran(S("Kontrol ediliyor"));
-  String r = komut(S("ONAY|") + talepId + "|" + uid + "|" + pin + "|" + (t == 'A' ? "E" : "H"), 5000);
-  pin = "";
-
-  if (alan(r, 0) == S("ONAY")) {
-    ekran(S("Oyunuz alindi"), alan(r, 1) + "/" + alan(r, 2));
-    bip(true);
-    delay(1200);
-  } else {
-    hataGoster(r);
-  }
-}
-
-void onayBekle(const String &talepId, const String &etiket);  // asagida tanimli
-
-// Bekleyen talep yokken yetkili, kasa dairesini acmak icin onay talebi baslatabilir
-void kasaAcmaTalebi(const String &uid) {
-  ekran(S("Talep yok"), S("A:Kasa ac *:Cik"));
-  char t = 0;
-  unsigned long bas = millis();
-  while (millis() - bas < 8000UL) {
-    t = keypad.getKey();
-    if (t == 'A' || t == '*') break;
-    t = 0;
-  }
-  if (t != 'A') return;
-
-  String pin = pinAl(S("Yetkili PIN:"));
-  if (pin.length() < 4) return;
-
-  ekran(S("Kontrol ediliyor"));
-  String c = komut(S("KASAAC|") + uid + "|" + pin, 5000);
-  pin = "";
-
-  if (alan(c, 0) == S("BEKLE")) {
-    onayBekle(alan(c, 1), S("Kasa acma"));
-  } else {
-    hataGoster(c);
-  }
-}
-
-// Bos moddayken yetkili karti okutulursa bekleyen talebi gosterir
-void personelModu(const String &uid) {
-  String c = komut(S("BEKLEYEN"));
-  if (alan(c, 0) != S("BEKLEYEN")) {
-    hataGoster(c);
-    return;
-  }
-  if (alan(c, 1) == S("YOK")) {
-    kasaAcmaTalebi(uid);
-    return;
-  }
-  String talepId = alan(c, 1);
-  ekran(S("Talep #") + talepId, alan(c, 2) + " " + alan(c, 3));
-  delay(2000);
-  personelKarar(talepId, uid);
-}
-
-// ---------------------------------------------------------------- musteri
-
-// Onay bekler. Sonuc ekranda gosterilir.
-void onayBekle(const String &talepId, const String &etiket) {
-  ekran(S("Onay gerekli"), etiket);
-  delay(1500);
-  unsigned long sonSorgu = 0;
-  String uid;
-  while (true) {
-    if (millis() - sonSorgu > 1000UL) {
-      sonSorgu = millis();
-      String c = komut(S("DURUM|") + talepId);
-      if (alan(c, 0) != S("DURUM")) {
-        hataGoster(c);
-        return;
-      }
-      String verilen = alan(c, 1);
-      String gereken = alan(c, 2);
-      String durum = alan(c, 3);
-      String kalan = alan(c, 4);
-      bool ust = (alan(c, 5) == S("1"));
-
-      if (durum == S("UYGULANDI")) {
-        ekran(S("Islem onaylandi"), S("Tamamlandi"));
-        bip(true);
-        if (alan(c, 6) == S("KASA_ACMA")) {
-          kilitAc();
-        } else {
-          paraVer(alan(c, 7));  // DURUM'un 8. alani: islem no
-        }
-        delay(1500);
-        return;
-      }
-      if (durum == S("REDDEDILDI")) {
-        ekran(S("Islem reddedildi"));
-        bip(false);
-        delay(2500);
-        return;
-      }
-      if (durum == S("SURESI_DOLDU")) {
-        ekran(S("Sure doldu"), S("Islem iptal"));
-        bip(false);
-        delay(2500);
-        return;
-      }
-      if (durum == S("BASARISIZ")) {
-        ekran(S("Islem basarisiz"), S("Subeye basvurun"));
-        bip(false);
-        delay(2500);
-        return;
-      }
-      satirYaz(0, S("Onay ") + verilen + "/" + gereken + " " + kalan + "sn");
-      satirYaz(1, ust ? S("Ust rol gerekli") : S("Yetkili kart oku"));
-    }
-    if (kartOku(uid)) {
-      personelKarar(talepId, uid);
-      sonSorgu = 0;  // ekrani hemen guncelle
-    }
-  }
-}
-
-void bakiyeGoster(const String &token) {
-  String c = komut(S("BAKIYE|") + token);
-  if (alan(c, 0) == S("BAKIYE")) {
-    ekran(S("Bakiye:"), alan(c, 1) + " TL");
-    bip(true);
-    delay(3500);
-  } else {
-    hataGoster(c);
-  }
-}
-
-// tur: 'C' cekme, 'Y' yatirma, 'H' havale
-void islemYap(const String &token, char tur) {
-  String hedef = "";
-  if (tur == 'H') {
-    hedef = sayiAl(S("Hesap no(6hane)"), 6);
-    if (hedef.length() != 6) {
-      ekran(S("Iptal edildi"));
-      delay(1000);
-      return;
-    }
-  }
-  String tutar = sayiAl(S("Tutar (C:. #:ok)"), 11, true);  // C tusu: ondalik nokta (kurus)
-  if (tutar.length() == 0) {
-    ekran(S("Iptal edildi"));
-    delay(1000);
-    return;
+  void bip(bool basarili) {
+    if (basarili) tone(BUZZER_PIN, 1800, 120);
+    else tone(BUZZER_PIN, 400, 400);
   }
 
-  ekran(S("Isleniyor..."));
-  // Idempotency anahtari: ayni istek tekrarlanirsa AYNI anahtar gider, para iki kez cekilmez
-  String anahtar = String(millis(), HEX) + String(random(0xFFFF), HEX);
-  String satir = S("ISLEM|") + token + "|" + String(tur) + "|" + tutar + "|" + hedef + "|" + anahtar;
-  String c = komut(satir, 6000);
-  for (byte deneme = 0; deneme < 2 && c.startsWith(S("HATA|Sunucu")); deneme++) {
-    ekran(S("Tekrar deneniyor"));
-    c = komut(satir, 6000);
-  }
-  String a0 = alan(c, 0);
+  void role(bool ac) { digitalWrite(ROLE_PIN, ac ? ROLE_ACIK : ROLE_KAPALI); }
+  void para_led(bool yak) { digitalWrite(PARA_LED_PIN, yak ? HIGH : LOW); }
 
-  if (a0 == S("TAMAM")) {
-    // TAMAM|bakiye|islemId
-    bool geriAlindi = (tur == 'C') ? paraVer(alan(c, 2)) : false;
-    if (!geriAlindi) {
-      ekran(S("Islem tamam"), S("Bak: ") + alan(c, 1));
-      bip(true);
-      delay(3000);
-    }
-  } else if (a0 == S("BEKLE")) {
-    onayBekle(alan(c, 1), tutar + " TL");
-  } else {
-    hataGoster(c);
-  }
-}
+  int seri_oku() { return Serial.read(); }
+  int seri_yazilabilir() { return Serial.availableForWrite(); }
+  void seri_yaz(const char *veri, size_t n) { Serial.write(reinterpret_cast<const uint8_t *>(veri), n); }
 
-// 16x2 ekrana sigmadigi icin menu iki sayfa: 3 sn'de bir degisir; toplam 30 sn tus gelmezse cikis
-char menuSec() {
-  unsigned long bas = millis();
-  unsigned long sayfaBas = 0;
-  bool sayfa2 = false;
-  bool ciz = true;
-  while (millis() - bas < 30000UL) {
-    if (ciz) {
-      if (!sayfa2) ekran(S("A:Bakiye B:Cek"), S("C:Yatir D:Havale"));
-      else ekran(S("#:PIN degistir"), S("*:Cikis"));
-      sayfaBas = millis();
-      ciz = false;
-    }
-    char t = keypad.getKey();
-    if (t == 'A' || t == 'B' || t == 'C' || t == 'D' || t == '#' || t == '*') return t;
-    if (millis() - sayfaBas >= 3000UL) {
-      sayfa2 = !sayfa2;
-      ciz = true;
-    }
-  }
-  return '*';  // zaman asimi: cikis
-}
+  uint16_t rastgele() { return (uint16_t)random(65536L); }
 
-// Eski PIN + yeni PIN iki kez. Sunucu eski PIN'i yeniden dogrular (acik oturum tek basina yetmez).
-void pinDegistir(const String &token) {
-  String eski = pinAl(S("Eski PIN:"));
-  if (eski.length() < 4) { ekran(S("Iptal edildi")); delay(1000); return; }
-  String yeni = pinAl(S("Yeni PIN:"));
-  if (yeni.length() < 4) { ekran(S("Iptal edildi")); delay(1000); return; }
-  String tekrar = pinAl(S("Yeni PIN tekrar:"));
-  if (tekrar.length() < 4) { ekran(S("Iptal edildi")); delay(1000); return; }
-  if (yeni != tekrar) {
-    ekran(S("PIN uyusmadi"), S("Degismedi"));
-    bip(false);
-    delay(2000);
-    eski = ""; yeni = ""; tekrar = "";
-    return;
+  void bekci_besle() {
+#if BEKCI_ETKIN
+    wdt_reset();
+#endif
   }
-  ekran(S("Kontrol ediliyor"));
-  String c = komut(S("PINDEGIS|") + token + "|" + eski + "|" + yeni);
-  eski = ""; yeni = ""; tekrar = "";
-  if (alan(c, 0) == S("PINDEGIS")) {
-    ekran(S("PIN degisti"), S("Yeni PIN gecerli"));
-    bip(true);
-    delay(2500);
-  } else {
-    hataGoster(c);
+  // Kalici bellek: 16 yuva x 2 bayt (EEPROM 0..31). put() yalnizca degisen baytlari yazar.
+  uint16_t kalici_oku(uint8_t yuva) {
+    uint16_t v;
+    EEPROM.get(yuva * 2, v);
+    return v;
   }
-}
+  void kalici_yaz(uint8_t yuva, uint16_t deger) { EEPROM.put(yuva * 2, deger); }
 
-void musteriOturumu(const String &uid) {
-  String pin = pinAl(S("PIN girin:"));
-  if (pin.length() < 4) {
-    ekran(S("Iptal edildi"));
-    delay(1000);
-    return;
+  bool bekci_resetiydi() {
+#if BEKCI_ETKIN
+    return (mcusr_kopya & _BV(WDRF)) != 0;
+#else
+    return false;
+#endif
   }
-  ekran(S("Kontrol ediliyor"));
-  String c = komut(S("PIN|") + uid + "|" + pin);
-  pin = "";
+};
 
-  if (alan(c, 0) != S("GIRIS")) {
-    hataGoster(c);
-    return;
-  }
-  String token = alan(c, 1);
-  ekran(S("Merhaba"), alan(c, 2));
-  bip(true);
-  delay(1200);
-
-  while (true) {
-    char sec = menuSec();
-    if (sec == '*') break;
-    if (sec == 'A') bakiyeGoster(token);
-    if (sec == 'B') islemYap(token, 'C');
-    if (sec == 'C') islemYap(token, 'Y');
-    if (sec == 'D') islemYap(token, 'H');
-    if (sec == '#') pinDegistir(token);
-  }
-  token = "";
-  ekran(S("Cikis yapildi"));
-  delay(1000);
-}
-
-// ---------------------------------------------------------------- ana program
+ArduinoDonanim donanim;
+vx::Terminal terminal(donanim);
 
 void setup() {
-  randomSeed(analogRead(A3));            // bos pin okumasi: rastgele tohum (idempotency anahtari icin)
+  randomSeed(analogRead(A3));            // bos pin okumasi: rastgele tohum (sira no ve idempotency anahtari icin)
   digitalWrite(ROLE_PIN, ROLE_KAPALI);   // cikis yapmadan once kapali seviyeyi hazirla (role tikirdamasin)
   pinMode(ROLE_PIN, OUTPUT);
   Serial.begin(9600);
@@ -554,43 +188,12 @@ void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(PARA_LED_PIN, OUTPUT);
   digitalWrite(PARA_LED_PIN, LOW);
-  ekran(S("Baslatiliyor..."));
-  delay(1000);
+#if BEKCI_ETKIN
+  wdt_enable(WDTO_2S);
+#endif
+  terminal.baslat();
 }
 
 void loop() {
-  if (!bostaEkran) {
-    ekran(S("Karti okutun"), S("Mini ATM / Kasa"));
-    bostaEkran = true;
-  }
-
-  String uid;
-  if (!kartOku(uid)) return;
-  bostaEkran = false;
-
-  ekran(S("Kart okundu"), S("Bekleyin..."));
-  String c = komut(S("KART|") + uid);
-
-  if (alan(c, 0) != S("TIP")) {
-    hataGoster(c);
-    return;
-  }
-  String tip = alan(c, 1);
-  if (tip == S("MUSTERI")) {
-    musteriOturumu(uid);
-  } else if (tip == S("PERSONEL")) {
-    personelModu(uid);
-  } else if (tip == S("BLOKE")) {
-    ekran(S("Kart bloke"), S("Subeye basvurun"));
-    bip(false);
-    delay(2500);
-  } else if (tip == S("IMZASIZ")) {
-    ekran(S("Kart reddedildi"), S("Klon suphesi"));
-    bip(false);
-    delay(2500);
-  } else {
-    ekran(S("Kart taninmadi"));
-    bip(false);
-    delay(1800);
-  }
+  terminal.tick();
 }

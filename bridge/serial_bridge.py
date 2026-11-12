@@ -5,6 +5,10 @@ Arduino seri porttan satir satir komut yollar (KART|uid, PIN|uid|pin ...), bu pr
 bunlari Django API'ye cevirir ve cevabi tekrar seri porttan Arduino'ya yazar.
 Protokolun tamami arduino/atm_terminal/atm_terminal.ino basindaki yorumda.
 
+Hat cercevelemesi (protokol v2, bkz. cerceve.py): firmware her satiri "SS:yuk*CRC16" olarak yollar; bozuk cerceve
+reddedilir, yeniden gonderilen ayni istek tekrar islenmez (onbellekten cevaplanir). Eski cercevesiz firmware de
+cerceve gelene kadar calisir; --kati ile cercevesiz satirlar hic kabul edilmez.
+
 Kullanim:
     python serial_bridge.py --port COM3 --terminal ATM-01     # gercek Arduino
     python serial_bridge.py --konsol                          # Arduino'suz, klavyeden dene
@@ -35,6 +39,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+
+try:
+    from cerceve import Oturum, eski_komut_mu, cerceve_mi
+except ImportError:                      # paket olarak (bridge.serial_bridge) ice aktarilirsa
+    from .cerceve import Oturum, eski_komut_mu, cerceve_mi
 
 ESLEME = str.maketrans({"ı": "i", "İ": "I", "ß": "ss"})
 TUR = {"C": "CEKME", "Y": "YATIRMA", "H": "HAVALE"}
@@ -309,17 +318,36 @@ class Kopru:
         return hata("Bilinmeyen komut")
 
 
-def konsol_dongusu(kopru):
-    print("Konsol modu: Arduino komutlarını yaz (örn. KART|a0a0a001). Çıkış: Ctrl+C", file=sys.stderr)
+def _gorunen(yuk):
+    """PIN ve token loga yazilmasin."""
+    komut = yuk.split("|")[0].upper()
+    return komut + "|..." if komut in GIZLI_KOMUTLAR else yuk
+
+
+def _yuk_ve_cevap_logu(oturum_isle):
+    """Oturum.isle sarmalayici: islenen komutu (gizlenmis) ve cevabin turunu yazar."""
+    def sarmal(yuk):
+        cevap = oturum_isle(yuk)
+        print(f"{_gorunen(yuk)}  ->  {cevap.split('|')[0]}")
+        return cevap
+    return sarmal
+
+
+def konsol_dongusu(kopru, kati=False):
+    print("Konsol modu: Arduino komutlarını yaz (örn. KART|a0a0a001; çerçeveli de olur). Çıkış: Ctrl+C", file=sys.stderr)
+    oturum = Oturum(kopru.isle, kati=kati)
     for satir in sys.stdin:
         satir = satir.strip()
         if satir:
-            print(kopru.isle(satir), flush=True)
+            cevap = oturum.satir_isle(satir)
+            if cevap is not None:
+                print(cevap, flush=True)
 
 
-def seri_dongusu(kopru, port, baud):
+def seri_dongusu(kopru, port, baud, kati=False):
     import serial  # pyserial
 
+    oturum = Oturum(_yuk_ve_cevap_logu(kopru.isle), kati=kati)
     with serial.Serial(port, baud, timeout=1) as sp:
         print(f"{port} açıldı, Arduino'nun açılması bekleniyor...", file=sys.stderr)
         time.sleep(2)  # port acilinca Uno resetlenir
@@ -329,18 +357,14 @@ def seri_dongusu(kopru, port, baud):
             ham = sp.readline()
             if not ham:
                 continue
-            satir = ham.decode("utf-8", errors="ignore").strip()
+            satir = ham.decode("ascii", errors="ignore").strip()
             if not satir:
                 continue
-            komut = satir.split("|")[0].upper()
-            if komut not in KOMUTLAR:
-                print(f"[arduino] {satir}")
-                continue
-            cevap = kopru.isle(satir)
-            # PIN ve token loga yazilmasin
-            gorunen = komut + "|..." if komut in GIZLI_KOMUTLAR else satir
-            print(f"{gorunen}  ->  {cevap.split('|')[0]}")
-            sp.write((cevap + "\n").encode("ascii", "ignore"))
+            if not cerceve_mi(satir) and not eski_komut_mu(satir):
+                print(f"[arduino] {satir}")          # firmware'in hata ayiklama yazilari ya da bozuk satir
+            cevap = oturum.satir_isle(satir)         # cerceve gibi bozuk satira NAK doner, digerleri yoksayilir
+            if cevap is not None:
+                sp.write((cevap + "\n").encode("ascii", "ignore"))
 
 
 def main():
@@ -356,6 +380,8 @@ def main():
     ap.add_argument("--guvensiz-http", action="store_true",
                     help="Bu bilgisayar disindaki bir adrese DUZ HTTP ile baglanmaya izin ver (PIN acikta gider!)")
     ap.add_argument("--konsol", action="store_true", help="Seri port yerine klavyeden komut oku")
+    ap.add_argument("--kati", action="store_true",
+                    help="Yalnizca cerceveli (CRC'li, protokol v2) satirlari kabul et; eski cercevesiz firmware calismaz")
     args = ap.parse_args()
 
     if not api_guvenli_mi(args.api) and not args.guvensiz_http:
@@ -365,9 +391,9 @@ def main():
     kopru = Kopru(args.api, args.anahtar, args.ca_dosyasi, args.terminal, args.kuyruk)
     try:
         if args.konsol:
-            konsol_dongusu(kopru)
+            konsol_dongusu(kopru, args.kati)
         elif args.port:
-            seri_dongusu(kopru, args.port, args.baud)
+            seri_dongusu(kopru, args.port, args.baud, args.kati)
         else:
             ap.error("--port COMx ya da --konsol ver")
     except KeyboardInterrupt:

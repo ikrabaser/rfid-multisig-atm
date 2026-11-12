@@ -1,0 +1,67 @@
+# otomatik uretildi: python arduino/test/vektor_uret.py
+CRC		FFFF
+CRC	61	9D77
+CRC	313233343536373839	29B1
+CRC	4B4152547C6130613061303031	C0AB
+CRC	00FF10	DD52
+OK	00	HELLO|2	00:HELLO|2*D904
+OK	01	PING	01:PING*68C8
+OK	0A	KART|a0a0a001	0A:KART|a0a0a001*25D7
+OK	7F	PIN|a0a0a001|1234	7F:PIN|a0a0a001|1234*D9C7
+OK	FF	ONAY|12|b0b0b003|4321|E	FF:ONAY|12|b0b0b003|4321|E*372F
+OK	10	BEKLE|7|3	10:BEKLE|7|3*FCC8
+OK	11		11:*9FB4
+OK	12	A*B|*|**	12:A*B|*|***5E45
+OK	13	ISLEM|1:1vAbCd:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|C|100.50||1a2b3c4d	13:ISLEM|1:1vAbCd:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|C|100.50||1a2b3c4d*D81F
+OK	14	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	14:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*957D
+OK	15	HATA|Sunucu yanitsiz	15:HATA|Sunucu yanitsiz*2074
+OK	16	TAMAM|1234.50|55|200x5+100x2	16:TAMAM|1234.50|55|200x5+100x2*73B8
+BAD	0A:KART|a0a0a001*25D
+BAD	0A:KART|a0a0a001
+BAD	0A:KARD|a0a0a001*25D7
+BAD	0A:XART|a0a0a001*25D7
+BAD	0A KART|a0a0a001*25D7
+BAD	ZZ:KART|a0a0a001*25D7
+BAD	0A:KART|a0a0a001*GGGG
+BAD	KART|a0a0a001
+BAD	
+BAD	*0000
+BAD	10:BMKLE|7|3*FCC8
+BAD	14:HATA|Sunucu yanitsiz*2074
+BAD	13:ISLEM|1:1rAbCd:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|C|100.50||1a2b3c4d*D81F
+BAD	14:xxxxhxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*957D
+BAD	7G:PIN|a0a0a001|1234*D9C7
+BAD	11:*9FC4
+BAD	7F*PIN|a0a0a001|1234*D9C7
+BAD	q1:*9FB4
+BAD	14:xxxxxxxxxxxxzxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*957D
+BAD	15:HATA|Sunucu yanitciz*2074
+BAD	00:HELLO|"*D904
+BAD	31:*9FB4
+BAD	00:HELLO<2*D904
+BAD	0A:KART|a8a0a001*25D7
+BAD	0A:KART|a0a0a001*35D7
+BAD	14:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxhxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*957D
+BAD	15:HAUA|Sunucu yanitsiz*2074
+BAD	14:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*957D
+BAD	7F:PIN|a0a0`001|1234*D9C7
+BAD	13:ISLEMl1:1vAbCd:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|C|100.50||1a2b3c4d*D81F
+BAD	00:HELLO|0*D904
+BAD	10:BEKLE|7|3*FSC8
+BAD	12:A*B|*|**.5E45
+BAD	7F:PIn|a0a0a001|1234*D9C7
+BAD	7F*PIN|a0a0a001|1234*D9C7
+BAD	FF:ONAY|12|b0b0b803|4321|E*372F
+BAD	10:BEKLE|7|3*FGC8
+BAD	14:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx*957E
+BAD	01:PING*>8C8
+BAD	0A:KART|a0c0a001*25D7
+BAD	12:A*B|*|***5D45
+BAD	15zHATA|Sunucu yanitsiz*2074
+BAD	13:ISLEM|1:1vAbCd:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|C|100.50||1!2b3c4d*D81F
+BAD	10:BEKLE|7\3*FCC8
+BAD	10:BEKLE|7|3*FCS8
+BAD	12zA*B|*|***5E45
+BAD	01:PANG*68C8
+BAD	16:T@MAM|1234.50|55|200x5+100x2*73B8
+BAD	16:TAMAM|1234.50|55\200x5+100x2*73B8

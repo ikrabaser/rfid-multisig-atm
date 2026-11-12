@@ -48,7 +48,7 @@ Kısa özet, mühendislik kararları ve özgeçmiş metni: [docs/proje-ozeti.md]
 
 ```mermaid
 flowchart LR
-    A["Arduino terminal<br/>RC522 + keypad + LCD + röle"] -- "seri USB<br/>düz metin" --> B["Python köprüsü<br/>serial_bridge.py"]
+    A["Arduino terminal<br/>RC522 + keypad + LCD + röle"] -- "seri USB<br/>CRC'li çerçeve" --> B["Python köprüsü<br/>serial_bridge.py"]
     B -- "HTTPS / JSON" --> C["Django backend<br/>politika, onay, defter, log"]
     C --> D[("PostgreSQL")]
     C --> E["Panel ve admin<br/>/ ve /admin/"]
@@ -115,6 +115,10 @@ anomali rozeti de uyarıya döner).
 |---|---|
 | `arduino/atm_terminal/atm_terminal.ino` | Terminal yazılımı (kart, PIN, LCD menü, onay bekleme, röle) |
 | `bridge/serial_bridge.py` | Seri port ↔ API köprüsü (`--konsol` ile Arduino'suz da denenir) |
+| `bridge/cerceve.py` | Seri protokol v2: CRC-16 çerçeve, tekrar önbelleği, NAK, eski satır uyumluluğu |
+| `arduino/atm_terminal/*.cpp,*.h` | Firmware çekirdeği (Arduino'dan bağımsız): durum makinesi, bağlantı katmanı, çerçeve, açılış sayacı |
+| `arduino/test/` | Firmware'i PC'de çalıştıran testler, gürültülü hat benzetimi ve C++ ⇄ Python birlikte çalışma (`make`) |
+| `arduino/araclar/avr_derle.sh` | Gerçek ATmega328P derlemesi ve flash/RAM ölçümü (donanımsız) |
 | `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, HesapHareketi, OnayTalebi, Onay, LogKaydi |
 | `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika, onay akışı, idempotency, limit, kasa açma |
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
@@ -1115,9 +1119,65 @@ Dürüst sınırlar:
 - Defter hareketleri de eklenir ama değiştirilmez/silinmez (model düzeyinde); veritabanına doğrudan erişim bunu aşabilir,
   mutabakat komutu böyle bir değişikliği bakiye farkı olarak yakalar.
 
+## Gömülü yazılım (firmware v2)
+
+Donanım henüz alınmadığı için firmware'in **PC'de, gerçek Uno derlemesiyle ve gürültülü bir hat altında** doğrulanabilmesi
+hedeflendi. Terminalin tek işi yine "kart/tuş gönder, cevaba göre ekrana yaz"dır; v2 bunu sağlam hâle getirir.
+
+**Mimari.** Kod `namespace vx` altında, `Arduino.h`'a bağlı olmayan bir çekirdek ve ince bir donanım katmanıdır (`Donanim`
+arayüzü). `atm_terminal.ino` yalnızca RC522, keypad, LCD, röle, seri port ve EEPROM'u bu arayüze bağlar. Aynı çekirdek
+hem Uno'da hem PC testlerinde çalışır. Çekirdekte `delay()` ve `String` yoktur; her şey `millis()` ile ilerleyen engellemesiz
+bir durum makinesidir ve tamponlar sabit boyutludur.
+
+```mermaid
+flowchart LR
+    T["Terminal durum makinesi<br/>(bekleme, PIN, menü, onay, kilit)"] --> B["Bağlantı katmanı<br/>tek bekleyen istek,<br/>3 deneme x 2 sn, NAK'ta anında tekrar"]
+    B -- "SS:yük*CCCC" --> K["Python köprüsü<br/>cerceve.Oturum<br/>tekrar önbelleği (8 sıra no)"]
+    K --> A["Django API"]
+```
+
+**Çerçeve.** Her satır `SS:yük*CCCC` biçimindedir: `SS` iki haneli sıra numarası, `CCCC` ise `SS:yük` üzerinden CRC-16/CCITT-FALSE
+(`"123456789"` için `0x29B1`). Yük en fazla 118 bayt. Köprü bozuk çerçeveye `--:NAK|CRC` ile cevap verir, terminal hemen yeniden
+yollar. **Aynı sıra numarası ve aynı yük** gelirse köprü cevabı önbellekten verir, isteği ikinci kez çalıştırmaz (kaybolan cevap
+yüzünden para iki kez çıkmaz). `HELLO|2` ile sürüm el sıkışması yapılır, bekleme ekranında 10 sn'de bir `HELLO`/`PING` gider ve
+"Kopru yok!" / "Surum uyumsuz" göstergeleri bununla çalışır. Köprü, ilk geçerli çerçeveye kadar eski (çerçevesiz) satırları yalnızca
+**bilinen komutlar** için kabul eder; `--kati` bunu kapatır.
+
+**Güvenlik değişmezleri** (testlerle ve fuzz ile sınanır):
+
+- Röle yalnızca `D_KILIT` durumunda açık olabilir ve bu durum yalnızca, sıra numarası eşleşen geçerli bir
+  `DURUM|...|UYGULANDI|...|KASA_ACMA` cevabından girilir; tam 5000 ms açık kalır. Durum her tur denetlenir.
+- PIN ve oturum token'ı, iş bitince/iptalde/zaman aşımında bellekten silinir (`bostayken_hassas_veri_bellekte_kalmaz`).
+- Bozuk, uzun veya ASCII dışı cevaplar uygulanmaz; terminal `HATA|Yanit gecersiz` gösterir.
+- İşlem anahtarı = kalıcı **açılış sayacı** + `millis()` + rastgele. Sayaç, 16 yuvalı bir EEPROM halkasına aşınma dağıtılarak
+  yazılır ve yazma sırasında elektrik kesilmesine dayanıklıdır. Bu, yeniden başlatılan terminalin eski bir idempotency
+  anahtarını yeniden üretip sunucudan "daha önce yapıldı" cevabı almasını (para çıkmadan TAMAM görünmesini) engeller. Bu hata
+  uçtan uca testte yakalandı.
+- Uno'da gözetleme zamanlayıcısı (WDT, 2 sn) açıktır; kilitlenirse terminal sıfırlanır ve "Bekci reseti!" gösterir.
+
+**Testler** (hepsi donanımsız):
+
+| Komut | Ne yapar |
+|---|---|
+| `make -C arduino/test` | 51 firmware testi: akışlar, gürültü, fuzz, çerçeve vektörleri, açılış sayacı |
+| `make -C arduino/test sanitize` | Aynı testler ASan + UBSan altında |
+| `make -C arduino/test kapsam` | gcov satır kapsamı (terminal %97, bağlantı %98, çerçeve %100, açılış %100, metin %95) |
+| `python -m unittest discover -s bridge -p "test_*.py"` | 24 köprü testi; derlenmiş C++ firmware'i **gerçek `Oturum`** ile konuşturur |
+| `cd backend && python manage.py test banka.test_gomulu_uctan_uca` | Firmware → köprü → Django → veritabanı; gürültülü hat, kaybolan cevap, yeniden başlatma |
+
+`arduino/araclar/avr_derle.sh` Arduino AVR çekirdeği ve gerçek kütüphanelerle ATmega328P için derler. Ölçüm (avr-gcc 7.3,
+Arduino IDE'nin kullandığı sürüm): **flash 23 182 B (%70,7), RAM 1 245 B (%60,8)**; LTO kapalıyken flash 27 596 B (%84,2).
+Eski avr-gcc 5.x LTO'da `PSTR` yüzünden çökebilir, o durumda `LTO=0` kullan.
+
+**Dürüst sınırlar.** Bu yazılım gerçek donanımda henüz denenmedi: RC522/keypad/LCD zamanlamaları, röle sürücüsü ve USB seri
+davranışı yalnızca arayüz düzeyinde sahtelenmiştir. WDT, eski ve klon Uno bootloader'larında reset sonrası döngüye girebilir
+(o durumda `BEKCI_ETKIN` 0 yapılır). Yığın (stack) kullanımı ölçülmedi; derleme 800 B'a yakın boş RAM bırakıyor ama bu bir ölçüm
+değil, üst sınır. RC522 imza üretemez (bkz. "İmzalı kart"). Köprü v2 gerekir; eski köprü yalnızca eski satır modunda çalışır.
+
 ## Protokol (Arduino ↔ köprü)
 
 Satır satır metin, alanlar `|` ile ayrılır, 9600 baud. Uno'da JSON ayrıştırmak RAM yer; bu yüzden düz metin.
+Her satır v2'de CRC'li çerçeveye sarılır (`SS:yük*CCCC`, bkz. "Gömülü yazılım"); aşağıdaki tablo **yükü** gösterir.
 Tam liste `atm_terminal.ino` dosyasının başındaki yorumda. Özet:
 
 | Arduino → köprü | Cevap |
@@ -1145,6 +1205,7 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 - Tutar klavyeden tam TL girilir (kuruş yok). Tek terminal hem müşteri hem yetkili modunda çalışır.
 - Terminal, idempotency için yalnızca yeniden deneme yapar; ISLEM cevabı hiç gelmezse işlem sunucuda uygulanmış olabilir ve
   ekranda "Sunucu yanit vermedi" görünür. Aynı anahtarla yeniden gönderince sonucu alırsın; kalıcı çözüm çevrimdışı kuyruk olurdu.
+- Firmware gerçek donanımda denenmedi; doğrulama PC benzetimi ve gerçek AVR derlemesi (flash/RAM) ile sınırlıdır ("Gömülü yazılım").
 - Varsayılan anahtarlar ve veritabanı parolası (`DJANGO_SECRET_KEY`, `KOPRU_API_ANAHTARI`, `LOG_HMAC_ANAHTARI`, `POSTGRES_PASSWORD`) sadece demo içindir.
 - Hash zinciri tek bir sıralı zincir olduğu için, yazan işlemler PostgreSQL'de bir danışma kilidiyle **sıraya girer** (aşağıdaki
   "PostgreSQL ve eşzamanlılık"). Bu doğruluk için bilinçli bir takastır; yatay ölçekleme için zincirin bölümlenmesi gerekir.

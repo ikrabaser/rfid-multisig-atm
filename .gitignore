@@ -10,3 +10,9 @@ backend/demir.txt
 bridge/cevrimdisi_kuyruk.jsonl
 backend/sms_kutusu.jsonl
 backend/db_sim.sqlite3*
+
+# gomulu test/benzetim ciktilari (derlenmis ikili dosyalar commitlenmez)
+arduino/test/test_calistir
+arduino/test/test_sanitize
+arduino/test/sim_calistir
+arduino/test/kapsam_cikti/
