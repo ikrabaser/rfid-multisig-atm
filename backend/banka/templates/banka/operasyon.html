@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static l10n %}<!doctype html>
 <html lang="tr">
 <head>
   <meta charset="utf-8">
@@ -41,7 +41,7 @@
       {% csrf_token %}
       {% for a in alanlar %}
       <label>{{ a.etiket }}
-        <input type="number" name="{{ a.ad }}" value="{{ a.deger }}" step="any"{% if a.sinir %} min="{{ a.sinir.0 }}" max="{{ a.sinir.1 }}"{% endif %}>
+        <input type="number" name="{{ a.ad }}" value="{{ a.deger|unlocalize }}" step="any"{% if a.sinir %} min="{{ a.sinir.0|unlocalize }}" max="{{ a.sinir.1|unlocalize }}"{% endif %}>
         <small>{{ a.ipucu }}</small>
       </label>
       {% endfor %}

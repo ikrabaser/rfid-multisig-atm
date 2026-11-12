@@ -529,3 +529,15 @@ class GorunumTestleri(TestCase):
     def test_liste_baslatma_formunu_yalniz_superusera_gosterir(self):
         self.assertContains(self._giris(self.root).get("/operasyon/"), 'action="/operasyon/baslat/"')
         self.assertNotContains(self._giris(self.staff).get("/operasyon/"), 'action="/operasyon/baslat/"')
+
+
+@override_settings(OPERASYON_SIM_AKTIF=True, LANGUAGE_CODE="tr", USE_L10N=True)
+class FormDegerleriTestleri(TestCase):
+    def test_ondalik_degerler_noktayla_yazilir(self):
+        """Türkçe yerelde 0,02 yazılırsa number alanı boş görünür; değerler nokta ile verilmeli."""
+        root = get_user_model().objects.create_superuser("root_fd", "r@banka.example", "dogru-parola-77")
+        c = Client()
+        c.force_login(root)
+        html = c.get("/operasyon/").content.decode()
+        for ad, deger in (("zaman_olcegi", "1.0"), ("hatali_pin_orani", "0.02"), ("ortalama_islem", "4.0"), ("onay_red_orani", "0.1")):
+            self.assertIn(f'name="{ad}" value="{deger}"', html)
