@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/vaultix-logo.png" alt="VAULTIX Operasyon Sistemi" width="640">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/vaultix-logo-koyu.png">
+    <img src="docs/vaultix-logo-acik.png" alt="VAULTIX Operasyon Sistemi" width="560">
+  </picture>
 </p>
 
-<h3 align="center">RFID banka ATM'i ve çok imzalı kasa simülasyonu</h3>
-
 <p align="center">
-  <b>Secure Banking Operations</b><br>
-  ATM · Vault · Authorization · Audit
+  <b>Secure Banking Operations</b> &nbsp;·&nbsp; ATM &nbsp;·&nbsp; Vault &nbsp;·&nbsp; Authorization &nbsp;·&nbsp; Audit
 </p>
 
 <p align="center">
