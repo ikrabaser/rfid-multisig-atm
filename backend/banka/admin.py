@@ -363,3 +363,8 @@ class YonetimTalebiAdmin(admin.ModelAdmin):
 @admin.register(YonetimOyu)
 class YonetimOyuAdmin(SadeceOkunur):
     list_display = ("talep", "kullanici", "karar", "zaman")
+
+
+admin.site.site_header = "VAULTIX Yönetim"
+admin.site.site_title = "VAULTIX"
+admin.site.index_title = "Yönetim paneli"

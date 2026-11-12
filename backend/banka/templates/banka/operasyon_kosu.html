@@ -4,12 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Simülasyon #{{ kosu.id }} | RFID Banka + Kasa</title>
+  <title>Simülasyon #{{ kosu.id }} | VAULTIX</title>
+  <link rel="icon" type="image/png" href="{% static 'banka/vaultix-favicon.png' %}">
   <link rel="stylesheet" href="{% static 'banka/operasyon.css' %}">
 </head>
 <body>
 <header class="ust">
-  <h1>Simülasyon #{{ kosu.id }}</h1>
+  <h1><img src="{% static 'banka/vaultix-ikon.png' %}" width="26" height="26" alt="">VAULTIX <span class="soluk">/</span> Simülasyon #{{ kosu.id }}</h1>
   <nav>
     <a href="{% url 'operasyon' %}">Tüm koşular</a>
     <a href="/">Panel</a>

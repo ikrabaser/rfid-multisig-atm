@@ -671,3 +671,4 @@ input:focus-visible, summary:focus-visible {
 @media(prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; }
 }
+.brand-logo { width: 36px; height: 36px; border-radius: 9px; display: block; flex: none; box-shadow: 0 0 0 1px #71669a55; }

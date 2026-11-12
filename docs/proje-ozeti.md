@@ -1,4 +1,4 @@
-# RFID Banka ATM'i ve Çok İmzalı Kasa: proje özeti
+# VAULTIX: RFID Banka ATM'i ve Çok İmzalı Kasa: proje özeti
 
 **Tek cümle:** Arduino (RC522 kart okuyucu, keypad, LCD, röle) ile çalışan bir mini ATM; sunucu tarafında çift taraflı defter,
 N-of-M yetkili onayı, hash zincirli denetim logu, banknot stoğu ve eşzamanlılık güvenceleriyle bir bankanın çekirdek

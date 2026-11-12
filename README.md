@@ -1,4 +1,8 @@
-# RFID Banka + Çok İmzalı Kasa
+<p align="center"><img src="docs/vaultix-logo.png" alt="VAULTIX Operasyon Sistemi" width="720"></p>
+
+# VAULTIX: RFID Banka + Çok İmzalı Kasa
+
+**Secure Banking Operations** · ATM · Vault · Authorization · Audit
 
 [![test](https://github.com/ikrabaser/rfid-multisig-atm/actions/workflows/test.yml/badge.svg)](https://github.com/ikrabaser/rfid-multisig-atm/actions/workflows/test.yml)
 

@@ -57,3 +57,4 @@ td.sayi, th.sayi { text-align:right; }
 .canli.acik::before { color:var(--ok); }
 details summary { cursor:pointer; color:var(--soluk); font-size:13px; }
 @media (max-width:600px) { .ust nav { margin-left:0; } }
+.ust h1 img { border-radius:7px; vertical-align:-6px; margin-right:8px; }
