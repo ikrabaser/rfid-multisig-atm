@@ -1186,8 +1186,21 @@ Get-Content -Raw -Encoding UTF8 arduino\wokwi\proje\sketch.ino | Set-Clipboard  
 ```
 
 Wokwi'de Library Manager'dan `MFRC522`, `Keypad` ve `LiquidCrystal I2C` (Frank de Brabander) eklenir. Kartlar MFRC522 panelinden okutulur
-(**Tap**); yalnızca Blue Card'ın UID'si değiştirilebilir (`diagram.json` → `rfid.attrs.uid`, varsayılan `a0:a0:a0:01` = demo müşteri Ali),
-diğer hazır kartların sabit UID'leri demo veritabanında olmadığı için "tanınmayan kart" davranışını sınamak için kullanılır.
+(**Tap**). Yalnızca Blue Card'ın UID'si değiştirilebilir (`diagram.json` → `rfid.attrs.uid`, varsayılan `a0:a0:a0:01` = demo müşteri Ali);
+diğer hazır kartların UID'leri sabittir. Onay akışını denemek için `python manage.py wokwi_kartlari` (yalnızca demo; DEBUG kapalıyken `--zorla`)
+bu kartları demo yetkili olarak kaydeder:
+
+| Wokwi kartı | UID | Kayıt | PIN |
+|---|---|---|---|
+| Blue Card | `a0:a0:a0:01` | Müşteri Ali (1234) | — |
+| Green Card | `11:22:33:44` | Görevli | 1010 |
+| Yellow Card | `55:66:77:88` | Görevli | 2020 |
+| Red Card | `AA:BB:CC:DD` | Müdür yardımcısı | 3030 |
+| Key Fob | `C0:FF:EE:99` | Müdür | 4040 |
+| NFC Tag | `04:11:22:33:44:55:66` | **kayıtsız** (tanınmayan, 7 baytlık UID testi) | — |
+
+Örnek: Blue Card ile giriş yap, 10.000 TL çek (1 onay gerekir), Green Card'ı okutup `A` ve PIN `1010` ile onayla. Bu akış, aynı kartlarla
+firmware simülatöründe `banka.test_wokwi_kartlari` testlerinde de çalıştırılır. Komut maker-checker'ı atlar ve onaylı yetkili görüntüsünü yeniler.
 
 **Köprüyü elle oynamak** (VS Code uzantısı gerekmez): backend açıkken `python bridge/serial_bridge.py --konsol` çalıştır, Wokwi seri
 monitöründeki `XX:KART|...*CCCC` satırını konsola yapıştır, çıkan cevap çerçevesini Wokwi'nin seri giriş kutusuna yapıştır. `wokwi_hazirla.py`
