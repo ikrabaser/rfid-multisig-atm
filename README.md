@@ -4,7 +4,6 @@
 
 **Secure Banking Operations** · ATM · Vault · Authorization · Audit
 
-[![test](https://github.com/ikrabaser/rfid-multisig-atm/actions/workflows/test.yml/badge.svg)](https://github.com/ikrabaser/rfid-multisig-atm/actions/workflows/test.yml)
 
 Arduino + RC522 ile kartlı mini ATM. Küçük işlemler direkt geçer, büyük işlemler **N-of-M yetkili onayı** ister
 (ör. 5 yetkiliden en az 3'ü, 30 saniye içinde, içlerinden biri müdür). Para hareketleri **çift taraflı deftere**,
@@ -951,9 +950,6 @@ node backend\js_testleri\simulator_akis.test.js
 
 `python manage.py test` Node kuruluysa bunu da çalıştırır, kurulu değilse atlar.
 
-**CI:** `.github/workflows/test.yml` her push ve pull request'te iki iş çalıştırır: PostgreSQL 16 servisiyle tam test
-(eşzamanlılık testleri, JS akış testi ve `makemigrations --check` dahil) ve SQLite ile hızlı kontrol.
-
 ## Banka operasyon simülasyonu (yük ve operasyon analizi)
 
 Yönetim panelinden başlatılan, sanal müşterilerle ATM yükü üreten ayrı bir modül. Amaç, projeyi "tek bir ATM ve yönetim
@@ -1016,8 +1012,7 @@ Aynı anda tek koşu çalışır (sandbox tektir; kuyrukta `lock` + `queueing_lo
 ### Örnek ölçüm (geliştirme ortamı, gerçek PostgreSQL)
 
 30 müşteri, 6 eşzamanlı oturum, 3 ATM, 6 sn gerçek zamanlı: 323 işlem (313 başarılı, 10 başarısız), ~50 işlem/sn, ATM kuyruğu
-gecikmesi p50 48 ms / p95 421 ms (en uzun kuyruk 11 işlem), onay bekleme p50 1 sn; defter ve hash zinciri sağlam. Bu bir CI/
-geliştirme makinesi ölçümüdür, üretim kapasitesi iddiası değildir; kendi makinende `zaman_olcegi=0` ile üst sınırı ölç.
+gecikmesi p50 48 ms / p95 421 ms (en uzun kuyruk 11 işlem), onay bekleme p50 1 sn; defter ve hash zinciri sağlam. Bu bir geliştirme makinesi ölçümüdür, üretim kapasitesi iddiası değildir; kendi makinende `zaman_olcegi=0` ile üst sınırı ölç.
 
 ### Bulgular ve sınırlar
 
