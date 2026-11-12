@@ -1,0 +1,61 @@
+{% load static %}<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Simülasyon #{{ kosu.id }} | RFID Banka + Kasa</title>
+  <link rel="stylesheet" href="{% static 'banka/operasyon.css' %}">
+</head>
+<body>
+<header class="ust">
+  <h1>Simülasyon #{{ kosu.id }}</h1>
+  <nav>
+    <a href="{% url 'operasyon' %}">Tüm koşular</a>
+    <a href="/">Panel</a>
+    <form method="post" action="{% url 'cikis' %}" style="display:inline">{% csrf_token %}<button type="submit" class="ikincil">Çıkış</button></form>
+  </nav>
+</header>
+<main class="sayfa" id="kosu"
+  data-durum-url="{% url 'operasyon_durum' kosu.id %}" data-jeton-url="{% url 'operasyon_jeton' kosu.id %}"
+  data-centrifugo="{% if centrifugo %}1{% else %}0{% endif %}">
+  <div class="durum-satiri">
+    <span class="rozet {{ kosu.durum }}" id="durum-rozet">{{ kosu.get_durum_display }}</span>
+    <span id="asama" class="soluk kucuk"></span>
+    <span class="canli kucuk soluk" id="canli" title="Canlı akış bağlantısı">sorgulama (2 sn)</span>
+    {% if baslatabilir %}
+    <form method="post" action="{% url 'operasyon_iptal' kosu.id %}" id="iptal-formu" style="margin-left:auto"{% if kosu.durum != 'BEKLIYOR' and kosu.durum != 'CALISIYOR' %} hidden{% endif %}>
+      {% csrf_token %}<button type="submit" class="tehlike">İptal et</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="hata" id="hata" role="alert" {% if not kosu.hata %}hidden{% endif %}>{{ kosu.hata }}</p>
+
+  <div class="ilerleme" aria-hidden="true"><i id="ilerleme"></i></div>
+  <p class="soluk kucuk" id="ilerleme-yazi">&nbsp;</p>
+
+  <section class="kpi" id="kpi" aria-live="off"></section>
+
+  <section class="kart">
+    <h2>Zaman içinde</h2>
+    <div class="grafikler" id="grafikler"></div>
+  </section>
+
+  <div class="iki">
+    <section class="kart">
+      <h2>Canlı işlem akışı</h2>
+      <ul class="akis" id="akis"><li class="soluk">Koşu başlayınca işlemler burada akar.</li></ul>
+    </section>
+    <section class="kart">
+      <h2>Parametreler</h2>
+      <div class="tablo-kaydir"><table><tbody>
+        {% for ad, deger in parametreler %}<tr><td class="soluk">{{ ad }}</td><td>{{ deger }}</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+  </div>
+
+  <div id="rapor" hidden></div>
+</main>
+<script src="{% static 'banka/operasyon.js' %}" defer></script>
+</body>
+</html>

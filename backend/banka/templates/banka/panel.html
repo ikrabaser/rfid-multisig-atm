@@ -33,6 +33,7 @@
       <a href="#islemler">İşlemler</a>
       <a href="#guvenlik">Güvenlik</a>
       <a href="#denetim">Denetim</a>
+      {% if operasyon_erisimi %}<a href="{% url 'operasyon' %}">Operasyon simülasyonu</a>{% endif %}
     </nav>
 
     <div class="header-actions">

@@ -112,6 +112,7 @@ def panel(request):
             "baslangic_yok": ("kotu", "Müşteri kartları için onaylı başlangıç görüntüsü yok (python manage.py kart_goruntu_al)."),
         }[kart_butunlugu.durum()],
         "terminaller": Terminal.objects.all(),
+        "operasyon_erisimi": settings.OPERASYON_SIM_AKTIF,
     }
     baglam.update(dashboard_data.panel_ozeti(baglam["anomaliler"]))
     return render(request, "banka/panel.html", baglam)

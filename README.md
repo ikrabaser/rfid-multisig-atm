@@ -54,6 +54,7 @@ politika, onay kuralları, defter ve log tamamen sunucudadır.
 | **Yetkili bütünlüğü**: sahte yetkili/rol/PIN değişikliği veritabanından yapılırsa onaylar kapanır | `personel_butunlugu.py` | `python manage.py personel_goruntu_al` |
 | **Ters kayıt + para teslimi**: para alınmazsa çekme otomatik geri alınır (orijinal satırlara dokunmadan) | `services.teslim_bildir` | çekimde 8 sn içinde A tuşuna basma |
 | **Banknot stoğu ve para dağıtımı**: tutar eldeki banknotlarla bölünür ve rezerve edilir; sıkışma, eksik verme ve bağlantı kopması güvenli yönetilir | `nakit.py`, `services.teslim_bildir`, `nakit_coz` | simülatörde "Para dağıtıcı" paneli, `python manage.py nakit_durumu` |
+| **Banka operasyon simülasyonu**: panelden başlatılan 100 sanal müşterili yük testi (ayrı sandbox DB, Procrastinate görevi, Centrifugo canlı akışı); ATM yoğunluğu, kuyruk, başarısızlık ve onay gecikmesi raporu | `banka/operasyon/` | panel → Operasyon simülasyonu |
 | **PostgreSQL ve eşzamanlılık**: aynı anda gelen işlemlerde bakiye, günlük limit, banknot stoğu ve PIN deneme sınırı aşılamaz | `kilit.py`, `services.py` | `python manage.py test` (eşzamanlılık testleri) |
 
 ## Ekran görüntüleri
@@ -948,6 +949,82 @@ node backend\js_testleri\simulator_akis.test.js
 
 **CI:** `.github/workflows/test.yml` her push ve pull request'te iki iş çalıştırır: PostgreSQL 16 servisiyle tam test
 (eşzamanlılık testleri, JS akış testi ve `makemigrations --check` dahil) ve SQLite ile hızlı kontrol.
+
+## Banka operasyon simülasyonu (yük ve operasyon analizi)
+
+Yönetim panelinden başlatılan, sanal müşterilerle ATM yükü üreten ayrı bir modül. Amaç, projeyi "tek bir ATM ve yönetim
+simülatörü"nden, **iş yükü, performans ve operasyon analizi** yapabilen bir platforma taşımak: 100 sanal müşteri ATM'lerden
+para çeker, yatırır, havale yapar ve onay gerektiren (10.000 TL üstü) çekimler başlatır; sistem ATM yoğunluğunu, kuyrukları,
+başarısız işlemleri ve onay gecikmelerini ölçer. Sanal müşteriler **gerçek servis katmanını** çağırır (gerçek kilitler, defter,
+hash zinciri, risk motoru); yani ölçülen şey taklit değil, sistemin kendisidir.
+
+```
+Panel (/operasyon/)  ──POST──▶  SimulasyonKosusu kaydı  ──defer──▶  Procrastinate kuyruğu (PostgreSQL)
+                                                                         │  python manage.py operasyon_worker
+                                                                         ▼
+Tarayıcı ◀── Centrifugo (WebSocket) ◀── yürütücü ◀── JSON satırları ◀── alt süreç: operasyon_calistir
+        ◀── /durum/ sorgusu (2 sn, yedek) ──┘                              │
+                                                                           ▼
+                                                              sandbox veritabanı (kasa_sim)
+```
+
+**Neden ayrı sandbox veritabanı?** Simülasyon yüzlerce sahte müşteri, hesap ve işlem yazar; üstelik hash zinciri silinemez ve
+mutabakat gerçek kasayı kapsar. Bu yüzden her koşu ayrı bir veritabanında (`kasa_sim`, her koşuda silinip yeniden kurulur) ve
+ayrı bir **alt süreçte** çalışır. Ana veritabanında yalnızca koşunun kaydı (parametreler, canlı durum, rapor) tutulur. Alt süreç
+sandbox'a ortam değişkenleriyle yönlendirilir, SMS/e-posta sessize alınır; kodda "simülasyon modu" dalı yoktur.
+Ana veritabanıyla aynı ad, bozuk ad ve CREATEDB yetkisizliği reddedilir.
+
+**Parametreler** (panelde form, sunucuda doğrulanır): sanal müşteri (1–500), sanal süre, **zaman ölçeği** (1 = gerçek zamanlı,
+0 = beklemeden en hızlı), eşzamanlı oturum sayısı, ATM sayısı, müşteri başına işlem, tohum (aynı tohum = aynı plan), hatalı PIN
+oranı, onay red oranı, yetkili tepki süresi, para alınmadı oranı, dağıtıcı sıkışma oranı, gerçek PIN hash maliyeti.
+
+**Ölçülenler:** işlem türüne göre başarılı/başarısız ve hata kodları, gecikme p50/p95/p99, ATM kuyruğu (planlanan ile gerçek
+başlangıç farkı ve en uzun kuyruk), onay bekleme süreleri ve sonuçları, risk kararları, anomali bulguları, terminal başına yük ve
+nakit tüketimi, defter mutabakatı ile hash zincirinin koşu sonunda sağlam kalması.
+
+### Çalıştırma
+
+```powershell
+docker compose up -d                       # PostgreSQL + Centrifugo
+cd backend
+python manage.py migrate
+python manage.py operasyon_worker          # AYRI terminal: Procrastinate worker (ilk çalışmada kuyruk şemasını kurar)
+python manage.py runserver
+```
+
+Superuser ile giriş yap → panelde **Operasyon simülasyonu** → parametreleri seç → **Simülasyonu başlat**. Sayfa canlı
+KPI'ları, grafikleri ve işlem akışını gösterir; bitince tam rapor görünür. Sayfaları yönetim kullanıcıları görür, **başlatma ve
+iptal yalnızca superuser'dadır**; `OPERASYON_SIM_AKTIF` kapalıyken (varsayılan: yalnızca `DEBUG`) hiçbir uç yoktur (404).
+Aynı anda tek koşu çalışır (sandbox tektir; kuyrukta `lock` + `queueing_lock`).
+
+### Procrastinate ve Centrifugo
+
+- **Procrastinate** (PostgreSQL tabanlı görev kuyruğu): koşu `banka.operasyon.simulasyon_calistir` görevidir. Kuyruk tabloları
+  ana veritabanındadır (`procrastinate_*`), ek bir aracı (Redis vb.) gerekmez. SQLite ya da testlerde kuyruk bellektedir; görev
+  kuyruğa atılır ama işlenmez (worker PostgreSQL ister).
+- **Centrifugo** (canlı akış): yürütücü her ölçümde (1 sn) `simulasyon-<id>` kanalına yayın yapar. Tarayıcı API anahtarını
+  **görmez**: sunucu kısa ömürlü (5 dk) bir bağlantı JWT'si üretir; jeton kullanıcıyı yalnızca o koşunun kanalına abone eder
+  (`subs` iddiası). **Centrifugo kapalı ya da ulaşılamazsa koşu bozulmaz**: yayın devre kesicili ve sessizdir, sayfa her
+  2 sn'de bir `/durum/` ucunu sorgulayarak güncellenmeye devam eder.
+- Ayarlar ve gizli anahtarlar: `.env.example` ("Banka Operasyon Simülasyonu"). Üretimde `CENTRIFUGO_HMAC_ANAHTARI` ve
+  `CENTRIFUGO_API_ANAHTARI` mutlaka değiştirilmelidir.
+
+### Örnek ölçüm (geliştirme ortamı, gerçek PostgreSQL)
+
+30 müşteri, 6 eşzamanlı oturum, 3 ATM, 6 sn gerçek zamanlı: 323 işlem (313 başarılı, 10 başarısız), ~50 işlem/sn, ATM kuyruğu
+gecikmesi p50 48 ms / p95 421 ms (en uzun kuyruk 11 işlem), onay bekleme p50 1 sn; defter ve hash zinciri sağlam. Bu bir CI/
+geliştirme makinesi ölçümüdür, üretim kapasitesi iddiası değildir; kendi makinende `zaman_olcegi=0` ile üst sınırı ölç.
+
+### Bulgular ve sınırlar
+
+- **Hash zinciri darboğazı:** zincir tek ve sıralı olduğundan yazan işlemler PostgreSQL'de bir danışma kilidiyle sıraya girer.
+  İşçi sayısını artırmak verimi belli bir noktadan sonra artırmaz, kuyruk gecikmesi büyür. Bu, doğruluk için bilinçli takas
+  olarak belgelenmiştir; ölçüm bunu görünür kılar.
+- **`zaman_olcegi=0` gerçekçi risk ölçmez:** zaman sıkıştığında "hız" ve "farklı terminalde kısa sürede" pencereleri şişer, risk
+  kararları ve anomali sayıları gerçekte olacağından yüksek çıkar. Risk davranışı için 1,0 kullan; 0 yalnızca verim ölçer.
+- Müşteri davranışı **sentetiktir** (Poisson varışlar, log-normal yetkili tepki süresi); gerçek müşteri davranışını temsil etmez.
+- Hızlı PIN hash'i varsayılandır (mantığı ölçer, hash CPU maliyetini değil); maliyeti görmek için "gerçek PIN hash" seçeneğini aç.
+- Koşular sıralıdır (tek sandbox) ve iptal bir sonraki ölçümde alt süreci durdurur.
 
 ## PostgreSQL ve eşzamanlılık
 

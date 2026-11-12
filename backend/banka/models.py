@@ -606,3 +606,39 @@ class SimulatorKartCipi(models.Model):
     class Meta:
         verbose_name = "Simülatör kart çipi"
         verbose_name_plural = "Simülatör kart çipleri"
+
+
+class SimulasyonKosusu(models.Model):
+    """Banka operasyon simülasyonunun bir koşusu (kontrol düzlemi kaydı; ana veritabanında).
+
+    Yük, ayrı bir sandbox veritabanında çalışır (operasyon/sandbox.py); buraya yalnızca parametreler, canlı durum ve
+    nihai özet yazılır. Gerçek müşteri, kasa, hash zinciri ve bildirimlere dokunulmaz.
+    """
+
+    class Durum(models.TextChoices):
+        BEKLIYOR = "BEKLIYOR", "Kuyrukta"
+        CALISIYOR = "CALISIYOR", "Çalışıyor"
+        TAMAMLANDI = "TAMAMLANDI", "Tamamlandı"
+        HATA = "HATA", "Hata"
+        IPTAL = "IPTAL", "İptal edildi"
+
+    olusturan = models.CharField(max_length=150)
+    parametreler = models.JSONField(default=dict)
+    durum = models.CharField(max_length=12, choices=Durum.choices, default=Durum.BEKLIYOR)
+    olusturma = models.DateTimeField(auto_now_add=True)
+    baslangic = models.DateTimeField(null=True, blank=True)
+    bitis = models.DateTimeField(null=True, blank=True)
+    asama = models.CharField(max_length=20, blank=True, default="")
+    son_durum = models.JSONField("Son canlı ölçüm", default=dict, blank=True)
+    ozet = models.JSONField("Nihai rapor", default=dict, blank=True)
+    hata = models.TextField(blank=True, default="")
+    iptal_istendi = models.BooleanField(default=False)
+    gorev_id = models.BigIntegerField("Procrastinate iş no", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Simülasyon koşusu"
+        verbose_name_plural = "Simülasyon koşuları"
+        ordering = ["-id"]
+
+    def __str__(self):
+        return f"Koşu #{self.id} [{self.durum}]"

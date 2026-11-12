@@ -9,3 +9,4 @@ backend/demir.txt
 .vscode/
 bridge/cevrimdisi_kuyruk.jsonl
 backend/sms_kutusu.jsonl
+backend/db_sim.sqlite3*

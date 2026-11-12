@@ -1,0 +1,78 @@
+{% load static %}<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Banka Operasyon Simülasyonu | RFID Banka + Kasa</title>
+  <link rel="stylesheet" href="{% static 'banka/operasyon.css' %}">
+</head>
+<body>
+<header class="ust">
+  <h1>Banka Operasyon Simülasyonu</h1>
+  <nav>
+    <a href="/">Panel</a>
+    <a href="/admin/">Yönetim</a>
+    <form method="post" action="{% url 'cikis' %}" style="display:inline">{% csrf_token %}<button type="submit" class="ikincil">Çıkış</button></form>
+  </nav>
+</header>
+<main class="sayfa">
+  <p class="bilgi">
+    Sanal müşteriler ayrı bir <b>sandbox veritabanında</b> (gerçek müşteri, kasa ve hash zincirinden bağımsız) ATM işlemleri yapar;
+    sistem ATM yükünü, kuyrukları, başarısız işlemleri ve onay gecikmelerini ölçer. Koşu bir Procrastinate görevidir
+    {% if centrifugo %}ve canlı akış Centrifugo ile yayınlanır.{% else %}(Centrifugo kapalı: sayfa her 2 sn'de bir sorgulayarak güncellenir).{% endif %}
+    {% if kuyruk_bellekte %}<br><b>Uyarı:</b> görev kuyruğu bellekte (SQLite/test): koşu kuyruğa alınır ama bir işçi onu işleyemez. PostgreSQL ve <code>python manage.py operasyon_worker</code> gerekir.{% endif %}
+  </p>
+
+  {% if hata %}<p class="hata" role="alert">{{ hata }}</p>{% endif %}
+
+  {% if aktif_kosu %}
+  <section class="kart">
+    <h2>Çalışan simülasyon</h2>
+    <p>Koşu #{{ aktif_kosu.id }} <span class="rozet {{ aktif_kosu.durum }}">{{ aktif_kosu.get_durum_display }}</span>
+      — <a href="{% url 'operasyon_kosu' aktif_kosu.id %}">canlı izle</a></p>
+  </section>
+  {% endif %}
+
+  {% if baslatabilir %}
+  <section class="kart">
+    <h2>Yeni simülasyon</h2>
+    <form method="post" action="{% url 'operasyon_baslat' %}" class="izgara">
+      {% csrf_token %}
+      {% for a in alanlar %}
+      <label>{{ a.etiket }}
+        <input type="number" name="{{ a.ad }}" value="{{ a.deger }}" step="any"{% if a.sinir %} min="{{ a.sinir.0 }}" max="{{ a.sinir.1 }}"{% endif %}>
+        <small>{{ a.ipucu }}</small>
+      </label>
+      {% endfor %}
+      <label><span><input type="checkbox" name="gercek_hash"{% if gercek_hash %} checked{% endif %}> Gerçek PIN hash maliyeti</span>
+        <small>Kapalıyken hızlı hash: mantığı ölçer, hash CPU maliyetini değil</small></label>
+      <div style="grid-column:1/-1"><button type="submit"{% if aktif_kosu %} disabled title="Zaten çalışan bir simülasyon var"{% endif %}>Simülasyonu başlat</button></div>
+    </form>
+  </section>
+  {% else %}
+  <p class="bilgi">Simülasyonu yalnızca superuser başlatabilir; koşuları ve raporları görüntüleyebilirsin.</p>
+  {% endif %}
+
+  <section class="kart">
+    <h2>Son koşular</h2>
+    {% if kosular %}
+    <div class="tablo-kaydir"><table>
+      <thead><tr><th>#</th><th>Durum</th><th>Başlatan</th><th class="sayi">Müşteri</th><th class="sayi">İşlem</th><th class="sayi">Başarısız</th><th>Oluşturma</th><th></th></tr></thead>
+      <tbody>
+      {% for k in kosular %}
+      <tr>
+        <td>{{ k.id }}</td><td><span class="rozet {{ k.durum }}">{{ k.get_durum_display }}</span></td><td>{{ k.olusturan }}</td>
+        <td class="sayi">{{ k.parametreler.musteri_sayisi }}</td>
+        <td class="sayi">{{ k.islem_sayisi|default_if_none:"–" }}</td>
+        <td class="sayi">{{ k.basarisiz_sayisi|default_if_none:"–" }}</td>
+        <td>{{ k.olusturma|date:"d.m.Y H:i" }}</td>
+        <td><a href="{% url 'operasyon_kosu' k.id %}">Aç</a></td>
+      </tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% else %}<p class="soluk">Henüz koşu yok.</p>{% endif %}
+  </section>
+</main>
+</body>
+</html>

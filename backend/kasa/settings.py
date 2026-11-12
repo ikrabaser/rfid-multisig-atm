@@ -69,7 +69,7 @@ def _veritabani():
     Varsayilanlar docker-compose.yml ile uyumludur; GERCEK ortamda parolayi degistir.
     """
     if os.environ.get("DB_ENGINE", "postgresql").lower() == "sqlite":
-        return {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
+        return {"ENGINE": "django.db.backends.sqlite3", "NAME": os.environ.get("SQLITE_DOSYASI") or BASE_DIR / "db.sqlite3"}
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": os.environ.get("POSTGRES_DB", "kasa"),
@@ -108,8 +108,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Testlerde PIN hash'leme hizli olsun
-if "test" in sys.argv:
+# Testlerde (ve operasyon simulasyonunun sandbox'inda) PIN hash'leme hizli olsun
+if "test" in sys.argv or _env_bool("HIZLI_PIN_HASH", False):
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # ----------------------------------------------------------------- Proje ayarlari
@@ -192,7 +192,7 @@ YONETIM_MIN_AKTIF_YETKILI = 4                      # 3 onay + talebi baslatan (k
 HESAP_GUNLUK_LIMIT_AZAMI = Decimal("5000000")      # hicbir hesabin gunluk limiti bunu asamaz
 
 # SMS: PIN gibi gizli icerikler yalnizca saglayiciya verilir. Gercek saglayici icin sms.SmsSaglayici'dan turet.
-SMS_SAGLAYICI = "banka.sms.DosyaSmsSaglayici"
+SMS_SAGLAYICI = os.environ.get("SMS_SAGLAYICI", "banka.sms.DosyaSmsSaglayici")
 SMS_KUTUSU_DOSYASI = BASE_DIR / "sms_kutusu.jsonl"   # simulasyon: telefonu temsil eden dosya (git'e girmez)
 
 # Kart satir muhru (HMAC) anahtari: veritabaninin DISINDA tutulmali; bilmeyen biri gecerli bir kart satiri uretemez.
@@ -209,3 +209,19 @@ SIMULATOR_AKTIF = _env_bool("SIMULATOR_AKTIF", DEBUG)
 # Belirsiz nakit teslimini TEK kişinin sonuçlandırmasına (nakit_coz --dogrudan) izin verir. Üretimde kapalı kalmalı:
 # yol, NAKIT_COZ yönetim talebidir (talep eden + başka onaylayan). Simülatör zaten ayrı bir geliştirme aracıdır.
 NAKIT_COZ_TEK_KISI = _env_bool("NAKIT_COZ_TEK_KISI", DEBUG)
+
+
+# ----------------------------------------------------------------- Banka operasyon simulasyonu (operasyon/)
+# Sanal musteri yuku ayri bir "sandbox" veritabaninda calisir; gercek kasa, zincir ve bildirimler etkilenmez.
+OPERASYON_SIM_AKTIF = _env_bool("OPERASYON_SIM_AKTIF", DEBUG)
+OPERASYON_SANDBOX_DB = os.environ.get("OPERASYON_SANDBOX_DB", "kasa_sim")                # PostgreSQL veritabani adi
+OPERASYON_SANDBOX_SQLITE = os.environ.get("OPERASYON_SANDBOX_SQLITE", str(BASE_DIR / "db_sim.sqlite3"))
+# Gorev kuyrugu (Procrastinate, PostgreSQL'de calisir). "memory": kuyruk bellekte (testler, SQLite denemesi)
+PROCRASTINATE_BAGLANTI = os.environ.get(
+    "PROCRASTINATE_BAGLANTI", "memory" if (DATABASES["default"]["ENGINE"].endswith("sqlite3") or "test" in sys.argv) else "postgres")
+# Canli akis (Centrifugo). Yayin hatasi simulasyonu bozmaz; panel her durumda 2 sn'de bir sorgulayarak da guncellenir.
+CENTRIFUGO_AKTIF = _env_bool("CENTRIFUGO_AKTIF", DEBUG and "test" not in sys.argv)
+CENTRIFUGO_API_URL = os.environ.get("CENTRIFUGO_API_URL", "http://127.0.0.1:8001/api")
+CENTRIFUGO_WS_URL = os.environ.get("CENTRIFUGO_WS_URL", "ws://127.0.0.1:8001/connection/websocket")
+CENTRIFUGO_API_ANAHTARI = os.environ.get("CENTRIFUGO_API_ANAHTARI", "gelistirme-centrifugo-api-anahtari")
+CENTRIFUGO_HMAC_ANAHTARI = os.environ.get("CENTRIFUGO_HMAC_ANAHTARI", "gelistirme-centrifugo-hmac-anahtari-degistir")

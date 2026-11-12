@@ -37,7 +37,7 @@ yapılmaz, yalnızca denetim günlüğü biriktirilir ve bağlantı gelince yük
 
 ## Nasıl doğrulandı
 
-- **381 Python testi** (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
+- **443 Python testi** (52'si operasyon simülasyonu) (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
   banknot stoğu, idempotency ve 3 yanlış PIN sınırı aşılamıyor, zincir bozulmuyor).
 - **27 JavaScript akış testi** (simülatörün ekran akışı, sahte sunucuya karşı, Windows zamanlayıcısı taklit edilerek de).
 - Banknot bölme algoritması, rastgele stok ve tutarlarda kaba kuvvet çözümüyle karşılaştırıldı.
@@ -71,7 +71,8 @@ Ayrıntılar ve tüm kurallar için [README](../README.md).
   HMAC'li hash zincirli denetim logu, maker-checker ve RBAC.
 - Nakit çekimde banknot stoğu, sıkışma/eksik verme/bağlantı kopması yönetimi ve PostgreSQL üzerinde eşzamanlılık güvenceleri
   (satır ve danışma kilitleri, idempotency, deadlock'ta yeniden deneme) tasarlayıp gerçek thread'li testlerle doğruladım.
-- 381 Python ve 27 JavaScript testi; tarayıcıda çalışan, hata enjeksiyonlu Web ATM simülatörü.
+- Panelden başlatılan banka operasyon simülasyonu: sanal müşterilerle yük üretir, ATM yoğunluğunu, kuyrukları, başarısız işlemleri ve onay gecikmelerini ölçer (ayrı sandbox veritabanı, Procrastinate görevleri, Centrifugo canlı akışı).
+- 443 Python ve 27 JavaScript testi; tarayıcıda çalışan, hata enjeksiyonlu Web ATM simülatörü.
 
 **English**
 
@@ -79,4 +80,5 @@ Ayrıntılar ve tüm kurallar için [README](../README.md).
   N-of-M approvals, an HMAC hash-chained audit log, maker-checker and RBAC.
 - Designed banknote inventory handling for cash withdrawals, including safe recovery from jams, short dispenses and lost
   connections, and PostgreSQL concurrency guarantees (row and advisory locks, idempotency, deadlock retry), verified with real-thread tests.
-- 381 Python and 27 JavaScript tests; a browser-based ATM simulator with fault injection.
+- Added a bank operations simulation started from the admin panel: virtual customers generate load while the system measures ATM load, queues, failed transactions and approval delays (isolated sandbox database, Procrastinate tasks, live Centrifugo stream).
+- 443 Python and 27 JavaScript tests; a browser-based ATM simulator with fault injection.

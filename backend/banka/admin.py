@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 
 from . import politika_degisikligi, yonetim_talepleri
 from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, Onay,
-                     OnayTalebi, Personel, Politika, PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol,
+                     OnayTalebi, Personel, Politika, PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, SimulasyonKosusu,
                      Terminal, TerminalGunlukKaydi, YonetimOyu, YonetimTalebi)
 from .politika_degisikligi import PolitikaHatasi
 from .yonetim_talepleri import YonetimHatasi
@@ -86,6 +86,12 @@ class SadeceOkunur(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(SimulasyonKosusu)
+class SimulasyonKosusuAdmin(SadeceOkunur):
+    list_display = ("id", "durum", "olusturan", "olusturma", "bitis")
+    list_filter = ("durum",)
 
 
 @admin.register(Islem)
