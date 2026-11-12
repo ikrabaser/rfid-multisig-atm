@@ -12,6 +12,10 @@
 #include "donanim.h"
 #include "metin.h"
 
+#ifndef VX_DENEME_MS
+#define VX_DENEME_MS 2000   // bir istek icin cevap bekleme suresi (ms); DENEME_SAYISI kez denenir
+#endif
+
 namespace vx {
 
 class Baglanti {
@@ -29,7 +33,7 @@ class Baglanti {
     uint16_t zaman_asimi;  // tum denemeler tukendi
   };
 
-  static const uint32_t DENEME_MS = 2000;
+  static const uint32_t DENEME_MS = VX_DENEME_MS;   // varsayilan 2000; Wokwi'de elle cevap icin buyutulur (wokwi_hazirla.py)
 
   explicit Baglanti(Donanim &d);
 

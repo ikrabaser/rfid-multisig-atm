@@ -1,0 +1,7 @@
+# Wokwi for VS Code / wokwi-cli icin. Once: python arduino/araclar/wokwi_hazirla.py (ya da avr_derle.sh ile firmware.hex uret)
+[wokwi]
+version = 1
+firmware = "firmware.hex"
+elf = "firmware.elf"
+# Seri portu bilgisayara RFC2217 (TCP) olarak acar; kopru: python bridge/serial_bridge.py --port rfc2217://localhost:4000
+rfc2217ServerPort = 4000

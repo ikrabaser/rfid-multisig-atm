@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "author": "VAULTIX",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-arduino-uno",
+      "id": "uno",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "board-mfrc522",
+      "id": "rfid",
+      "top": -170,
+      "left": -10,
+      "attrs": {
+        "uid": "a0:a0:a0:01"
+      }
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd",
+      "top": -290,
+      "left": -230,
+      "attrs": {
+        "pins": "i2c",
+        "i2cAddress": "0x27"
+      }
+    },
+    {
+      "type": "wokwi-membrane-keypad",
+      "id": "keypad",
+      "top": -340,
+      "left": 250,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay",
+      "top": 260,
+      "left": 260,
+      "attrs": {
+        "transistor": "pnp"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz",
+      "top": 270,
+      "left": -120,
+      "attrs": {
+        "volume": "0.1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led",
+      "top": 300,
+      "left": 40,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 370,
+      "left": 40,
+      "attrs": {
+        "value": "220"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "rfid:SDA",
+      "uno:10",
+      "orange",
+      []
+    ],
+    [
+      "rfid:SCK",
+      "uno:13",
+      "orange",
+      []
+    ],
+    [
+      "rfid:MOSI",
+      "uno:11",
+      "orange",
+      []
+    ],
+    [
+      "rfid:MISO",
+      "uno:12",
+      "orange",
+      []
+    ],
+    [
+      "rfid:RST",
+      "uno:9",
+      "orange",
+      []
+    ],
+    [
+      "rfid:3.3V",
+      "uno:3.3V",
+      "red",
+      []
+    ],
+    [
+      "rfid:GND",
+      "uno:GND.1",
+      "black",
+      []
+    ],
+    [
+      "keypad:R1",
+      "uno:2",
+      "blue",
+      []
+    ],
+    [
+      "keypad:R2",
+      "uno:3",
+      "blue",
+      []
+    ],
+    [
+      "keypad:R3",
+      "uno:4",
+      "blue",
+      []
+    ],
+    [
+      "keypad:R4",
+      "uno:5",
+      "blue",
+      []
+    ],
+    [
+      "keypad:C1",
+      "uno:6",
+      "green",
+      []
+    ],
+    [
+      "keypad:C2",
+      "uno:7",
+      "green",
+      []
+    ],
+    [
+      "keypad:C3",
+      "uno:8",
+      "green",
+      []
+    ],
+    [
+      "keypad:C4",
+      "uno:A0",
+      "green",
+      []
+    ],
+    [
+      "lcd:GND",
+      "uno:GND.2",
+      "black",
+      []
+    ],
+    [
+      "lcd:VCC",
+      "uno:5V",
+      "red",
+      []
+    ],
+    [
+      "lcd:SDA",
+      "uno:A4",
+      "purple",
+      []
+    ],
+    [
+      "lcd:SCL",
+      "uno:A5",
+      "yellow",
+      []
+    ],
+    [
+      "relay:VCC",
+      "uno:5V",
+      "red",
+      []
+    ],
+    [
+      "relay:GND",
+      "uno:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay:IN",
+      "uno:A3",
+      "orange",
+      []
+    ],
+    [
+      "bz:1",
+      "uno:GND.2",
+      "black",
+      []
+    ],
+    [
+      "bz:2",
+      "uno:A1",
+      "orange",
+      []
+    ],
+    [
+      "uno:A2",
+      "r1:1",
+      "green",
+      []
+    ],
+    [
+      "r1:2",
+      "led:A",
+      "green",
+      []
+    ],
+    [
+      "led:C",
+      "uno:GND.3",
+      "black",
+      []
+    ]
+  ],
+  "dependencies": {}
+}

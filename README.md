@@ -119,6 +119,7 @@ anomali rozeti de uyarıya döner).
 | `arduino/atm_terminal/*.cpp,*.h` | Firmware çekirdeği (Arduino'dan bağımsız): durum makinesi, bağlantı katmanı, çerçeve, açılış sayacı |
 | `arduino/test/` | Firmware'i PC'de çalıştıran testler, gürültülü hat benzetimi ve C++ ⇄ Python birlikte çalışma (`make`) |
 | `arduino/araclar/avr_derle.sh` | Gerçek ATmega328P derlemesi ve flash/RAM ölçümü (donanımsız) |
+| `arduino/wokwi/`, `arduino/araclar/wokwi_hazirla.py` | Wokwi devresi (`diagram.json`) ve tek dosyalık sketch üretici |
 | `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, HesapHareketi, OnayTalebi, Onay, LogKaydi |
 | `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika, onay akışı, idempotency, limit, kasa açma |
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
@@ -1168,6 +1169,30 @@ yüzünden para iki kez çıkmaz). `HELLO|2` ile sürüm el sıkışması yapıl
 `arduino/araclar/avr_derle.sh` Arduino AVR çekirdeği ve gerçek kütüphanelerle ATmega328P için derler. Ölçüm (avr-gcc 7.3,
 Arduino IDE'nin kullandığı sürüm): **flash 23 182 B (%70,7), RAM 1 245 B (%60,8)**; LTO kapalıyken flash 27 596 B (%84,2).
 Eski avr-gcc 5.x LTO'da `PSTR` yüzünden çökebilir, o durumda `LTO=0` kullan.
+
+### Wokwi'de çalıştırma (donanımsız, gerçek AVR derlemesi)
+
+[Wokwi](https://wokwi.com) çevrimiçi simülatöründe aynı firmware, derlenmiş ATmega328P ikilisi olarak çalışır: Uno + MFRC522 + 4x4 keypad +
+I2C LCD + röle + buzzer + LED. Pin haritası `atm_terminal.ino` ile aynıdır (`arduino/wokwi/diagram.json`).
+
+![VAULTIX terminali Wokwi'de](docs/wokwi-terminal.png)
+
+*Köprü bağlı değilken kart okutma: seri monitörde `KART` çerçevesi 3 kez (sıra no. sabit, CRC'li) yeniden gönderilir, cevap gelmediği için
+LCD "Sunucu yanitsiz" gösterir ve hata sesi çalar. Her `HELLO` turunda sıra numarası artar.*
+
+```powershell
+python arduino/araclar/wokwi_hazirla.py        # arduino/wokwi/proje/ icinde tek dosyalik sketch.ino + diagram.json uretir
+Get-Content -Raw -Encoding UTF8 arduino\wokwi\proje\sketch.ino | Set-Clipboard    # sonra Wokwi'de sketch.ino'ya yapistir
+```
+
+Wokwi'de Library Manager'dan `MFRC522`, `Keypad` ve `LiquidCrystal I2C` (Frank de Brabander) eklenir. Kartlar MFRC522 panelinden okutulur
+(**Tap**); yalnızca Blue Card'ın UID'si değiştirilebilir (`diagram.json` → `rfid.attrs.uid`, varsayılan `a0:a0:a0:01` = demo müşteri Ali),
+diğer hazır kartların sabit UID'leri demo veritabanında olmadığı için "tanınmayan kart" davranışını sınamak için kullanılır.
+
+**Köprüyü elle oynamak** (VS Code uzantısı gerekmez): backend açıkken `python bridge/serial_bridge.py --konsol` çalıştır, Wokwi seri
+monitöründeki `XX:KART|...*CCCC` satırını konsola yapıştır, çıkan cevap çerçevesini Wokwi'nin seri giriş kutusuna yapıştır. `wokwi_hazirla.py`
+sketch'i varsayılan olarak 20 sn cevap bekleyecek şekilde üretir (`--gercek-zaman` ile 2 sn); bu ayar yalnızca üretilen dosyadadır, firmware
+varsayılanı değişmez. Otomatik köprü için `wokwi.toml` (RFC2217) hazırdır ama denenmedi.
 
 **Dürüst sınırlar.** Bu yazılım gerçek donanımda henüz denenmedi: RC522/keypad/LCD zamanlamaları, röle sürücüsü ve USB seri
 davranışı yalnızca arayüz düzeyinde sahtelenmiştir. WDT, eski ve klon Uno bootloader'larında reset sonrası döngüye girebilir
