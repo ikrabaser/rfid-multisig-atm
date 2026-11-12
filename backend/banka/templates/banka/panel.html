@@ -1,135 +1,431 @@
-{% load static %}<!doctype html>
+{% load static %}
+<!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex, nofollow">
-  <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#101319">
-  <title>Operasyon Merkezi · RFID Banka + Kasa</title>
-  <link rel="stylesheet" href="{% static 'banka/command-center-v4.css' %}">
-  <script src="{% static 'banka/command-center-v4.js' %}" defer></script>
-  <link rel="stylesheet" href="{% static 'banka/command-center-v41.css' %}">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<title>Operasyon Merkezi | RFID Banka + Kasa</title>
+<link rel="stylesheet" href="{% static 'banka/command-center-v42.css' %}">
+<script src="{% static 'banka/command-center-v42.js' %}" defer></script>
 </head>
 <body>
-<svg class="icons" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></symbol>
-  <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
-  <symbol id="i-atm" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><rect x="8" y="5" width="8" height="7" rx="1"/><path d="M8 16h8m-8 3h8"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
-  <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 2 8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="m8 12 3 3 5-6"/></symbol>
-  <symbol id="i-warning" viewBox="0 0 24 24"><path d="m12 3 10 18H2zM12 9v5m0 3v1"/></symbol>
-  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-7-7 7 7-7 7"/></symbol>
-  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8V3h-5M4 16v5h5M5 9a8 8 0 0 1 14-2l1 1M4 16l1 1a8 8 0 0 0 14-2"/></symbol>
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></symbol>
-  <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M5 6V4h13v2m-3 6h6v5h-6a2.5 2.5 0 0 1 0-5z"/></symbol>
-  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5m4-4 4-4-4-4m-9 4h13"/></symbol>
-</svg>
+
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/" aria-label="RFID Banka + Kasa ana sayfa"><span class="brand-symbol"><svg><use href="#i-grid"/></svg></span><span class="brand-copy"><strong>RFID Banka + Kasa</strong><small>Operasyon Yönetimi</small></span></a>
-    <button class="menu-button" id="menu-button-v4" type="button" aria-label="Menüyü aç" aria-expanded="false" aria-controls="primary-nav">☰</button>
-    <nav class="primary-nav" id="primary-nav" aria-label="Ana gezinme">
-      <a class="current" href="#genel">Genel bakış</a><a href="#terminaller">Terminaller</a><a href="#onaylar">Onay ve risk</a><a href="#islemler">İşlemler</a><a href="#denetim">Denetim</a>
-    {% if simulator_erisimi and user.is_superuser %}
-<a href="{% url 'simulator' %}">ATM Laboratuvarı</a>
-{% endif %}</nav>
-    <div class="header-actions"><span class="environment"><span class="env-dot"></span>Simülasyon</span><button type="button" class="icon-button" id="refresh-v4" title="Kayıtları yenile" aria-label="Kayıtları yenile"><svg><use href="#i-refresh"/></svg></button><div class="current-user" title="{{ user.get_username }}">{{ user.get_username }}</div><form method="post" action="{% url 'cikis' %}">{% csrf_token %}<button class="logout-button" type="submit">Çıkış</button></form></div>
+    <a class="brand" href="/">
+      <span class="brand-mark">R<span>+</span></span>
+      <span class="brand-name">
+        <strong>RFID Banka + Kasa</strong>
+        <small>OPERASYON SİSTEMİ</small>
+      </span>
+    </a>
+
+    <button class="menu-toggle" id="menu-toggle"
+      type="button" aria-controls="main-nav"
+      aria-expanded="false" aria-label="Menüyü aç">☰</button>
+
+    <nav class="main-nav" id="main-nav" aria-label="Ana menü">
+      <a class="active" href="#genel">Genel bakış</a>
+      <a href="#terminaller">ATM ağı</a>
+      <a href="#onaylar">İnceleme</a>
+      <a href="#islemler">İşlemler</a>
+      <a href="#guvenlik">Güvenlik</a>
+      <a href="#denetim">Denetim</a>
+    </nav>
+
+    <div class="header-actions">
+      <span class="simulation-label"><i></i> SİMÜLASYON</span>
+      <button type="button" id="refresh-v42"
+        class="refresh-button" title="Verileri yenile">↻</button>
+      <span class="user-name">{{ user.get_username }}</span>
+      <form method="post" action="{% url 'cikis' %}">
+        {% csrf_token %}
+        <button class="logout-button" type="submit">Çıkış</button>
+      </form>
+    </div>
   </div>
 </header>
-<main class="workspace" id="genel">
-  <div class="page-header"><div><div class="breadcrumb">Operasyonlar <span>/</span> Genel bakış</div><h1>Operasyon Merkezi</h1><p>ATM terminalleri, onaylar ve denetim kayıtları tek ekranda.</p></div><div class="snapshot"><span>Son güncelleme</span><strong>{{ son_guncelleme|date:'d.m.Y H:i:s' }}</strong><small>Manuel yenileme · canlı telemetri değil</small></div></div>
 
-  {% if istatistik.belirsiz_cekim or istatistik.anomali %}
-  <div class="notice warning-notice" role="status"><span class="notice-icon"><svg><use href="#i-warning"/></svg></span><div><strong>İnceleme gerektiren kayıtlar var</strong><p>{{ istatistik.belirsiz_cekim }} belirsiz nakit teslimi · {{ istatistik.anomali }} anomali uyarısı. Sonuçlar kayıtlı verilerden alınır.</p></div><a href="#onaylar">Kayıtları incele <svg><use href="#i-arrow"/></svg></a></div>
-  {% else %}
-  <div class="notice calm-notice"><span class="notice-icon"><svg><use href="#i-check"/></svg></span><div><strong>Açık inceleme uyarısı bulunmuyor</strong><p>Bu özet, donanım bağlantısının çevrimiçi olduğunu göstermez.</p></div><a href="#guvenlik">Bütünlüğü görüntüle <svg><use href="#i-arrow"/></svg></a></div>
-  {% endif %}
+<main class="shell" id="genel">
 
-  <div class="summary-strip" aria-label="Operasyon sayıları">
-    <div class="summary-item"><span>Bekleyen onay</span><strong>{{ istatistik.bekleyen_onay }}</strong><small>Yetki kararı</small></div>
-    <div class="summary-item"><span>İdari olarak aktif ATM</span><strong>{{ istatistik.atm_aktif }} <i>/ {{ istatistik.atm_toplam }}</i></strong><small>Heartbeat ölçülmüyor</small></div>
-    <div class="summary-item"><span>Müşteri hesapları</span><strong>{{ istatistik.musteri_hesap }}</strong><small>Kayıtlı hesap</small></div>
-    <div class="summary-item summary-balance"><span>Toplam müşteri bakiyesi</span><strong>{{ istatistik.bakiye|floatformat:2 }} <i>TL</i></strong><small>Kasa bakiyesi dahil değildir</small></div>
-  </div>
-
-  <div class="operations-grid">
-    <div class="main-column">
-      <section class="card" id="terminaller" aria-labelledby="terminal-title">
-        <div class="card-head"><div><h2 id="terminal-title">ATM terminalleri</h2><p>Kayıtlı cihazların idari durumu ve kaset özeti</p></div><span class="section-counter">{{ istatistik.atm_toplam }} terminal</span></div>
-        <div class="toolbar"><label class="search-field"><svg><use href="#i-search"/></svg><input id="terminal-search-v4" type="search" placeholder="Terminal veya şube ara" autocomplete="off" aria-label="Terminallerde ara"></label><span id="terminal-count-v4" class="muted-count">{{ istatistik.atm_toplam }} kayıt</span></div>
-        <div class="table-scroll"><table class="terminal-table"><thead><tr><th>Terminal</th><th>İdari durum</th><th>Dağıtıcı</th><th class="numeric">Kaset nakdi</th><th class="numeric">Bugün</th><th>Son işlem</th></tr></thead><tbody id="terminal-list-v4">
-          {% for t in terminal_ozetleri %}<tr class="terminal-row" data-search="{{ t.kod|lower }} {{ t.ad|lower }}"><td><div class="terminal-title"><span class="terminal-icon"><svg><use href="#i-atm"/></svg></span><div><strong>{{ t.kod }}</strong><small>{{ t.ad }}</small></div></div></td><td>{% if t.aktif %}<span class="status good"><span class="status-dot"></span>Açık</span>{% else %}<span class="status muted"><span class="status-dot"></span>Kapalı</span>{% endif %}</td><td>{% if t.dagitici_acik %}Açık{% else %}Kapalı{% endif %}</td><td class="numeric">{% if t.nakit is not None %}{{ t.nakit|floatformat:2 }} TL{% else %}—{% endif %}</td><td class="numeric">{{ t.islem_sayisi }}</td><td class="soft">{% if t.son_islem %}{{ t.son_islem|date:'d.m H:i' }}{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="empty">Kayıtlı ATM bulunmuyor.</td></tr>{% endfor %}
-          <tr id="terminal-empty-v4" hidden><td colspan="6" class="empty">Aramanızla eşleşen terminal bulunamadı.</td></tr>
-        </tbody></table></div>
-        <div class="card-footer"><span>Aktif = yönetimsel durum; fiziksel bağlantı kanıtı değildir.</span>{% if user.is_staff %}<a href="/admin/banka/terminal/">Terminal kayıtları <svg><use href="#i-arrow"/></svg></a>{% endif %}</div>
-      </section>
-
-      <section class="card" id="islemler" aria-labelledby="transaction-title"><div class="card-head"><div><h2 id="transaction-title">Son işlemler</h2><p>İşlem servisleri tarafından oluşturulan son 10 kayıt</p></div><span class="section-counter">Kayıt defteri</span></div><div class="table-scroll"><table class="transactions-table"><thead><tr><th>No</th><th>İşlem</th><th>Hesap</th><th>Terminal</th><th class="numeric">Tutar</th><th>Durum</th><th>Zaman</th></tr></thead><tbody>{% for i in son_islemler_ozet %}<tr><td class="code">#{{ i.id }}</td><td>{{ i.get_tur_display }}</td><td class="code">{{ i.hesap.hesap_no }}</td><td>{{ i.terminal|default:'—' }}</td><td class="numeric">{{ i.tutar|floatformat:2 }} TL</td><td>{% if i.durum == 'UYGULANDI' %}<span class="status good">{{ i.get_durum_display }}</span>{% elif i.durum == 'ONAY_BEKLIYOR' %}<span class="status warn">{{ i.get_durum_display }}</span>{% else %}<span class="status muted">{{ i.get_durum_display }}</span>{% endif %}</td><td class="soft">{{ i.olusturma|date:'d.m H:i' }}</td></tr>{% empty %}<tr><td colspan="7" class="empty">Henüz işlem kaydı yok.</td></tr>{% endfor %}</tbody></table></div></section>
-
-      <section class="card" id="guvenlik" aria-labelledby="integrity-title"><div class="card-head"><div><h2 id="integrity-title">Güvenlik ve bütünlük</h2><p>Gerçek denetim kayıtlarına dayalı kontroller</p></div><a class="text-link" href="#denetim">Denetim ayrıntıları <svg><use href="#i-arrow"/></svg></a></div><div class="integrity-list"><div><span><svg><use href="#i-shield"/></svg> Hash zinciri</span><strong class="{% if zincir.saglam %}text-good{% else %}text-danger{% endif %}">{% if zincir.saglam %}Doğrulandı · {{ zincir.kayit_sayisi }} kayıt{% else %}Bozuk · sıra #{{ zincir.bozuk_sira }}{% endif %}</strong></div><div><span>Politika bütünlüğü</span><strong class="{% if politika_durumu.0 == 'ok' %}text-good{% else %}text-danger{% endif %}">{% if politika_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}</strong></div><div><span>Yetkili bütünlüğü</span><strong class="{% if personel_durumu.0 == 'ok' %}text-good{% else %}text-danger{% endif %}">{% if personel_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}</strong></div><div><span>Kart bütünlüğü</span><strong class="{% if kart_durumu.0 == 'ok' %}text-good{% else %}text-danger{% endif %}">{% if kart_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}</strong></div></div>{% if anomaliler %}<div class="anomalies"><strong>Son anomali uyarıları</strong>{% for a in anomaliler %}<p><svg><use href="#i-warning"/></svg><span><b>{{ a.kural }}</b> — {{ a.aciklama }}</span></p>{% endfor %}</div>{% endif %}</section>
-    </div>
-    <aside class="side-column" aria-label="Öncelikli operasyonlar">
-      <section class="card priority-card" id="onaylar"><div class="card-head"><div><h2>İnceleme ve onay</h2><p>Öncelik gerektiren kayıtlar</p></div></div><div class="priority-summary"><div><span>Belirsiz nakit teslimi</span><strong class="{% if istatistik.belirsiz_cekim %}text-warn{% endif %}">{{ istatistik.belirsiz_cekim }}</strong></div><div><span>Bekleyen çoklu onay</span><strong>{{ istatistik.bekleyen_onay }}</strong></div><div><span>Anomali uyarısı</span><strong>{{ istatistik.anomali }}</strong></div></div><div class="priority-detail"><h3>Belirsiz nakit teslimleri</h3>{% for i in belirsiz_islemler_ozet %}<div class="case-row"><div><b>#{{ i.id }} <span>· {{ i.terminal|default:'Terminal yok' }}</span></b><small>{{ i.hesap.hesap_no }} · {{ i.tutar|floatformat:2 }} TL</small></div><span class="case-flag">İncele</span></div>{% empty %}<div class="no-cases">Belirsiz nakit teslimi yok.</div>{% endfor %}</div><div class="priority-detail"><h3>Bekleyen yetki kararları</h3>{% for t in bekleyenler %}<div class="case-row"><div><b>İşlem #{{ t.islem_id }}</b><small>{{ t.gereken_onay }} onay · {{ t.islem.tutar|floatformat:2 }} TL</small></div><span class="case-flag neutral">Bekliyor</span></div>{% empty %}<div class="no-cases">Bekleyen onay bulunmuyor.</div>{% endfor %}</div></section>
-      <section class="card simulator-card v41-simulator-card">
-  <div class="card-head">
+  <div class="page-heading">
     <div>
-      <h2>ATM Laboratuvarı</h2>
-      <p>Kart, PIN, yetki ve nakit teslimi senaryoları</p>
+      <div class="breadcrumbs">ÇALIŞMA ALANI <span>/</span> GENEL BAKIŞ</div>
+      <h1>Operasyon Merkezi</h1>
+      <p>ATM terminalleri, çoklu yetki süreçleri ve işlem kayıtları.</p>
     </div>
-    <span class="v41-lab-tag">TEST ORTAMI</span>
+    <div class="snapshot">
+      <span>SON VERİ ALIMI</span>
+      <strong>{{ son_guncelleme|date:'d.m.Y H:i:s' }}</strong>
+      <small>Manuel yenileme · Canlı bağlantı ölçülmüyor</small>
+    </div>
   </div>
 
-  <div class="v41-simulator-body">
-    <div class="v41-mini-atm" aria-hidden="true">
-      <div class="v41-mini-brand">RFID BANKA</div>
-      <div class="v41-mini-screen">
-        <span>16 × 2 LCD</span>
-        <strong>KART BEKLENIYOR</strong>
-        <small>ATM / KASA</small>
+  <section class="overview-bar" aria-label="Operasyon özeti">
+    <div class="overview-status">
+      {% if istatistik.belirsiz_cekim or istatistik.bekleyen_onay or istatistik.anomali %}
+      <span class="signal amber"></span>
+      <div>
+        <strong>Operatör incelemesi gerekiyor</strong>
+        <small>Kaydedilmiş işlemlere dayalı durum</small>
       </div>
-      <div class="v41-mini-slots">
-        <i></i><i></i>
-      </div>
-      <div class="v41-mini-keys">
-        <i>1</i><i>2</i><i>3</i>
-        <i>4</i><i>5</i><i>6</i>
-        <i>7</i><i>8</i><i>9</i>
-        <i>*</i><i>0</i><i>#</i>
-      </div>
-      <div class="v41-mini-cash"></div>
-    </div>
-
-    <div class="v41-lab-info">
-      <strong>Uçtan uca ATM testi</strong>
-      <p>Gerçek servis akışlarıyla çalışan simülatör.</p>
-      <ul>
-        <li>RFID kart doğrulama</li>
-        <li>PIN ve işlem komutları</li>
-        <li>Çoklu yetkili onayları</li>
-        <li>Nakit dağıtıcı ve arıza testleri</li>
-      </ul>
-
-      {% if simulator_erisimi and user.is_superuser %}
-      <a class="v41-open-lab" href="{% url 'simulator' %}">
-        Terminali aç <span>→</span>
-      </a>
       {% else %}
-      <span class="v41-lab-locked">
-        Bu hesap için erişim kapalı
-      </span>
+      <span class="signal green"></span>
+      <div>
+        <strong>Açık inceleme kaydı yok</strong>
+        <small>Donanım bağlantısı bu ekrandan doğrulanmaz</small>
+      </div>
       {% endif %}
     </div>
-  </div>
-  <div class="v41-card-note">
-    İşlemler yalnızca simülatör ekranından yürütülür.
-  </div>
-</section>
-      <div class="side-footnote">Bu panel salt okunurdur. Kayıtlı terminal durumu, çevrimiçi bağlantı veya donanım telemetrisi anlamına gelmez.</div>
+    <a href="#onaylar" class="overview-quick">
+      <strong>{{ istatistik.belirsiz_cekim }}</strong>
+      <span>Belirsiz teslim</span>
+    </a>
+    <a href="#onaylar" class="overview-quick">
+      <strong>{{ istatistik.bekleyen_onay }}</strong>
+      <span>Bekleyen onay</span>
+    </a>
+    <a href="#guvenlik" class="overview-quick">
+      <strong>{{ istatistik.anomali }}</strong>
+      <span>Anomali uyarısı</span>
+    </a>
+  </section>
+
+  <div class="desk-layout">
+
+    <section class="terminal-desk" id="terminaller">
+      <div class="section-heading">
+        <div>
+          <span class="section-index">01 / ATM YÖNETİMİ</span>
+          <h2>ATM kontrol masası</h2>
+          <p>Terminallerin idari durumu, kaset nakdi ve işlem geçmişi</p>
+        </div>
+        <span class="section-total">{{ istatistik.atm_toplam }} TERMİNAL</span>
+      </div>
+
+      <div class="terminal-toolbar">
+        <label class="search-control">
+          <span>⌕</span>
+          <input id="terminal-search-v42" type="search"
+                 placeholder="Terminal kodu veya şube ara..."
+                 autocomplete="off" aria-label="Terminal ara">
+        </label>
+        <span id="terminal-count-v42">{{ istatistik.atm_toplam }} kayıt</span>
+      </div>
+
+      <div class="terminal-list" id="terminal-list-v42">
+        {% for t in terminal_ozetleri %}
+        <article class="terminal-unit"
+                 data-search="{{ t.kod }} {{ t.ad }}">
+          <div class="unit-device" aria-hidden="true">
+            <div class="unit-screen"></div>
+            <div class="unit-slot"></div>
+            <div class="unit-keys"></div>
+          </div>
+
+          <div class="unit-main">
+            <div class="unit-name">
+              <strong>{{ t.kod }}</strong>
+              <span>{{ t.ad }}</span>
+            </div>
+            <div class="unit-status">
+              {% if t.aktif %}
+              <span class="state state-on"><i></i> İdari olarak açık</span>
+              {% else %}
+              <span class="state state-off"><i></i> İdari olarak kapalı</span>
+              {% endif %}
+              <span class="dispenser">
+                Dağıtıcı:
+                {% if t.dagitici_acik %}<b>Açık</b>
+                {% else %}<b class="warn-text">Kapalı</b>{% endif %}
+              </span>
+            </div>
+          </div>
+
+          <div class="unit-stat">
+            <small>KASET NAKDİ</small>
+            <strong>
+              {% if t.nakit is not None %}
+              {{ t.nakit|floatformat:2 }} <em>TL</em>
+              {% else %}—{% endif %}
+            </strong>
+          </div>
+
+          <div class="unit-stat unit-secondary">
+            <small>BUGÜNKÜ İŞLEM</small>
+            <strong>{{ t.islem_sayisi }}</strong>
+            <span>
+              Son işlem:
+              {% if t.son_islem %}
+              {{ t.son_islem|date:'d.m H:i' }}
+              {% else %}—{% endif %}
+            </span>
+          </div>
+        </article>
+        {% empty %}
+        <div class="list-empty">Kayıtlı ATM terminali bulunmuyor.</div>
+        {% endfor %}
+        <div class="list-empty" id="terminal-empty-v42" hidden>
+          Aramanızla eşleşen terminal bulunamadı.
+        </div>
+      </div>
+
+      <div class="section-footer">
+        <span>İdari durum, fiziksel bağlantı veya heartbeat değildir.</span>
+        {% if user.is_staff %}
+        <a href="/admin/banka/terminal/">Terminal kayıtları ↗</a>
+        {% endif %}
+      </div>
+    </section>
+
+    <aside class="review-desk" id="onaylar">
+      <div class="section-heading">
+        <div>
+          <span class="section-index">02 / İŞLEM GÜVENLİĞİ</span>
+          <h2>İnceleme masası</h2>
+          <p>Operatör kararı bekleyen kayıtlar</p>
+        </div>
+      </div>
+
+      <div class="review-totals">
+        <div>
+          <strong class="{% if istatistik.belirsiz_cekim %}warn-text{% endif %}">
+            {{ istatistik.belirsiz_cekim }}
+          </strong>
+          <span>Nakit teslimi</span>
+        </div>
+        <div>
+          <strong>{{ istatistik.bekleyen_onay }}</strong>
+          <span>Çoklu onay</span>
+        </div>
+      </div>
+
+      <div class="review-group">
+        <div class="review-group-title">
+          <h3>Belirsiz nakit teslimleri</h3>
+          <span>{{ istatistik.belirsiz_cekim }}</span>
+        </div>
+
+        {% for i in belirsiz_islemler_ozet %}
+        <div class="review-item">
+          <div class="review-marker">!</div>
+          <div class="review-content">
+            <strong>İşlem #{{ i.id }}</strong>
+            <span>
+              {{ i.terminal|default:'Terminal yok' }} ·
+              {{ i.hesap.hesap_no }}
+            </span>
+          </div>
+          <div class="review-amount">
+            <strong>{{ i.tutar|floatformat:2 }} TL</strong>
+            <small>İncelenecek</small>
+          </div>
+        </div>
+        {% empty %}
+        <p class="review-empty">Belirsiz nakit teslimi bulunmuyor.</p>
+        {% endfor %}
+      </div>
+
+      <div class="review-group">
+        <div class="review-group-title">
+          <h3>Çoklu yetki talepleri</h3>
+          <span>{{ istatistik.bekleyen_onay }}</span>
+        </div>
+
+        {% for t in bekleyenler %}
+        <div class="review-item">
+          <div class="review-marker neutral">✓</div>
+          <div class="review-content">
+            <strong>İşlem #{{ t.islem_id }}</strong>
+            <span>{{ t.islem.get_tur_display }} · {{ t.gereken_onay }} onay gerekli</span>
+          </div>
+          <div class="review-amount">
+            <strong>{{ t.islem.tutar|floatformat:2 }} TL</strong>
+            <small>{{ t.son_tarih|date:'d.m H:i' }}</small>
+          </div>
+        </div>
+        {% empty %}
+        <p class="review-empty">Bekleyen yetki kararı bulunmuyor.</p>
+        {% endfor %}
+      </div>
+
+      {% if anomaliler %}
+      <div class="review-group">
+        <div class="review-group-title">
+          <h3>Anomali uyarıları</h3>
+        </div>
+        {% for a in anomaliler %}
+        <p class="anomaly-item">
+          <strong>{{ a.kural }}</strong>
+          <span>{{ a.aciklama }}</span>
+        </p>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="review-footer">
+        {% if simulator_erisimi and user.is_superuser %}
+        <a href="{% url 'simulator' %}">
+          Operatör konsolunu aç <span>↗</span>
+        </a>
+        {% else %}
+        <span>İşlem kararı için yetkili operatör gerekir.</span>
+        {% endif %}
+      </div>
     </aside>
   </div>
 
-    <section class="details-hub" id="denetim"><div class="section-bar"><div><span class="micro-label">Kayıtlar ve denetim</span><h2>Denetim arşivi</h2><p>Operasyon detayları ve kayıtların tam görünümü.</p></div><span class="subtle-hint">GEREKTİĞİNDE GENİŞLET</span></div>
+  <section class="finance-line" aria-label="Finansal özet">
+    <div class="finance-heading">
+      <span>03 / HESAP ÖZETİ</span>
+      <strong>Finansal görünüm</strong>
+    </div>
+    <div class="finance-value">
+      <span>TOPLAM MÜŞTERİ BAKİYESİ</span>
+      <strong>{{ istatistik.bakiye|floatformat:2 }} <em>TL</em></strong>
+    </div>
+    <div class="finance-accounts">
+      <strong>{{ istatistik.musteri_hesap }}</strong>
+      <span>Müşteri hesabı</span>
+      <small>Kasa bakiyesi dahil değil</small>
+    </div>
+  </section>
+
+  <div class="lower-layout">
+
+    <section class="ledger-panel" id="islemler">
+      <div class="section-heading ledger-heading">
+        <div>
+          <span class="section-index">04 / KAYIT DEFTERİ</span>
+          <h2>İşlem geçmişi</h2>
+          <p>Bankacılık servisleri tarafından kaydedilen son 10 işlem</p>
+        </div>
+        <div class="filter-group" role="group" aria-label="İşlem filtresi">
+          <button type="button" class="active" data-filter="all"
+                  aria-pressed="true">Tümü</button>
+          <button type="button" data-filter="UYGULANDI"
+                  aria-pressed="false">Uygulanan</button>
+          <button type="button" data-filter="ONAY_BEKLIYOR"
+                  aria-pressed="false">Onay bekleyen</button>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="ledger-table">
+          <thead>
+            <tr>
+              <th>İŞLEM</th>
+              <th>HESAP / ATM</th>
+              <th>TUTAR</th>
+              <th>DURUM</th>
+              <th>ZAMAN</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for i in son_islemler_ozet %}
+            <tr class="ledger-row" data-kind="{{ i.durum }}">
+              <td>
+                <strong>#{{ i.id }}</strong>
+                <span>{{ i.get_tur_display }}</span>
+              </td>
+              <td>
+                <strong>{{ i.hesap.hesap_no }}</strong>
+                <span>{{ i.terminal|default:'Terminal yok' }}</span>
+              </td>
+              <td class="amount">{{ i.tutar|floatformat:2 }} TL</td>
+              <td>
+                {% if i.durum == 'UYGULANDI' %}
+                <span class="state state-on">{{ i.get_durum_display }}</span>
+                {% elif i.durum == 'ONAY_BEKLIYOR' %}
+                <span class="state state-warn">{{ i.get_durum_display }}</span>
+                {% else %}
+                <span class="state state-off">{{ i.get_durum_display }}</span>
+                {% endif %}
+              </td>
+              <td class="timestamp">{{ i.olusturma|date:'d.m H:i' }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="table-empty">İşlem kaydı bulunmuyor.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        <div class="table-empty" id="ledger-empty-v42" hidden>
+          Bu filtrede gösterilecek işlem bulunmuyor.
+        </div>
+      </div>
+    </section>
+
+    <aside class="secondary-column">
+
+      <section class="integrity-panel" id="guvenlik">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">05 / BÜTÜNLÜK</span>
+            <h2>Güvenlik durumu</h2>
+            <p>Veritabanı ve denetim kontrolleri</p>
+          </div>
+        </div>
+
+        <div class="integrity-row">
+          <span>Hash zinciri</span>
+          <strong class="{% if zincir.saglam %}good-text{% else %}danger-text{% endif %}">
+            {% if zincir.saglam %}
+            Doğrulandı ({{ zincir.kayit_sayisi }})
+            {% else %}
+            Bozuk · #{{ zincir.bozuk_sira }}
+            {% endif %}
+          </strong>
+        </div>
+        <div class="integrity-row">
+          <span>Politika bütünlüğü</span>
+          <strong class="{% if politika_durumu.0 == 'ok' %}good-text{% else %}danger-text{% endif %}">
+            {% if politika_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}
+          </strong>
+        </div>
+        <div class="integrity-row">
+          <span>Yetkili bütünlüğü</span>
+          <strong class="{% if personel_durumu.0 == 'ok' %}good-text{% else %}danger-text{% endif %}">
+            {% if personel_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}
+          </strong>
+        </div>
+        <div class="integrity-row">
+          <span>Kart bütünlüğü</span>
+          <strong class="{% if kart_durumu.0 == 'ok' %}good-text{% else %}danger-text{% endif %}">
+            {% if kart_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}
+          </strong>
+        </div>
+
+        <a href="#denetim" class="integrity-link">
+          Denetim ayrıntıları <span>↗</span>
+        </a>
+      </section>
+
+      <section class="lab-panel">
+        <div class="lab-symbol" aria-hidden="true">
+          <div class="lab-screen">RFID<br>ATM</div>
+          <div class="lab-slot"></div>
+          <div class="lab-buttons">•••<br>•••</div>
+        </div>
+        <div class="lab-content">
+          <span class="section-index">06 / TEST ORTAMI</span>
+          <h2>ATM Laboratuvarı</h2>
+          <p>RFID, PIN, çoklu imza, kasa ve nakit dağıtıcı testleri.</p>
+          {% if simulator_erisimi and user.is_superuser %}
+          <a href="{% url 'simulator' %}" class="lab-open">
+            Simülatörü aç <span>↗</span>
+          </a>
+          {% else %}
+          <div class="lab-disabled">Bu hesapta simülatör kapalı</div>
+          {% endif %}
+        </div>
+      </section>
+
+    </aside>
+  </div>
+
+  <section class="details-hub" id="denetim"><div class="section-bar"><div><span class="micro-label">Kayıtlar ve denetim</span><h2>Denetim arşivi</h2><p>Operasyon detayları ve kayıtların tam görünümü.</p></div><span class="subtle-hint">GEREKTİĞİNDE GENİŞLET</span></div>
       <details class="audit-fold"><summary>Hesaplar ve güncel bakiyeler <span>Genişlet +</span></summary><div class="table-wrap"><table><thead><tr><th>Hesap</th><th>Tür</th><th>Müşteri</th><th>Bakiye</th><th>Günlük limit</th></tr></thead><tbody>{% for h in hesaplar %}<tr><td>{{ h.hesap_no }}</td><td>{{ h.get_tur_display }}</td><td>{{ h.musteri.ad }}</td><td>{{ h.bakiye|floatformat:2 }} TL</td><td>{{ h.gunluk_limit|floatformat:2 }} TL</td></tr>{% empty %}<tr><td colspan="5" class="table-empty">Hesap kaydı yok.</td></tr>{% endfor %}</tbody></table></div></details>
       <details class="audit-fold"><summary>Politika bütünlüğü ve değişiklik talepleri <span>Genişlet +</span></summary><p class="audit-note">{{ politika_durumu.1 }}</p><div class="table-wrap"><table><thead><tr><th>Talep</th><th>Tür</th><th>Hedef</th><th>Durum</th><th>Talep eden</th><th>Son tarih</th></tr></thead><tbody>{% for t in politika_talepleri %}<tr><td>#{{ t.id }}</td><td>{{ t.get_islem_display }}</td><td>{{ t.hedef_id|default:'—' }}</td><td>{{ t.get_durum_display }}</td><td>{{ t.talep_eden }}</td><td>{{ t.son_tarih|date:'d.m H:i' }}</td></tr>{% empty %}<tr><td colspan="6" class="table-empty">Politika talebi yok.</td></tr>{% endfor %}</tbody></table></div></details>
       <details class="audit-fold"><summary>Yetkili, kart bütünlüğü ve yönetim talepleri <span>Genişlet +</span></summary><p class="audit-note">{{ personel_durumu.1 }}</p><p class="audit-note">{{ kart_durumu.1 }}</p><div class="table-wrap"><table><thead><tr><th>Talep</th><th>İşlem</th><th>Özet</th><th>Durum</th><th>Talep eden</th></tr></thead><tbody>{% for t in yonetim_talepleri %}<tr><td>#{{ t.id }}</td><td>{{ t.get_tur_display }}</td><td>{{ t.ozet }}</td><td>{{ t.get_durum_display }}</td><td>{{ t.talep_eden }}</td></tr>{% empty %}<tr><td colspan="5" class="table-empty">Yönetim talebi yok.</td></tr>{% endfor %}</tbody></table></div></details>
@@ -137,7 +433,17 @@
       <details class="audit-fold"><summary>Hash zinciri ve denetim kayıtları <span>Genişlet +</span></summary><div class="table-wrap"><table><thead><tr><th>Sıra</th><th>Zaman</th><th>Olay</th><th>Veri</th></tr></thead><tbody>{% for l in loglar %}<tr><td>#{{ l.sira }}</td><td>{{ l.zaman|date:'d.m.Y H:i:s' }}</td><td>{{ l.olay_turu }}</td><td class="wrap-cell">{{ l.veri }}</td></tr>{% empty %}<tr><td colspan="4" class="table-empty">Denetim kaydı yok.</td></tr>{% endfor %}</tbody></table></div></details>
     </section>
 
-  <footer class="footer"><span>RFID Banka + Kasa · Operasyon Merkezi v4</span><div>{% if user.is_staff %}<a href="/admin/">Django yönetimi</a>{% endif %}<a href="{% url 'sifre_degistir' %}">Parola değiştir</a></div><small>Salt okunur operasyon özeti; canlı telemetri değildir.</small></footer>
+
+
+  <footer class="site-footer">
+    <span>RFID BANKA + KASA / OPERASYON MERKEZİ V4.2</span>
+    <span>Salt okunur özet · Canlı cihaz telemetrisi değildir</span>
+    <div>
+      {% if user.is_staff %}<a href="/admin/">Yönetim</a>{% endif %}
+      <a href="{% url 'sifre_degistir' %}">Parola değiştir</a>
+    </div>
+  </footer>
+
 </main>
 </body>
 </html>
