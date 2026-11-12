@@ -1,9 +1,33 @@
-<p align="center"><img src="docs/vaultix-logo.png" alt="VAULTIX Operasyon Sistemi" width="720"></p>
+<p align="center">
+  <img src="docs/vaultix-logo.png" alt="VAULTIX Operasyon Sistemi" width="640">
+</p>
 
-# VAULTIX: RFID Banka + Çok İmzalı Kasa
+<h3 align="center">RFID banka ATM'i ve çok imzalı kasa simülasyonu</h3>
 
-**Secure Banking Operations** · ATM · Vault · Authorization · Audit
+<p align="center">
+  <b>Secure Banking Operations</b><br>
+  ATM · Vault · Authorization · Audit
+</p>
 
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="Django" src="https://img.shields.io/badge/Django_5-092E20?style=flat-square&logo=django&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL_16-4169E1?style=flat-square&logo=postgresql&logoColor=white">
+  <img alt="Arduino" src="https://img.shields.io/badge/Arduino-00878F?style=flat-square&logo=arduino&logoColor=white">
+  <img alt="Procrastinate" src="https://img.shields.io/badge/Procrastinate-6B4FBB?style=flat-square">
+  <img alt="Centrifugo" src="https://img.shields.io/badge/Centrifugo-1F2937?style=flat-square">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
+</p>
+
+<p align="center">
+  <a href="#özellikler">Özellikler</a> ·
+  <a href="#ekran-görüntüleri">Ekran görüntüleri</a> ·
+  <a href="#kurulum-windows">Kurulum</a> ·
+  <a href="#banka-operasyon-simülasyonu-yük-ve-operasyon-analizi">Operasyon simülasyonu</a> ·
+  <a href="docs/proje-ozeti.md">Proje özeti</a>
+</p>
+
+---
 
 Arduino + RC522 ile kartlı mini ATM. Küçük işlemler direkt geçer, büyük işlemler **N-of-M yetkili onayı** ister
 (ör. 5 yetkiliden en az 3'ü, 30 saniye içinde, içlerinden biri müdür). Para hareketleri **çift taraflı deftere**,
@@ -11,6 +35,14 @@ her olay **HMAC'li hash zincirine** yazılır; geçmişte bir kayıt değiştiri
 Kasa dairesinin kilidi, onay tamamlanınca **röle** ile açılır.
 
 > Bu bir **simülasyon**. RC522 gerçek banka kartlarını (EMV) okuyamaz, yalnızca UID görür. Para sanaldır.
+
+### Öne çıkanlar
+
+| | | |
+|---|---|---|
+| **Çok imzalı onay**<br>Tutara göre 0–3 onay, rol şartı, 30 sn pencere | **Çift taraflı defter**<br>Her hareket borç/alacak, bakiye defterden doğrulanır | **HMAC'li hash zinciri**<br>Denetim kaydı değiştirilirse ya da silinirse fark edilir |
+| **Satır içi risk motoru**<br>İşlem uygulanmadan puanlanır: geç, ek onay, red, bloke | **İmzalı kart simülasyonu**<br>Sayaç + MAC ile klon ve tekrar oynatma yakalanır | **Maker-checker ve RBAC**<br>Hassas yönetim işlemleri başka kullanıcıların onayıyla |
+| **PostgreSQL eşzamanlılığı**<br>Paralel işlemde bakiye, limit ve banknot stoğu aşılamaz | **Web ATM simülatörü**<br>Donanımsız deneme, hata enjeksiyonlu para dağıtıcı | **Operasyon simülasyonu**<br>100 sanal müşteriyle yük, kuyruk ve onay gecikmesi analizi |
 
 Kısa özet, mühendislik kararları ve özgeçmiş metni: [docs/proje-ozeti.md](docs/proje-ozeti.md).
 
