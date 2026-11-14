@@ -348,7 +348,8 @@ def seri_dongusu(kopru, port, baud, kati=False):
     import serial  # pyserial
 
     oturum = Oturum(_yuk_ve_cevap_logu(kopru.isle), kati=kati)
-    with serial.Serial(port, baud, timeout=1) as sp:
+    # serial_for_url: COM3 / /dev/ttyUSB0 gibi adlari da, rfc2217://localhost:4000 (Wokwi) gibi URL'leri de acar
+    with serial.serial_for_url(port, baudrate=baud, timeout=1) as sp:
         print(f"{port} açıldı, Arduino'nun açılması bekleniyor...", file=sys.stderr)
         time.sleep(2)  # port acilinca Uno resetlenir
         sp.reset_input_buffer()
@@ -369,7 +370,7 @@ def seri_dongusu(kopru, port, baud, kati=False):
 
 def main():
     ap = argparse.ArgumentParser(description="Arduino <-> Django koprusu")
-    ap.add_argument("--port", help="Seri port (Windows: COM3, Linux: /dev/ttyUSB0)")
+    ap.add_argument("--port", help="Seri port (Windows: COM3, Linux: /dev/ttyUSB0, Wokwi: rfc2217://localhost:4000)")
     ap.add_argument("--baud", type=int, default=9600)
     ap.add_argument("--api", default=os.environ.get("KOPRU_API", "http://127.0.0.1:8000"))
     ap.add_argument("--anahtar", default=os.environ.get("KOPRU_API_ANAHTARI", "gelistirme-kopru-anahtari"))
