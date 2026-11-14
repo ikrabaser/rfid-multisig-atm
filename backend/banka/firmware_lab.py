@@ -16,9 +16,10 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
-from . import simulator
+from . import services, simulator
+from .models import Onay, OnayTalebi, Rol
 from .views import simulator_kapisi, simulator_yetkisi
 
 _KOPRU_DIZINI = Path(__file__).resolve().parents[2] / "bridge"
@@ -79,3 +80,23 @@ def hat(request):
         "onbellekten": sonra["tekrar"] > onceki["tekrar"],     # aynı sıra no + aynı yük: isteği YENİDEN ÇALIŞTIRMADAN cevap
         "istatistik": sonra,
     })
+
+
+@simulator_kapisi
+@simulator_yetkisi
+@require_GET
+def talepler(request):
+    """Onay panosu: son onay talepleri ve oyları (kasa açma dahil). Yalnızca okuma; oy vermek terminalden, firmware üzerinden olur."""
+    cikti = []
+    for t in OnayTalebi.objects.select_related("islem").order_by("-id")[:5]:
+        ozet = services._ozet(t)
+        oylar = [{
+            "ad": o.personel.ad, "rol": Rol(o.personel.rol).label, "karar": o.karar,
+            "saat": o.zaman.astimezone().strftime("%H:%M:%S"),
+        } for o in t.onaylar.select_related("personel").order_by("id")]
+        cikti.append({
+            "talep_id": t.id, "tur": ozet["tur"], "durum": t.durum, "verilen": ozet["verilen"], "gereken": ozet["gereken"],
+            "kalan_sn": ozet["kalan_sn"], "ust_yetkili_gerekli": ozet["ust_yetkili_gerekli"],
+            "en_az_rol": Rol(t.en_az_rol).label, "oylar": oylar,
+        })
+    return JsonResponse({"talepler": cikti})

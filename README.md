@@ -121,7 +121,7 @@ anomali rozeti de uyarıya döner).
 | `arduino/araclar/avr_derle.sh` | Gerçek ATmega328P derlemesi ve flash/RAM ölçümü (donanımsız) |
 | `arduino/wokwi/`, `arduino/araclar/wokwi_hazirla.py` | Wokwi devresi (`diagram.json`) ve tek dosyalık sketch üretici |
 | `arduino/wasm/` | Firmware çekirdeğinin WebAssembly sarmalayıcısı (`vx_wasm.cpp`) ve `derle.sh` |
-| `backend/banka/firmware_lab.py`, `static/banka/firmware-lab/` | Firmware Laboratuvarı: sayfa, hat endpoint'i, arayüz ve derlenmiş wasm |
+| `backend/banka/firmware_lab.py`, `static/banka/firmware-lab/` | Firmware Laboratuvarı: sayfa, hat ve onay panosu endpoint'leri, arayüz, kasa açma otopilotu ve derlenmiş wasm |
 | `backend/banka/models.py` | Müşteri, Hesap, Kart, Personel, Politika, İşlem, HesapHareketi, OnayTalebi, Onay, LogKaydi |
 | `backend/banka/services.py` | PIN/bloke, oturum token'ı, politika, onay akışı, idempotency, limit, kasa açma |
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
@@ -1236,11 +1236,19 @@ sonunda zaman aşımına düşer ve LCD'de "Kopru yok!" gösterir; sayaçlarda y
 - **Hattı bozma:** bit bozulması, bayt kaybı, sahte bayt (binde); **sonraki cevabı kaybet**; **köprüyü kes** ("Kopru yok!" göstergesi);
   hız (1x/3x/10x); **güç kes/ver** (kalıcı açılış sayacı tarayıcıda saklanır, her açılışta işlem anahtarı değişir).
 - **Kartlar:** demo müşteriler ve yetkililer; Wokwi kartlarını da eklemek için `python manage.py wokwi_kartlari`.
+- **Kasa açma ve onay panosu:** hat panelinde onay akışı okunur rozetlerle görünür (talep açıldı, `oy 2/3`, "üst rol gerekli", "uygulandı");
+  değişmeyen `DURUM` yoklamaları tek satırda sayılır. "Onay talepleri" kutusu sunucudaki oyları (kim, hangi rol, ne zaman) ve kalan süreyi,
+  röle çubuğu ise firmware'in rölesinin ne kadar açık kaldığını gösterir. **Senaryolar** otopilotu gerçek firmware'e kart okutur ve tuşa basar:
+  *3 onay + müdür* (müdür onayına kadar röle kapalı, sonra 5000 ms açılır) ve *müdürsüz 3 onay* (açılmaz). Kararı otopilot değil firmware,
+  köprü ve sunucu verir. PIN ipuçları kapalıysa otopilot devre dışı kalır; bekleyen bir talep varken yeni senaryo başlatılmaz.
+
+![Kasa açma: 3 onay, üst rol kuralı ve röle](docs/firmware-lab-kasa.png)
+
 - **Güvenlik notu:** simülatörle aynı kapı (yalnızca geliştirme, superuser). Köprü oturumu sekmeye özeldir ve bellektedir.
 
 Firmware çekirdeği `arduino/wasm/derle.sh` ile (Emscripten gerekir) `backend/banka/static/banka/firmware-lab/vx_firmware.js` olarak derlenir; derlenmiş
 dosya repoda durur, Windows'ta Emscripten kurmak gerekmez. Testler: `node backend/js_testleri/firmware_wasm.test.js` (wasm çekirdeği, 7 test) ve
-`python manage.py test banka.test_firmware_lab` (erişim kuralları, CRC'li hat, aynı isteğin iki kez gelmesi).
+`python manage.py test banka.test_firmware_lab` (erişim kuralları, CRC'li hat, aynı isteğin iki kez gelmesi, onay panosu).
 
 **Dürüst sınırlar.** Bu yazılım gerçek donanımda henüz denenmedi: RC522/keypad/LCD zamanlamaları, röle sürücüsü ve USB seri
 davranışı yalnızca arayüz düzeyinde sahtelenmiştir. WDT, eski ve klon Uno bootloader'larında reset sonrası döngüye girebilir

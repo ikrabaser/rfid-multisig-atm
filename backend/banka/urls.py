@@ -16,6 +16,7 @@ urlpatterns = [
     path("simulator/kart-dokun/", views.simulator_kart_dokun, name="simulator_kart_dokun"),
     path("firmware-lab/", firmware_lab.sayfa, name="firmware_lab"),
     path("firmware-lab/hat/", firmware_lab.hat, name="firmware_lab_hat"),
+    path("firmware-lab/talepler/", firmware_lab.talepler, name="firmware_lab_talepler"),
     path("operasyon/", op.liste, name="operasyon"),
     path("operasyon/baslat/", op.baslat, name="operasyon_baslat"),
     path("operasyon/<int:kosu_id>/", op.kosu, name="operasyon_kosu"),

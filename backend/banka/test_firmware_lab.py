@@ -119,3 +119,46 @@ class FirmwareLabTestleri(Yardimci, TestCase):
         self.assertFalse(self.hat(ayni, lab="a").json()["onbellekten"])
         self.assertTrue(self.hat(ayni, lab="a").json()["onbellekten"])
         self.assertFalse(self.hat(ayni, lab="b").json()["onbellekten"])
+
+    # ------------------------------------------------------------ onay panosu (kasa açma)
+
+    def talepler(self, client=None):
+        r = (client or self.client).get("/firmware-lab/talepler/")
+        self.assertEqual(r.status_code, 200)
+        return r.json()["talepler"]
+
+    def test_talepler_erisim_kurallari(self):
+        self.assertEqual(Client().get("/firmware-lab/talepler/").status_code, 302)
+        self.assertEqual(self.client.post("/firmware-lab/talepler/").status_code, 405)
+        with override_settings(SIMULATOR_AKTIF=False):
+            self.assertEqual(self.client.get("/firmware-lab/talepler/").status_code, 404)
+        self.client.force_login(self.U.objects.get(username="denetci"))
+        self.assertEqual(self.client.get("/firmware-lab/talepler/").status_code, 403)
+
+    def test_talepler_bos_liste(self):
+        self.assertEqual(self.talepler(), [])
+
+    def test_kasa_acma_oylari_hat_uzerinden_panoda_gorunur(self):
+        self.konus("HELLO|2")
+        _, c = self.konus("KASAAC|b0b0b003|3333")                     # Cem (müdür yrd.) talebi başlatır
+        talep_id = c[1].split("|")[1]
+        self.assertEqual(c[1], f"BEKLE|{talep_id}|3")
+        t = self.talepler()[0]
+        self.assertEqual((t["tur"], t["durum"], t["verilen"], t["gereken"]), ("KASA_ACMA", "BEKLIYOR", 0, 3))
+        self.assertEqual(t["en_az_rol"], "Müdür")
+        for uid, pin in (("b0b0b001", "1111"), ("b0b0b002", "2222"), ("b0b0b004", "4444")):
+            _, c = self.konus(f"ONAY|{talep_id}|{uid}|{pin}|E")
+        self.assertEqual(c[1], "ONAY|3|3|BEKLIYOR")                    # 3 oy tamam ama müdür yok
+        t = self.talepler()[0]
+        self.assertTrue(t["ust_yetkili_gerekli"])
+        self.assertEqual([(o["ad"], o["rol"], o["karar"]) for o in t["oylar"]],
+                         [("Ayşe (görevli)", "Görevli", "ONAY"), ("Burak (görevli)", "Görevli", "ONAY"),
+                          ("Deniz (müdür yrd.)", "Müdür yardımcısı", "ONAY")])
+        _, c = self.konus(f"DURUM|{talep_id}")
+        self.assertEqual(c[1].split("|")[5], "1")                      # terminal de aynı bilgiyi alır: üst yetkili gerekli
+        _, c = self.konus(f"ONAY|{talep_id}|b0b0b005|5555|E")          # Elif (müdür)
+        self.assertEqual(c[1], "ONAY|4|3|UYGULANDI")
+        t = self.talepler()[0]
+        self.assertEqual((t["durum"], t["verilen"], t["ust_yetkili_gerekli"]), ("UYGULANDI", 4, False))
+        self.assertEqual(t["oylar"][-1]["rol"], "Müdür")
+

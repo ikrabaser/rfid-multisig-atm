@@ -102,10 +102,25 @@
       yuk.innerHTML = "<span class=\"ham\"></span>"; yuk.firstChild.textContent = satir.length > 60 ? satir.slice(0, 60) + "…" : satir;
       roz.appendChild(rozet("çerçeve değil", "kotu"));
     }
+    if (c && c.gecerli) protokolRozetleri(yon, c.yuk).forEach((e) => roz.appendChild(rozet(e[0], e[1])));
     (ek || []).forEach((e) => roz.appendChild(rozet(e[0], e[1])));
     d.append(tEl, yEl, yuk, roz);
     hatEkle(d);
     return { satir: d, roz };
+  }
+  // Onay akışının (kasa açma, onaylı çekim) protokol alanlarını okunur rozetlere çevirir: oylar hat panelinde görünsün
+  function protokolRozetleri(yon, yuk) {
+    const p = yuk.split("|"), k = p[0].toUpperCase(), r = [];
+    if (yon === "tx") {
+      if (k === "KASAAC") r.push(["kasa açma talebi", "uyari"]);
+      else if (k === "ONAY") r.push([(p[4] === "H" ? "RED oyu" : "ONAY oyu") + " · talep #" + p[1], "uyari"]);
+    } else if (k === "BEKLE") r.push(["talep #" + p[1] + " açıldı · " + p[2] + " onay gerekli", "ok"]);
+    else if (k === "ONAY" && p.length >= 4) r.push(["oy " + p[1] + "/" + p[2] + " · " + p[3], p[3] === "UYGULANDI" ? "ok" : "uyari"]);
+    else if (k === "DURUM" && p.length >= 6) {
+      r.push(["onay " + p[1] + "/" + p[2] + " · " + p[3] + (p[3] === "BEKLIYOR" && p[4] ? " · " + p[4] + " sn kaldı" : ""), p[3] === "UYGULANDI" ? "ok" : "uyari"]);
+      if (p[5] === "1") r.push(["üst rol gerekli", "kotu"]);
+    }
+    return r;
   }
   function rozet(metin, tur) { const s = document.createElement("span"); s.className = "rozet " + tur; s.textContent = metin; return s; }
   function hatNotu(t, metin) {
@@ -113,6 +128,15 @@
     d.innerHTML = '<span class="t"></span><span class="yon">•</span><span></span>';
     d.children[0].textContent = (t / 1000).toFixed(2); d.children[2].textContent = metin;
     hatEkle(d);
+  }
+  function yoklamaNotuGuncelle() {
+    if (!yoklamaNotu || !yoklamaNotu.isConnected) {
+      yoklamaNotu = document.createElement("div"); yoklamaNotu.className = "fl-satir not";
+      yoklamaNotu.innerHTML = '<span class="t"></span><span class="yon">↻</span><span></span>';
+      hatEkle(yoklamaNotu);
+    }
+    yoklamaNotu.children[0].textContent = (simdi() / 1000).toFixed(2);
+    yoklamaNotu.children[2].textContent = "Onay durumu yoklaması ×" + yoklamaSayisi + " (terminal her saniye sorar; cevap değişmedi, satırlar gizlendi)";
   }
   function hatEkle(d) {
     const alta = hatKutusu.scrollTop + hatKutusu.clientHeight >= hatKutusu.scrollHeight - 30;
@@ -124,6 +148,8 @@
   // ---------------------------------------------------------------- köprüye gönderme (sıralı)
   let kuyruk = Promise.resolve();
   let kayipBayragi = false, koprukesik = false, sunucuIst = null;
+  const sonDurum = {};            // DURUM isteği -> son cevap yükü (değişmeyen yoklamalar tek satırda sayılır)
+  let bastirRx = null, yoklamaSayisi = 0, yoklamaNotu = null;
   function cerez(ad) { const m = document.cookie.match(new RegExp("(?:^|; )" + ad + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : ""; }
   function koprunun(t, satir, tx) {
     kuyruk = kuyruk.then(async () => {
@@ -141,6 +167,14 @@
         tx.roz.appendChild(rozet("sunucu hatası", "kotu")); hatNotu(simdi(), "Sunucuya ulaşılamadı: " + e.message); return;
       }
       sunucuIst = sonuc.istatistik;
+      const istek = coz(satir), cevapC = sonuc.cevap ? coz(sonuc.cevap) : null;
+      if (istek && istek.gecerli && istek.yuk.startsWith("DURUM|") && cevapC && cevapC.gecerli) {
+        const p = cevapC.yuk.split("|"); if (p.length > 4) p[4] = "";       // kalan süre her saniye değişir: karşılaştırmaya katma
+        const imza = p.join("|");
+        if (sonDurum[istek.yuk] === imza && !kayipBayragi) {           // değişiklik yok: satırı gizle, sayacı artır
+          tx.satir.remove(); bastirRx = cevapC.yuk; yoklamaSayisi++; yoklamaNotuGuncelle();
+        } else sonDurum[istek.yuk] = imza;
+      }
       if (sonuc.onbellekten) tx.roz.appendChild(rozet("önbellekten", "uyari"));
       if (sonuc.cevap === null) { tx.roz.appendChild(rozet("köprü sustu", "uyari")); return; }
       if (kayipBayragi) {
@@ -154,7 +188,18 @@
   }
 
   // ---------------------------------------------------------------- firmware (WebAssembly)
-  let modul = null, sonZaman = 0, hiz = 1;
+  let modul = null, sonZaman = 0, hiz = 1, roleAcilis = 0, lcdMetni = "";
+  // Senaryo ve onay paneli (firmware-lab-kasa.js) için kancalar: simülasyon zamanında bekleme ve olay bildirimi
+  const bekleyenler = [];
+  const FL = window.FL = {
+    VERI, rolePaylas: () => {}, roleDinle: null,
+    modul: () => modul, simdi: () => simdi(), lcd: () => lcdMetni,
+    kartOkut: (uid) => kartOkut(uid), tus: (c) => tusBas(c), hatNotu: (m) => hatNotu(simdi(), m),
+    // kosul() doğru olunca true, süre (simülasyon ms) dolarsa false ile biter
+    bekle(kosul, ms) { return new Promise((coz) => { bekleyenler.push({ kosul, bitis: simdi() + ms, coz }); }); },
+    uyu(ms) { const bitis = simdi() + ms; return FL.bekle(() => simdi() >= bitis, ms + 50); },
+    hizAl: () => hiz,
+  };
   const bip = (function () {
     let ctx = null;
     return (tamam) => {
@@ -175,12 +220,16 @@
       if (!ham) continue;
       const i = ham.indexOf(" "), j = ham.indexOf(" ", i + 1);
       const t = Number(ham.slice(0, i)), tur = ham.slice(i + 1, j < 0 ? undefined : j), deger = j < 0 ? "" : ham.slice(j + 1);
-      if (tur === "LCD") { const [a, b] = deger.split("|"); lcdYaz(a, b); }
-      else if (tur === "ROLE") { const ac = deger === "1"; $("kilit").classList.toggle("acik", ac); $("kilit-yazi").textContent = ac ? "AÇIK" : "KİLİTLİ"; hatNotu(t, ac ? "RÖLE AÇILDI (kasa kilidi)" : "Röle kapandı (kilit kilitli)"); }
+      if (tur === "LCD") { const [a, b] = deger.split("|"); lcdYaz(a, b); lcdMetni = (a || "") + "|" + (b || ""); }
+      else if (tur === "ROLE") { const ac = deger === "1"; $("kilit").classList.toggle("acik", ac); $("kilit-yazi").textContent = ac ? "AÇIK" : "KİLİTLİ"; if (ac) roleAcilis = t; hatNotu(t, ac ? "RÖLE AÇILDI (kasa kilidi)" : "Röle kapandı: " + (t - roleAcilis) + " ms açık kaldı"); FL.rolePaylas(ac, t); }
       else if (tur === "LED") $("led").classList.toggle("acik", deger === "1");
       else if (tur === "BIP") bip(deger === "1");
       else if (tur === "TX") { hatTutucu = hatSatiri("tx", t, deger); koprunun(t, deger, hatTutucu); }
-      else if (tur === "RX") hatSatiri("rx", t, deger);
+      else if (tur === "RX") {
+        const c = coz(deger);
+        if (bastirRx !== null && c && c.gecerli && c.yuk === bastirRx) { bastirRx = null; continue; }
+        hatSatiri("rx", t, deger);
+      }
     }
   }
 
@@ -239,6 +288,11 @@
       sonZaman = zaman;
       const n = Math.floor(gecen + (dongu.artik || 0)); dongu.artik = gecen + (dongu.artik || 0) - n;
       if (n > 0) { modul.vx_adim(n); olaylariIsle(modul.vx_cikti()); }
+      for (let i = bekleyenler.length - 1; i >= 0; i--) {
+        const w = bekleyenler[i];
+        if (w.kosul()) { bekleyenler.splice(i, 1); w.coz(true); }
+        else if (simdi() >= w.bitis) { bekleyenler.splice(i, 1); w.coz(false); }
+      }
       $("fl-zaman").textContent = (modul.vx_zaman() / 1000).toFixed(1) + " sn";
     }
     requestAnimationFrame(dongu);

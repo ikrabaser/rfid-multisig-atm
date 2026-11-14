@@ -56,9 +56,24 @@
         <button type="submit">Okut</button>
       </form>
     </div>
+
+    <div class="fl-kutu">
+      <h3>Senaryolar <small>otopilot kartı okutur, tuşa basar</small></h3>
+      <div class="fl-dugmeler">
+        <button type="button" data-senaryo="tam">Kasa açma: 3 onay + müdür</button>
+        <button type="button" data-senaryo="musdursuz">Müdürsüz 3 onay (açılmaz)</button>
+      </div>
+      <div class="ince">Otopilot 10x hızda oynar. Her adım gerçek firmware'e kart okutma ve tuş basma olarak gider; kararları firmware, köprü ve sunucu verir.</div>
+      <div class="fl-oto" id="fl-oto-gunluk" aria-live="polite"></div>
+    </div>
   </section>
 
   <section class="fl-orta">
+    <div class="fl-kutu">
+      <h3>Onay talepleri <small>oylar sunucudan, röle firmware'den</small></h3>
+      <div id="fl-talepler" class="fl-talepler"></div>
+      <div class="fl-role" id="fl-role"><span>Kasa rölesi</span><div class="fl-role-yol"><div id="fl-role-cubuk"></div></div><span class="ince" id="fl-role-yazi">kapalı</span></div>
+    </div>
     <div class="fl-kutu">
       <h3>Seri hat <small>firmware ⇄ köprü</small></h3>
       <div class="fl-hatkontrol">
@@ -98,5 +113,6 @@
 {{ veri|json_script:"fl-veri" }}
 <script src="{% static 'banka/firmware-lab/vx_firmware.js' %}"></script>
 <script src="{% static 'banka/firmware-lab/firmware-lab.js' %}"></script>
+<script src="{% static 'banka/firmware-lab/firmware-lab-kasa.js' %}"></script>
 </body>
 </html>

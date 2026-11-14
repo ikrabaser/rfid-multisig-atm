@@ -71,3 +71,26 @@
 .fl-serit .s span:first-child { color: var(--yazi); }
 .fl-serit .s span:last-child { color: var(--soluk); text-align: right; }
 .ince { color: var(--soluk); font-size: 12px; }
+
+/* onay panosu, röle, otopilot */
+.fl-talepler { display: grid; gap: 8px; }
+.fl-talep { border: 1px solid var(--cizgi); border-radius: 10px; padding: 8px 10px; background: #12161a; }
+.fl-talep.uygulandi { border-color: #2c6b46; }
+.fl-talep.bekliyor { border-color: #7a6130; }
+.fl-talep-bas { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.fl-noktalar { display: flex; align-items: center; gap: 6px; }
+.fl-noktalar .nokta { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--cizgi); }
+.fl-noktalar .nokta.dolu { background: var(--ok); border-color: var(--ok); }
+.fl-uyari { margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: #2a1717; border: 1px solid #7a3030; color: #ffd0d0; font-size: 12px; }
+.fl-oylar { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: 12px; }
+.fl-oylar li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: center; }
+.fl-role { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; margin-top: 10px; font-size: 13px; }
+.fl-role-yol { height: 10px; background: #12161a; border: 1px solid var(--cizgi); border-radius: 999px; overflow: hidden; }
+#fl-role-cubuk { height: 100%; width: 0; background: var(--uyari); }
+.fl-role.acik #fl-role-cubuk { background: var(--ok); }
+.fl-oto { margin-top: 8px; font-size: 12px; display: grid; gap: 3px; max-height: 240px; overflow-y: auto; color: var(--soluk); }
+.fl-oto .vurgu { color: var(--uyari); }
+.fl-oto .ok { color: var(--ok); }
+.fl-oto .kotu { color: var(--kotu); }
+.fl-dugmeler button:disabled { opacity: .5; cursor: default; }
+
