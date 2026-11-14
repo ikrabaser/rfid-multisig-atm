@@ -10,17 +10,16 @@ class CommandCenterV4Tests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def test_staff_gets_actual_command_center(self):
+    def test_staff_gets_current_command_center_not_the_old_v4_assets(self):
+        """V4 arayüzünün yerini V4.2 aldı (ayrıntılı ekran testleri test_command_center_v42.py'de): eski varlıklar sunulmaz."""
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Operasyon Merkezi")
-        self.assertContains(response, "command-center-v4.css")
-        self.assertContains(response, "command-center-v4.js")
-        self.assertContains(response, "terminal-search-v4")
-        self.assertContains(response, "ATM terminalleri")
-        self.assertContains(response, "Güvenlik ve bütünlük")
+        self.assertContains(response, "command-center-v42.css")
+        self.assertContains(response, "terminal-search-v42")
         self.assertContains(response, "Politika bütünlüğü")
         self.assertNotContains(response, "RFID CORE")
+        self.assertNotContains(response, "command-center-v4.css")
         self.assertNotContains(response, "command-center-v3.css")
 
     def test_anonymous_user_redirected_to_login(self):

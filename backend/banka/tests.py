@@ -2797,7 +2797,7 @@ class SimulatorGorunumTestleri(Yardimci, TestCase):
         from django.contrib.staticfiles import finders
         self.client.force_login(self.root)
         r = self.client.get("/simulator/")
-        self.assertContains(r, "Web ATM Simülatörü")
+        self.assertContains(r, "ATM Laboratuvarı")
         self.assertContains(r, "simulator.js")
         self.assertContains(r, "a0a0a001")      # musteri karti
         self.assertContains(r, "b0b0b005")      # yetkili karti
@@ -3731,6 +3731,11 @@ class RiskMotoruTestleri(ApiYardimci, TestCase):
 
     def setUp(self):
         self.api_hazirla()
+        # Gece kurali duvar saatine baglidir (00:00-05:00 arasi +10): bu siniftaki puan beklentileri saatten bagimsiz olsun diye
+        # kapatilir; kuralin kendisi test_gece_faktoru'nda sabit saat ve acik puanla denenir.
+        gece = mock.patch.object(risk, "GECE_PUANI", 0)
+        gece.start()
+        self.addCleanup(gece.stop)
 
     # ---- yardimcilar
     def giris_t(self, terminal="ATM-01", pin="1234"):
@@ -3890,8 +3895,9 @@ class RiskMotoruTestleri(ApiYardimci, TestCase):
         kart, hesap = Kart.objects.get(uid=self.UID), Hesap.objects.get(hesap_no="100001")
         def yerel(saat):
             return timezone.make_aware(datetime.datetime(2026, 11, 11, saat, 30), ZoneInfo("Europe/Istanbul"))
-        gece = {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"), an=yerel(2))}
-        gunduz = {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"), an=yerel(14))}
+        with mock.patch.object(risk, "GECE_PUANI", 10):     # setUp bu kurali saatten bagimsiz olmak icin kapatir
+            gece = {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"), an=yerel(2))}
+            gunduz = {k for k, _, _ in risk.faktorler(kart, hesap, Decimal("100"), an=yerel(14))}
         self.assertIn("gece", gece)
         self.assertNotIn("gece", gunduz)
 

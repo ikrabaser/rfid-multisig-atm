@@ -139,7 +139,7 @@ def faktorler(kart, hesap, tutar, an=None):
             break
 
     # --- gece
-    if 0 <= timezone.localtime(an).hour < 5:
+    if GECE_PUANI and 0 <= timezone.localtime(an).hour < 5:
         sonuc.append(("gece", GECE_PUANI, "00:00-05:00"))
 
     # --- kart imzasi
