@@ -162,3 +162,37 @@ class FirmwareLabTestleri(Yardimci, TestCase):
         self.assertEqual((t["durum"], t["verilen"], t["ust_yetkili_gerekli"]), ("UYGULANDI", 4, False))
         self.assertEqual(t["oylar"][-1]["rol"], "Müdür")
 
+    # ------------------------------------------------------------ terminal izleme (heartbeat)
+
+    def test_hat_uzerindeki_ping_heartbeat_olarak_sunucuya_ulasir(self):
+        from .models import Terminal
+        self.assertIsNone(Terminal.objects.get(kod="ATM-01").son_gorulme)
+        self.assertEqual(self.talepler_tam()["baglanti"]["durum"], "BILINMIYOR")
+        self.konus("PING")
+        self.assertIsNotNone(Terminal.objects.get(kod="ATM-01").son_gorulme)
+        b = self.talepler_tam()["baglanti"]
+        self.assertEqual((b["terminal"], b["durum"], b["vaka"]), ("ATM-01", "CEVRIMICI", None))
+
+    def talepler_tam(self, terminal=None):
+        url = "/firmware-lab/talepler/" + (f"?terminal={terminal}" if terminal else "")
+        return self.client.get(url).json()
+
+    def test_sessizlik_vaka_acar_heartbeat_geri_gelince_cozer(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import Terminal
+        self.konus("PING")
+        Terminal.objects.filter(kod="ATM-01").update(son_gorulme=timezone.now() - timedelta(seconds=500))
+        b = self.talepler_tam()["baglanti"]                    # sayfa yoklaması taramayı da çalıştırır
+        self.assertEqual(b["durum"], "CEVRIMDISI")
+        self.assertEqual(b["vaka"]["durum"], "ACIK")
+        self.assertIsNotNone(b["vaka"]["atanan"])
+        self.konus("PING")                                     # köprü tekrar duyuyor
+        b = self.talepler_tam()["baglanti"]
+        self.assertEqual((b["durum"], b["vaka"]), ("CEVRIMICI", None))
+        self.assertEqual(b["son_cozulen"]["durum"], "COZULDU")
+        self.assertGreaterEqual(b["son_cozulen"]["sure_sn"], 500)
+
+    def test_bilinmeyen_terminal_icin_baglanti_bos(self):
+        self.assertIsNone(self.talepler_tam("ATM-99")["baglanti"])
+

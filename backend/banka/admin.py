@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 
 from . import politika_degisikligi, yonetim_talepleri
-from .models import (Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, Onay,
+from .models import (ArizaVakasi, Bildirim, Hesap, HesapHareketi, Islem, Kaset, Kart, LogKaydi, Musteri, Onay,
                      OnayTalebi, Personel, Politika, PolitikaDegisikligi, PolitikaDegisiklikOyu, Rol, SimulasyonKosusu,
                      Terminal, TerminalGunlukKaydi, YonetimOyu, YonetimTalebi)
 from .politika_degisikligi import PolitikaHatasi
@@ -125,8 +125,15 @@ class HesapHareketiAdmin(SadeceOkunur):
 @admin.register(Terminal)
 class TerminalAdmin(admin.ModelAdmin):
     """Açık/kapalı durumu yalnızca 'Yönetim talepleri → Terminali aç/kapat' ile değişir."""
-    list_display = ("kod", "ad", "enlem", "boylam", "aktif", "nakit_dagitimi")
-    readonly_fields = ("aktif", "nakit_dagitimi")
+    list_display = ("kod", "ad", "enlem", "boylam", "aktif", "nakit_dagitimi", "son_gorulme")
+    readonly_fields = ("aktif", "nakit_dagitimi", "son_gorulme")
+
+
+@admin.register(ArizaVakasi)
+class ArizaVakasiAdmin(SadeceOkunur):
+    """Vakaları yalnızca izleme servisi açar ve kapatır (hash zincirine yazılır)."""
+    list_display = ("id", "terminal", "tur", "durum", "acilis", "kapanis", "sure_sn", "atanan")
+    list_filter = ("durum", "tur")
 
 
 @admin.register(Kaset)

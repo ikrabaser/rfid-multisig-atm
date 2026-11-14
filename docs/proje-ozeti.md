@@ -14,7 +14,7 @@ kurallarını küçük ölçekte gösteren bir simülasyon. Para sanaldır; RC52
 - **Gömülü yazılım (firmware v2):** Arduino'dan bağımsız çekirdek, engellemesiz durum makinesi, CRC-16'lı seri çerçeve + yeniden iletim,
   röle değişmezi ve kalıcı açılış sayacı; 51 testle PC'de ve gerçek ATmega328P derlemesiyle (flash %70,7, RAM %60,8) doğrulandı.
   Gerçek donanımda henüz denenmedi. **Firmware Laboratuvarı** (`/firmware-lab/`) aynı çekirdeği WebAssembly olarak tarayıcıda gerçek köprü
-  ve sunucuyla çalıştırır; hat bozulması, kayıp cevap ve yeniden başlatma canlı denenir; kasa açma (3 onay + müdür, röle 5 sn) otopilotla izlenir.
+  ve sunucuyla çalıştırır; hat bozulması, kayıp cevap ve yeniden başlatma canlı denenir; kasa açma (3 onay + müdür, röle 5 sn) otopilotla izlenir. Terminal izleme: köprü PING'i sunucuya heartbeat olarak iletilir; sessizlik çevrimdışı sayılır, arıza vakası açılır ve heartbeat dönünce çözülür (Command Center'da görünür).
 
 ## Mimari
 

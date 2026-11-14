@@ -30,7 +30,7 @@
 
   // ------------------------------------------------------------------ onay panosu
   const pano = $("fl-talepler");
-  let sonYanit = 0, sonListe = [];
+  let sonYanit = 0, sonListe = [], sonBaglanti = null;
   const DURUM = { BEKLIYOR: "bekliyor", ONAYLANDI: "onaylandı", UYGULANDI: "uygulandı", REDDEDILDI: "reddedildi", SURESI_DOLDU: "süresi doldu", BASARISIZ: "başarısız" };
   const TUR = { KASA_ACMA: "Kasa açma", CEKME: "Para çekme", YATIRMA: "Para yatırma", HAVALE: "Havale" };
   function panoCiz(liste) {
@@ -62,11 +62,33 @@
     });
     sonYanit = Date.now();
   }
+  // ------------------------------------------------------------------ terminal bağlantısı (heartbeat)
+  const baglantiKutusu = $("fl-baglanti");
+  const DURUM_YAZI = { CEVRIMICI: ["ok", "çevrimiçi"], CEVRIMDISI: ["kotu", "ÇEVRİMDIŞI"], BILINMIYOR: ["uyari", "henüz heartbeat yok"] };
+  function baglantiCiz(b) {
+    baglantiKutusu.textContent = "";
+    if (!b) { baglantiKutusu.appendChild(el("span", "ince", "Bu terminal sunucuda kayıtlı değil.")); return; }
+    const [sinif, yazi] = DURUM_YAZI[b.durum] || ["uyari", b.durum];
+    const satir = el("div", "satir");
+    satir.appendChild(el("b", null, b.terminal));
+    satir.appendChild(el("span", "rozet " + sinif, yazi));
+    satir.appendChild(el("span", "ince", b.sn_once == null ? "Köprü bu terminali henüz duymadı (PING/HELLO bekleniyor)."
+      : "son heartbeat " + b.sn_once + " sn önce · eşik " + b.esik_sn + " sn"));
+    baglantiKutusu.appendChild(satir);
+    if (b.vaka) {
+      baglantiKutusu.appendChild(el("div", "vaka", "Arıza vakası #" + b.vaka.id + " AÇIK · atanan: " + (b.vaka.atanan || "yok") + " · açılış " + b.vaka.acilis
+        + ". Heartbeat geri gelince otomatik çözülür."));
+    } else if (b.son_cozulen) {
+      baglantiKutusu.appendChild(el("div", "vaka cozuldu", "Son vaka #" + b.son_cozulen.id + " çözüldü · kesinti " + b.son_cozulen.sure_sn + " sn · atanan: " + (b.son_cozulen.atanan || "yok")));
+    }
+  }
+  $("terminal").addEventListener("change", () => { baglantiKutusu.textContent = ""; panoYenile(); });
+
   async function panoYenile() {
     if (document.hidden) return;
     try {
-      const r = await fetch("/firmware-lab/talepler/", { credentials: "same-origin" });
-      if (r.ok) panoCiz((await r.json()).talepler);
+      const r = await fetch("/firmware-lab/talepler/?terminal=" + encodeURIComponent($("terminal").value || "ATM-01"), { credentials: "same-origin" });
+      if (r.ok) { const j = await r.json(); sonBaglanti = j.baglanti; panoCiz(j.talepler); baglantiCiz(j.baglanti); }
     } catch (_) { /* ağ yok: eski görüntü kalır */ }
   }
   setInterval(panoYenile, 2000);
@@ -126,6 +148,29 @@
       not("→ Röle " + role.sure + " ms açık kaldı ve kapandı. Defter ve olay şeridine bak.", "vurgu");
     },
     // Yalnızca görevli ve müdür yrd. oyları: yeterli sayıda ama yeterli rütbe yok -> açılmaz
+    // Köprü kesilir: sunucu heartbeat alamaz, eşik dolunca çevrimdışı sayar ve arıza vakası açar; köprü dönünce vaka çözülür
+    kopru: async () => {
+      const gercek = (ms) => new Promise((r) => setTimeout(r, ms));
+      const duvarBekle = async (kosul, ms, adim) => {
+        const bitis = Date.now() + ms;
+        while (Date.now() < bitis) { await panoYenile(); if (kosul()) return; await gercek(1000); }
+        throw new Error(adim + ": süre doldu (son durum: " + (sonBaglanti ? sonBaglanti.durum : "?") + ")");
+      };
+      const kes = $("b-kes");
+      if (kes.getAttribute("aria-pressed") === "true") kes.click();
+      not("1) Köprü bağlıyken terminal PING atıyor; sunucunun heartbeat'i görmesi bekleniyor…");
+      await duvarBekle(() => sonBaglanti && sonBaglanti.durum === "CEVRIMICI" && !sonBaglanti.vaka, 30000, "Heartbeat");
+      const esik = sonBaglanti.esik_sn;
+      not("2) Köprüyü kesiyorum. Sunucu " + esik + " sn heartbeat alamazsa terminali çevrimdışı sayar.");
+      kes.click();
+      await duvarBekle(() => sonBaglanti && sonBaglanti.durum === "CEVRIMDISI" && sonBaglanti.vaka, (esik + 30) * 1000, "Çevrimdışı tespiti");
+      not("→ Çevrimdışı: vaka #" + sonBaglanti.vaka.id + " otomatik açıldı, atanan: " + (sonBaglanti.vaka.atanan || "yok") + ". Command Center'daki İnceleme masasında da görünür.", "vurgu");
+      not("3) Köprüyü yeniden bağlıyorum.");
+      const vakaNo = sonBaglanti.vaka.id;
+      kes.click();
+      await duvarBekle(() => sonBaglanti && sonBaglanti.durum === "CEVRIMICI" && !sonBaglanti.vaka && sonBaglanti.son_cozulen && sonBaglanti.son_cozulen.id === vakaNo, 40000, "Toparlanma");
+      not("→ Heartbeat döndü: vaka #" + vakaNo + " çözüldü, kesinti " + sonBaglanti.son_cozulen.sure_sn + " sn. Olaylar hash zincirine yazıldı.", "vurgu");
+    },
     musdursuz: async () => {
       const gor = (VERI.yetkililer || []).filter((y) => y.rol === "Görevli" && y.ipucu && !y.bloke);
       const ydkler = (VERI.yetkililer || []).filter((y) => y.rol === "Müdür yardımcısı" && y.ipucu && !y.bloke);
@@ -144,7 +189,7 @@
     calisiyor = true; dugmeler.forEach((d) => { d.disabled = true; });
     gunluk.textContent = "";
     await panoYenile();
-    const acik = sonListe.find((t) => t.durum === "BEKLIYOR");
+    const acik = b.dataset.senaryo === "kopru" ? null : sonListe.find((t) => t.durum === "BEKLIYOR");
     if (acik) {          // terminal bekleyen talebi görür ("A:Onayla") ve yeni talep açtırmaz: senaryo kendi talebini kuramaz
       not("Zaten bekleyen bir talep var (#" + acik.talep_id + ", " + acik.kalan_sn + " sn kaldı). Süresi dolunca ya da sonuçlanınca tekrar dene.", "kotu");
       calisiyor = false; dugmeler.forEach((d) => { d.disabled = false; });

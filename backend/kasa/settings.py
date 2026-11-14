@@ -143,6 +143,10 @@ if API_SADECE_HTTPS:
 
 # Terminal: baslik yoksa varsayilan terminal; imkansiz seyahat kurali en fazla bu hizi (km/sa) kabul eder
 VARSAYILAN_TERMINAL = "ATM-01"
+
+# Terminal izleme (izleme.py): bu kadar saniye heartbeat gelmezse terminal ÇEVRİMDIŞI sayılır ve arıza vakası açılır.
+# Firmware 10 sn'de bir PING atar; 45 sn = 4 kaçırılmış nabız.
+TERMINAL_CEVRIMDISI_SN = _env_int("TERMINAL_CEVRIMDISI_SN", 45, 5, 3600)
 MAKS_SEYAHAT_HIZI_KMH = 150
 
 # Satir ici risk motoru (risk.py). Testlerde varsayilan kapali: eski testler saat/hiz gibi sinyallerden etkilenmesin.

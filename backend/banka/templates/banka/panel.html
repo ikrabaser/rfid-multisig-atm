@@ -61,23 +61,23 @@
     <div class="snapshot">
       <span>SON VERİ ALIMI</span>
       <strong>{{ son_guncelleme|date:'d.m.Y H:i:s' }}</strong>
-      <small>Manuel yenileme · Canlı bağlantı ölçülmüyor</small>
+      <small>Manuel yenileme · Bağlantı: köprü heartbeat'i</small>
     </div>
   </div>
 
   <section class="overview-bar" aria-label="Operasyon özeti">
     <div class="overview-status">
-      {% if istatistik.belirsiz_cekim or istatistik.bekleyen_onay or istatistik.anomali %}
+      {% if istatistik.belirsiz_cekim or istatistik.bekleyen_onay or istatistik.anomali or istatistik.acik_ariza %}
       <span class="signal amber"></span>
       <div>
         <strong>Operatör incelemesi gerekiyor</strong>
-        <small>Kaydedilmiş işlemlere dayalı durum</small>
+        <small>{% if istatistik.acik_ariza %}{{ istatistik.acik_ariza }} ATM bağlantı arızası · {% endif %}Kaydedilmiş işlemlere ve heartbeat'e dayalı durum</small>
       </div>
       {% else %}
       <span class="signal green"></span>
       <div>
         <strong>Açık inceleme kaydı yok</strong>
-        <small>Donanım bağlantısı bu ekrandan doğrulanmaz</small>
+        <small>Bağlantı yalnızca köprü heartbeat'ine dayanır</small>
       </div>
       {% endif %}
     </div>
@@ -138,6 +138,13 @@
               {% else %}
               <span class="state state-off"><i></i> İdari olarak kapalı</span>
               {% endif %}
+              {% if t.baglanti.durum == 'CEVRIMICI' %}
+              <span class="state state-on" title="Son heartbeat {{ t.baglanti.sn_once }} sn önce"><i></i> Çevrimiçi · {{ t.baglanti.sn_once }} sn</span>
+              {% elif t.baglanti.durum == 'CEVRIMDISI' %}
+              <span class="state state-warn" title="Eşik {{ t.baglanti.esik_sn }} sn"><i></i> Çevrimdışı · {{ t.baglanti.sn_once }} sn</span>
+              {% else %}
+              <span class="state state-off"><i></i> Bağlantı bilinmiyor</span>
+              {% endif %}
               <span class="dispenser">
                 Dağıtıcı:
                 {% if t.dagitici_acik %}<b>Açık</b>
@@ -175,7 +182,7 @@
       </div>
 
       <div class="section-footer">
-        <span>İdari durum, fiziksel bağlantı veya heartbeat değildir.</span>
+        <span>Bağlantı, köprüden gelen heartbeat'e dayanır; röle ve okuyucu sağlığı değildir.</span>
         {% if user.is_staff %}
         <a href="/admin/banka/terminal/">Terminal kayıtları ↗</a>
         {% endif %}
@@ -202,6 +209,28 @@
           <strong>{{ istatistik.bekleyen_onay }}</strong>
           <span>Çoklu onay</span>
         </div>
+      </div>
+
+      <div class="review-group" id="ariza-vakalari">
+        <div class="review-group-title">
+          <h3>Bağlantı arızaları</h3>
+          <span>{{ istatistik.acik_ariza }}</span>
+        </div>
+
+        {% for v in ariza_vakalari %}
+        <div class="review-item">
+          <div class="review-marker">!</div>
+          <div class="review-content">
+            <strong>{{ v.terminal.kod }} · vaka #{{ v.id }}</strong>
+            <span>Atanan: {{ v.atanan.ad|default:'yok' }} · {{ v.acilis|date:'d.m H:i:s' }}</span>
+          </div>
+          <div class="review-amount">
+            <small>Heartbeat yok</small>
+          </div>
+        </div>
+        {% empty %}
+        <p class="review-empty">Açık bağlantı arızası bulunmuyor.</p>
+        {% endfor %}
       </div>
 
       <div class="review-group">

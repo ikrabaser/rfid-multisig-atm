@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from . import baglam, services, terminal as terminal_modulu
+from . import baglam, izleme, services, terminal as terminal_modulu
 from .hashlog import zinciri_dogrula
 from .services import IslemHatasi
 
@@ -37,6 +37,7 @@ def kopru_endpoint(fn):
             terminal = terminal_modulu.terminal_coz(request.headers.get("X-Terminal-Id"))
         except IslemHatasi as e:
             return _hata(e.mesaj, e.kod, 403)
+        izleme.nabiz(terminal.kod)          # terminalden gelen her istek "görüldü" sayılır (en çok 3 sn'de bir yazar)
         try:
             with baglam.terminal_baglami(terminal.kod):
                 sonuc = fn(govde, *args, **kwargs)
@@ -45,6 +46,13 @@ def kopru_endpoint(fn):
         return JsonResponse({"ok": True, **sonuc})
 
     return sarmal
+
+
+@kopru_endpoint
+def heartbeat(g):
+    """Köprünün terminal adına yolladığı nabız (PING/HELLO). Açık bağlantı vakası varsa çözülür."""
+    d = izleme.nabiz(baglam.terminal(), zorla=True)
+    return {"durum": d["durum"] if d else "BILINMIYOR", "esik_sn": settings.TERMINAL_CEVRIMDISI_SN}
 
 
 @kopru_endpoint

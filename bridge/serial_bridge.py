@@ -32,6 +32,7 @@ import datetime
 import json
 import os
 import sys
+import threading
 import time
 import unicodedata
 import uuid
@@ -139,6 +140,23 @@ class Kopru:
         self._son_hata = 0.0
         self._son_bosaltma = 0.0
         self._son_istek = ("", 0.0)
+        self._nabiz_calisiyor = threading.Lock()
+
+    # ------------------------------------------------------------ heartbeat
+
+    def nabiz(self):
+        """Terminalin PING/HELLO'sunu sunucuya heartbeat olarak iletir. Arka planda, kuyruga ve cevrimdisi durumuna DOKUNMADAN:
+        sunucu yanitsiz olsa bile PONG gecikmesin (aksi halde terminal koprunun da kopuk oldugunu sanir)."""
+        if not self._nabiz_calisiyor.acquire(blocking=False):
+            return                                   # onceki heartbeat sürüyor
+        def is_():
+            try:
+                self.oturum.post(f"{self.api}/api/heartbeat/", json={}, timeout=ZAMAN_ASIMI)
+            except requests.RequestException:
+                pass                                 # sunucu yok: izleme zaten sessizligi vaka olarak kaydeder
+            finally:
+                self._nabiz_calisiyor.release()
+        threading.Thread(target=is_, daemon=True).start()
 
     # ------------------------------------------------------------ cevrimdisi gunluk
 
@@ -335,7 +353,7 @@ def _yuk_ve_cevap_logu(oturum_isle):
 
 def konsol_dongusu(kopru, kati=False):
     print("Konsol modu: Arduino komutlarını yaz (örn. KART|a0a0a001; çerçeveli de olur). Çıkış: Ctrl+C", file=sys.stderr)
-    oturum = Oturum(kopru.isle, kati=kati)
+    oturum = Oturum(kopru.isle, kati=kati, nabiz=kopru.nabiz)
     for satir in sys.stdin:
         satir = satir.strip()
         if satir:
@@ -347,7 +365,7 @@ def konsol_dongusu(kopru, kati=False):
 def seri_dongusu(kopru, port, baud, kati=False):
     import serial  # pyserial
 
-    oturum = Oturum(_yuk_ve_cevap_logu(kopru.isle), kati=kati)
+    oturum = Oturum(_yuk_ve_cevap_logu(kopru.isle), kati=kati, nabiz=kopru.nabiz)
     # serial_for_url: COM3 / /dev/ttyUSB0 gibi adlari da, rfc2217://localhost:4000 (Wokwi) gibi URL'leri de acar
     with serial.serial_for_url(port, baudrate=baud, timeout=1) as sp:
         print(f"{port} açıldı, Arduino'nun açılması bekleniyor...", file=sys.stderr)

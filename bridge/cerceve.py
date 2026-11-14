@@ -12,7 +12,8 @@ bozuk bir satir sessizce yanlis komut olabilir ve zaman asimina ugrayan bir ceva
 * Ayni numara + ayni yuk tekrar gelirse (terminal cevabi alamadi, yeniden yolladi) kopru ISTEGI TEKRAR ISLEMEZ,
   onbellekteki cevabi yollar: PIN sayaci, onay oyu gibi yan etkili komutlar iki kez calismaz.
 * "HELLO|surum" terminal acilisinda gelir: onbellek temizlenir (terminal resetlenince numaralar basa doner).
-* "PING" baglanti sagligi icindir ("PONG" doner).
+* "PING" baglanti sagligi icindir ("PONG" doner). HELLO ve PING ayrica `nabiz` geri cagrisini calistirir: kopru bunu sunucuya
+  heartbeat olarak iletir (terminal izleme). Heartbeat basarisiz olsa da cevap yine gider.
 * Cerceve gormeden once eski (cercevesiz) satirlar kabul edilir (eski firmware uyumlulugu); ilk gecerli cerceveden
   sonra cercevesiz satirlar reddedilir (yarim kalmis bir cerceve komut sanilmasin). `kati=True`: hic kabul edilmez.
 """
@@ -85,9 +86,10 @@ def coz(satir):
 class Oturum:
     """Bir seri baglantinin cerceve durumu. `isle`: yuk (eski satir) -> cevap satiri (Kopru.isle)."""
 
-    def __init__(self, isle, kati=False):
+    def __init__(self, isle, kati=False, nabiz=None):
         self.isle = isle
         self.kati = kati
+        self.nabiz = nabiz                  # HELLO/PING'de cagrilir: terminalin canli oldugunu sunucuya bildirir
         self._onbellek = OrderedDict()      # sira -> (yuk, cevap)
         self._cerceve_goruldu = False
         self.istatistik = {"cerceve": 0, "bozuk": 0, "tekrar": 0, "eski_satir": 0, "reddedilen": 0, "yoksayilan": 0, "yanit_hatasi": 0}
@@ -110,6 +112,8 @@ class Oturum:
         self.istatistik["cerceve"] += 1
 
         ad = yuk.split("|")[0].upper()
+        if ad in ("HELLO", "PING"):
+            self._nabiz_ver()
         if ad == "HELLO":
             self._onbellek.clear()
             surum = yuk.split("|")[1] if "|" in yuk else ""
@@ -128,6 +132,15 @@ class Oturum:
         while len(self._onbellek) > ONBELLEK_BOYUTU:
             self._onbellek.popitem(last=False)
         return self._cevap_kodla(sira, cevap)
+
+    def _nabiz_ver(self):
+        """Heartbeat bildirimi ASLA terminalin cevabini bozmamali: hata olursa yutulur, PONG yine gider."""
+        if self.nabiz is None:
+            return
+        try:
+            self.nabiz()
+        except Exception:                   # noqa: BLE001 - izleme yardimcidir, hat onun yuzunden durmaz
+            self.istatistik["nabiz_hatasi"] = self.istatistik.get("nabiz_hatasi", 0) + 1
 
     def _cevap_kodla(self, sira, cevap):
         """Cevap cerceveye sigmiyorsa (cok uzun / ASCII disi) hatayi terminale bildir; koprunun cokmesine izin verme."""

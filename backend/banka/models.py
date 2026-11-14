@@ -346,6 +346,10 @@ class Terminal(models.Model):
     enlem = models.FloatField(null=True, blank=True)
     boylam = models.FloatField(null=True, blank=True)
     aktif = models.BooleanField(default=True)
+    son_gorulme = models.DateTimeField(
+        "Son heartbeat", null=True, blank=True,
+        help_text="Köprüden gelen son heartbeat ya da API isteği. Boşsa terminal henüz hiç bağlanmamıştır.",
+    )
     nakit_dagitimi = models.BooleanField(
         "Para dağıtıcı açık", default=True,
         help_text="Sıkışma/eksik verme sonrası otomatik kapanır; teknik servisten sonra 'dagitici_ac' komutuyla açılır.",
@@ -358,6 +362,39 @@ class Terminal(models.Model):
 
     def __str__(self):
         return f"{self.kod} ({self.ad})"
+
+
+class ArizaVakasi(models.Model):
+    """Terminal izlemesinin otomatik açtığı vaka (şimdilik yalnızca bağlantı kesintisi). Terminal geri gelince çözülür."""
+
+    class Tur(models.TextChoices):
+        BAGLANTI = "BAGLANTI", "Bağlantı kesintisi"
+
+    class Durum(models.TextChoices):
+        ACIK = "ACIK", "Açık"
+        COZULDU = "COZULDU", "Çözüldü"
+
+    terminal = models.ForeignKey(Terminal, on_delete=models.PROTECT, related_name="ariza_vakalari")
+    tur = models.CharField(max_length=12, choices=Tur.choices, default=Tur.BAGLANTI)
+    durum = models.CharField(max_length=8, choices=Durum.choices, default=Durum.ACIK)
+    acilis = models.DateTimeField(auto_now_add=True)
+    son_gorulme = models.DateTimeField(null=True, blank=True, help_text="Kesintiden önceki son heartbeat")
+    atanan = models.ForeignKey("Personel", null=True, blank=True, on_delete=models.SET_NULL, related_name="ariza_vakalari")
+    kapanis = models.DateTimeField(null=True, blank=True)
+    sure_sn = models.PositiveIntegerField(null=True, blank=True, help_text="Kesinti süresi (son heartbeat'ten geri dönüşe)")
+    aciklama = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "Arıza vakası"
+        verbose_name_plural = "Arıza vakaları"
+        ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["terminal", "tur"], condition=models.Q(durum="ACIK"),
+                                    name="terminal_tur_tek_acik_vaka"),
+        ]
+
+    def __str__(self):
+        return f"Vaka #{self.id} {self.terminal.kod} [{self.durum}]"
 
 
 class Kaset(models.Model):

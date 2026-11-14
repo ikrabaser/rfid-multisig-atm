@@ -62,13 +62,18 @@
       <div class="fl-dugmeler">
         <button type="button" data-senaryo="tam">Kasa açma: 3 onay + müdür</button>
         <button type="button" data-senaryo="musdursuz">Müdürsüz 3 onay (açılmaz)</button>
+        <button type="button" data-senaryo="kopru">Köprü kesintisi (arıza vakası)</button>
       </div>
-      <div class="ince">Otopilot 10x hızda oynar. Her adım gerçek firmware'e kart okutma ve tuş basma olarak gider; kararları firmware, köprü ve sunucu verir.</div>
+      <div class="ince">Otopilot 10x hızda oynar (köprü kesintisi senaryosu sunucunun çevrimdışı eşiğini gerçek saniye olarak bekler, yaklaşık 1 dakika sürer). Her adım gerçek firmware'e kart okutma ve tuş basma olarak gider; kararları firmware, köprü ve sunucu verir.</div>
       <div class="fl-oto" id="fl-oto-gunluk" aria-live="polite"></div>
     </div>
   </section>
 
   <section class="fl-orta">
+    <div class="fl-kutu">
+      <h3>Terminal bağlantısı <small>köprü heartbeat'i → sunucu izlemesi</small></h3>
+      <div class="fl-baglanti" id="fl-baglanti"><span class="rozet uyari">yükleniyor…</span></div>
+    </div>
     <div class="fl-kutu">
       <h3>Onay talepleri <small>oylar sunucudan, röle firmware'den</small></h3>
       <div id="fl-talepler" class="fl-talepler"></div>

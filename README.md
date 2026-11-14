@@ -469,6 +469,29 @@ Aynı kartı iki terminalde birkaç saniye arayla kullanırsan `imkansiz_seyahat
 terminaller aynı şube sayılır. Kasa açma talebini başlatan terminalin röle kilidi açılır, çünkü yalnızca talebi başlatan
 terminal onu sorgular.
 
+### Terminal izleme (heartbeat ve arıza vakası)
+
+Firmware 10 saniyede bir `PING` atar. Köprü bunu cevaplamakla kalmaz, arka planda `/api/heartbeat/` ile sunucuya da iletir
+(`HELLO` ve terminalden gelen her API isteği de terminali "görüldü" yapar). Sunucu `Terminal.son_gorulme` alanını tutar:
+
+1. `TERMINAL_CEVRIMDISI_SN` (varsayılan 45 sn, yani 4 kaçırılmış nabız) heartbeat gelmezse terminal **çevrimdışı** sayılır.
+2. `izleme.tara()` bir **arıza vakası** (`ArizaVakasi`) açar, en az açık vakası olan aktif Görevli'ye atar ve olayı hash zincirine
+   (`terminal_cevrimdisi`) yazar. Terminal başına tek açık vaka olabilir (veritabanı kısıtı): tarama tekrarlansa da çift vaka açılmaz.
+3. Command Center'da ATM kartında "Çevrimdışı · N sn" rozeti ve İnceleme masasında "Bağlantı arızaları" listesi görünür.
+4. Heartbeat geri gelince vaka **otomatik çözülür**, kesinti süresi kaydedilir (`terminal_baglanti_geri`).
+
+![Command Center: çevrimdışı ATM ve arıza vakası](docs/command-center-ariza.png)
+
+Firmware Laboratuvarı'nda **Köprü kesintisi** senaryosu bunu uçtan uca oynatır (köprüyü keser, eşik dolunca vakanın açıldığını, köprü dönünce
+çözüldüğünü gösterir). Eşik gerçek saniyedir; denemeyi kısaltmak için `TERMINAL_CEVRIMDISI_SN=10` ile sunucuyu başlat.
+
+![Firmware Laboratuvarı: köprü kesintisi ve arıza vakası](docs/firmware-lab-baglanti.png)
+
+Sunucuda zamanlayıcı yoktur: tarama panel ve laboratuvar sayfası açıldığında, bir de `python manage.py terminal_izle` ile çalışır
+(`--surekli --aralik 10` ile döngüde; üretimde servis olarak çalıştır). Hiç heartbeat göndermemiş terminal "bağlantı bilinmiyor" sayılır ve vaka açılmaz.
+**Sınırlar:** heartbeat "köprü terminali duyuyor" demektir; röle, okuyucu ya da LCD'nin sağlam olduğunu kanıtlamaz. Ayrı bir teknik servis rolü
+yoktur, atama şimdilik Görevli'ye yapılır; vaka çözümü de insan onayı değil, bağlantının geri gelmesidir.
+
 ## Kuruş
 
 Klavyede tutar girerken `C` tuşu ondalık noktasıdır (en fazla 2 hane): `1 0 0 C 5` → `100.5` → `100,50 TL`.
@@ -1236,6 +1259,7 @@ sonunda zaman aşımına düşer ve LCD'de "Kopru yok!" gösterir; sayaçlarda y
 - **Hattı bozma:** bit bozulması, bayt kaybı, sahte bayt (binde); **sonraki cevabı kaybet**; **köprüyü kes** ("Kopru yok!" göstergesi);
   hız (1x/3x/10x); **güç kes/ver** (kalıcı açılış sayacı tarayıcıda saklanır, her açılışta işlem anahtarı değişir).
 - **Kartlar:** demo müşteriler ve yetkililer; Wokwi kartlarını da eklemek için `python manage.py wokwi_kartlari`.
+- **Terminal bağlantısı:** köprüyü kesince sunucunun heartbeat izlemesi (çevrimiçi / çevrimdışı, otomatik arıza vakası) canlı görünür; bkz. "Terminal izleme".
 - **Kasa açma ve onay panosu:** hat panelinde onay akışı okunur rozetlerle görünür (talep açıldı, `oy 2/3`, "üst rol gerekli", "uygulandı");
   değişmeyen `DURUM` yoklamaları tek satırda sayılır. "Onay talepleri" kutusu sunucudaki oyları (kim, hangi rol, ne zaman) ve kalan süreyi,
   röle çubuğu ise firmware'in rölesinin ne kadar açık kaldığını gösterir. **Senaryolar** otopilotu gerçek firmware'e kart okutur ve tuşa basar:
@@ -1248,7 +1272,7 @@ sonunda zaman aşımına düşer ve LCD'de "Kopru yok!" gösterir; sayaçlarda y
 
 Firmware çekirdeği `arduino/wasm/derle.sh` ile (Emscripten gerekir) `backend/banka/static/banka/firmware-lab/vx_firmware.js` olarak derlenir; derlenmiş
 dosya repoda durur, Windows'ta Emscripten kurmak gerekmez. Testler: `node backend/js_testleri/firmware_wasm.test.js` (wasm çekirdeği, 7 test) ve
-`python manage.py test banka.test_firmware_lab` (erişim kuralları, CRC'li hat, aynı isteğin iki kez gelmesi, onay panosu).
+`python manage.py test banka.test_firmware_lab banka.test_izleme` (erişim kuralları, CRC'li hat, aynı isteğin iki kez gelmesi, onay panosu, heartbeat ve arıza vakası).
 
 **Dürüst sınırlar.** Bu yazılım gerçek donanımda henüz denenmedi: RC522/keypad/LCD zamanlamaları, röle sürücüsü ve USB seri
 davranışı yalnızca arayüz düzeyinde sahtelenmiştir. WDT, eski ve klon Uno bootloader'larında reset sonrası döngüye girebilir

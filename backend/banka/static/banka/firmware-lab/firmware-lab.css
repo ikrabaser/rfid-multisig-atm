@@ -94,3 +94,8 @@
 .fl-oto .kotu { color: var(--kotu); }
 .fl-dugmeler button:disabled { opacity: .5; cursor: default; }
 
+
+.fl-baglanti { display: grid; gap: 6px; font-size: 13px; }
+.fl-baglanti .satir { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fl-baglanti .vaka { padding: 6px 8px; border-radius: 6px; background: #2a1717; border: 1px solid #7a3030; color: #ffd0d0; }
+.fl-baglanti .vaka.cozuldu { background: #14261c; border-color: #2c6b46; color: #bfe8cf; }

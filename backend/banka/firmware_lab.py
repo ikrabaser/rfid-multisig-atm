@@ -18,8 +18,8 @@ from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from . import services, simulator
-from .models import Onay, OnayTalebi, Rol
+from . import izleme, services, simulator
+from .models import ArizaVakasi, OnayTalebi, Rol, Terminal
 from .views import simulator_kapisi, simulator_yetkisi
 
 _KOPRU_DIZINI = Path(__file__).resolve().parents[2] / "bridge"
@@ -39,7 +39,8 @@ def _oturum(kullanici_id, lab_id, terminal):
         if anahtar in _oturumlar:
             _oturumlar.move_to_end(anahtar)
             return _oturumlar[anahtar]
-        oturum = cerceve.Oturum(lambda yuk: simulator.isle(yuk, terminal), kati=True)
+        oturum = cerceve.Oturum(lambda yuk: simulator.isle(yuk, terminal), kati=True,
+                                nabiz=lambda: izleme.nabiz(terminal))
         _oturumlar[anahtar] = (oturum, threading.Lock())
         while len(_oturumlar) > EN_COK_OTURUM:
             _oturumlar.popitem(last=False)
@@ -99,4 +100,21 @@ def talepler(request):
             "kalan_sn": ozet["kalan_sn"], "ust_yetkili_gerekli": ozet["ust_yetkili_gerekli"],
             "en_az_rol": Rol(t.en_az_rol).label, "oylar": oylar,
         })
-    return JsonResponse({"talepler": cikti})
+    return JsonResponse({"talepler": cikti, "baglanti": _baglanti(request.GET.get("terminal", "ATM-01"))})
+
+
+def _baglanti(kod):
+    """Seçili terminalin heartbeat durumu ve arıza vakası (izleme.py). Bakıldığı anda `tara()` de çalışır."""
+    izleme.tara()
+    terminal = Terminal.objects.filter(kod=kod[:20]).first()
+    if terminal is None:
+        return None
+    durum = izleme.baglanti_durumu(terminal)
+
+    def vaka_ozeti(v):
+        return {"id": v.id, "durum": v.durum, "atanan": v.atanan.ad if v.atanan else None,
+                "acilis": v.acilis.astimezone().strftime("%H:%M:%S"), "sure_sn": v.sure_sn}
+    acik = ArizaVakasi.objects.select_related("atanan").filter(terminal=terminal, durum=ArizaVakasi.Durum.ACIK).first()
+    son = ArizaVakasi.objects.select_related("atanan").filter(terminal=terminal, durum=ArizaVakasi.Durum.COZULDU).first()
+    return {"terminal": terminal.kod, "durum": durum["durum"], "sn_once": durum["sn_once"], "esik_sn": durum["esik_sn"],
+            "vaka": vaka_ozeti(acik) if acik else None, "son_cozulen": vaka_ozeti(son) if son else None}
