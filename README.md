@@ -216,6 +216,8 @@ hareketleri, hesaplar, zincir durumu.
 Kütüphaneler (Library Manager): **MFRC522**, **Keypad**, **LiquidCrystal I2C**.
 Uno'da RAM dar; metinler bu yüzden `F()` ile flash'ta tutuluyor. "Low memory" uyarısı alırsan Mega ya da ESP32 kullan.
 
+Parçalar gelince adım adım doğrulama sırası, beklenen sonuçlar ve ölçülecekler: [docs/donanim-hazirlik.md](docs/donanim-hazirlik.md).
+
 ### Kasa kilidi (röle)
 
 Arduino pini kilidi süremez. 5V röle modülü araya girer, kilit **ayrı 12V adaptörden** beslenir:
