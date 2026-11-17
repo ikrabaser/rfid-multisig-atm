@@ -442,11 +442,11 @@ daha tuhaf olduğunu söyler.
 
 | 5 tohumun ortalaması (aralık) | Kural tabanı | Isolation Forest |
 |---|---|---|
-| ROC AUC | 0,786 (0,777–0,805) | 0,972 (0,956–0,981) |
+| ROC AUC | 0,786 (0,777–0,805) | 0,971 (0,954–0,982) |
 | Yakalanan saldırı, kural eşiği 40 (yanlış alarm %0) | %30 (%26,7–%33,3) | |
 | Yakalanan saldırı, ML yanlış alarm %1 | | %77 (%75–%78) |
-| Yakalanan saldırı, ML yanlış alarm %5 | | %84 (%83–%87) |
-| Kural **veya** ML, yanlış alarm %1 / %5 | | %80 / %85 |
+| Yakalanan saldırı, ML yanlış alarm %5 | | %83 (%82–%87) |
+| Kural **veya** ML, yanlış alarm %1 / %5 | | %80 / %83 |
 
 Saldırı türüne göre (tohum 1, saldırı düzeyinde, yani bir saldırı olaylarından biri yakalanınca sayılır):
 
@@ -455,8 +455,8 @@ Saldırı türüne göre (tohum 1, saldırı düzeyinde, yani bir saldırı olay
 | `klon_hizli` (yabancı terminalde hızlı çekimler) | %0 | %100 | %100 |
 | `gece_buyuk_havale` (yeni alıcıya gece büyük havale) | %33 | %100 | %100 |
 | `bosaltma` (bakiyenin çoğunu çekme) | %0 | %100 | %100 |
-| `pin_deneme` (art arda yanlış PIN) | %100 | %83 | %100 |
-| `yavas_kucuk` (alışılmış tutarın hemen üstü, zor vaka) | %0 | %0 | %25 |
+| `pin_deneme` (art arda yanlış PIN) | %100 | %75 | %100 |
+| `yavas_kucuk` (alışılmış tutarın hemen üstü, zor vaka) | %0 | %0 | %8 |
 
 **Doğrulama:** kendi uygulamamız scikit-learn `IsolationForest` ile aynı veride karşılaştırıldı (tek seferlik; scikit-learn
 repoya bağımlılık olarak eklenmedi): AUC farkı en çok 0,008, sıralama korelasyonu (Spearman) 0,976–0,983.
@@ -483,9 +483,10 @@ $env:ML_RISK_MODU = "golge"; python manage.py runserver
   zincir bunu yakalar (yeniden eğitim zincire yeni kayıt açar).
 - **Kapsam:** yalnızca çekme ve havale skorlanır. Kural motoru işlemi reddederse (RED/BLOKE) işlem satırı oluşmadığı için ML skoru
   da kaydedilmez; karşılaştırma uygulanan ve ek onaya giden işlemler üzerindendir.
-- **Soğuk başlangıç:** model sentetik müşterilerle eğitildiği ve geçmişi olmayan hesap için "son işlemden bu yana" uzun bir süre
-  sayıldığı için, yeni açılmış demo hesabın ilk işlemleri yüksek ML puanı alabilir (denemede ilk çekme 69). Bu yüzden ML puanı
-  şimdilik yalnızca kural skoruyla yan yana **bakmak** içindir. Gerçek müşteri verisiyle yeniden eğitim ayrı bir adımdır.
+- **Soğuk başlangıç:** geçmişi 3 işlemden az hesapta "olağan tutar/saat/terminal" bilinmediği için o özellikler tarafsız değer alır;
+  hiç işlemi olmayan hesapta "son işlemden bu yana" da tipik bir süre (1 gün, eğitim medyanına yakın) sayılır. İlk denemede bu süre
+  30 gün sayıldığı için yeni demo hesabın ilk çekmesi 69 puan almıştı; düzeltmeden sonra aynı çekme 27 alıyor. Yine de model sentetik
+  müşterilerle eğitildiği için puanlar şimdilik kural skoruyla yan yana **bakmak** içindir; gerçek veriyle yeniden eğitim ayrı bir adımdır.
 
 **Dürüst sınırlar:**
 

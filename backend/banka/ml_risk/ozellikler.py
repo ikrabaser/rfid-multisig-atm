@@ -11,7 +11,7 @@ from typing import Optional, Sequence
 
 GECMIS_EN_AZ = 3                       # risk.py TUTAR_EN_AZ_GECMIS ile aynı: bundan az geçmişte "olağan" tanımlanamaz
 GECE_BASLANGIC, GECE_BITIS = 0, 5      # risk.py "gece" kuralı: 00:00-05:00
-YOK_SURE_SN = 30 * 86400               # geçmiş yoksa "son işlemden bu yana" için uzun bir süre
+YOK_SURE_SN = 86400                    # geçmiş yoksa "son işlemden bu yana" bilinmez: tarafsız (tipik) bir süre, aykırı sayılmasın
 
 
 @dataclass(frozen=True)

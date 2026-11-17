@@ -88,6 +88,7 @@ class OzellikTestleri(SimpleTestCase):
         self.assertEqual((ozellik(v, "tutar_orani"), ozellik(v, "saat_sapmasi"), ozellik(v, "yeni_terminal")), (0.0, 0.0, 0.0))
         v = ozellikler.ozellik_vektoru(olay(), [])
         self.assertAlmostEqual(ozellik(v, "son_islemden_sn"), math.log1p(ozellikler.YOK_SURE_SN))
+        self.assertEqual(ozellikler.YOK_SURE_SN, 86400)                       # 30 gün sayılırsa yeni hesap "aykırı" görünürdü
 
     def test_gecmisi_degistirmez(self):
         g = gecmis()
@@ -271,6 +272,12 @@ class AciklamaTestleri(SimpleTestCase):
         gerekce = aciklama.gerekce(self.model, x)
         self.assertIn("ilk kez görülen havale hedefi", gerekce)
         self.assertLessEqual(len(gerekce), 3)
+
+    def test_hic_gecmisi_olmayan_hesabin_siradan_ilk_islemi_aykiri_sayilmaz(self):
+        """Soğuk başlangıç: geçmiş yokluğu tek başına yüksek puan üretmemeli."""
+        x = ozellikler.ozellik_vektoru(olay(saat=14.0, tutar=300.0), [])
+        self.assertLess(self.model.puan(x), 60)
+        self.assertEqual(aciklama.gerekce(self.model, x), [])
 
     def test_sapma_olmayan_islem_icin_gerekce_bos(self):
         medyan_vektor = list(self.model.medyan)
