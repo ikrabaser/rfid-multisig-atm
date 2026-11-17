@@ -127,6 +127,7 @@ anomali rozeti de uyarıya döner).
 | `backend/banka/ledger.py` | Defter satırları ve mutabakat |
 | `backend/banka/anomali.py` | Log üzerinde anomali kuralları (sonradan tarama) |
 | `backend/banka/risk.py` | Satır içi risk motoru: işlem anında puan, ek onay / ret / bloke |
+| `backend/banka/ml_risk/` | ML risk katmanı: özellikler, sıfırdan Isolation Forest, açıklama, sentetik veri, kural karşılaştırması (karar vermez) |
 | `backend/banka/hashlog.py` | Hash zinciri ekleme ve doğrulama |
 | `backend/banka/terminal.py` | Terminal doğrulama, çevrimdışı günlüğün yüklenmesi |
 | `backend/banka/bildirim.py` | E-posta ve SMS (simülasyon) bildirimleri |
@@ -408,13 +409,71 @@ sonradan bloke edilse de (ya da bloke alanı veritabanında sıfırlansa da) iş
   bu yüzden önce ek onay basamağı vardır ve bloke yalnızca birkaç güçlü sinyal birleşince olur (ör. imkânsız seyahat + imza ihlali + hatalı PIN).
 - Eşikler Politika tablosunda değil ayarlardadır; yani maker-checker ile değişmezler (kod/ortam değişikliği gerektirir).
 - Testlerde varsayılan olarak kapalıdır (`RISK_MOTORU_AKTIF`); risk testleri açıkça açar. Üretimde açık olmalıdır.
-- Bir ML katmanı (RandomForest/IsolationForest gibi) yoktur; eklenirse kural skorunu değiştirmez, yanına bir sinyal olarak girer.
+- ML katmanı (sıfırdan Isolation Forest, aşağıdaki "ML risk katmanı") henüz gölgede bile bağlı değildir; bağlandığında kural skorunu değiştirmez, yanına bir sinyal olarak girer.
 
 **Simülatörde deneme:** (şeritte "Risk motoru: açık" rozeti görünür)
 
 1. ATM-01'de müşteri kartıyla giriş yap, ardından ATM-02'de aynı kartla giriş yap ve çek: imkânsız seyahat (Istanbul → Ankara) puanı 60,
    işlem **ek onay** bekler ("Onay gerekli" ekranı).
 2. Önce iki kez yanlış PIN gir (üçüncüsü kartı kilitler), sonra yukarıdaki adımları yap: puan 90, işlem **reddedilir**.
+
+## ML risk katmanı (sıfırdan Isolation Forest)
+
+Kural motoru yalnızca bilinen kalıpları yakalar. ML katmanı "bu müşteri için bu işlem alışılmadık mı?" sorusunu sorar ve
+kuralların tasarlanmadığı sapmaları işaretler. **Şu an karar vermez**: `risk.py` skorunu değiştirmez, veritabanına
+dokunmaz, yalnızca ayrı bir paket (`backend/banka/ml_risk/`) ve bir ölçüm komutudur. Gölge modda bağlanması sıradaki adımdır.
+
+| Dosya | İş |
+|---|---|
+| `ml_risk/ozellikler.py` | İşlem + müşterinin geçmişinden 11 sayısal özellik (tutarın alışılmış tutara oranı, bakiyeye oranı, saatin dairesel sapması, gece, son 10 dk / 1 sa işlem sayısı, yeni terminal, yeni havale hedefi, hatalı PIN, ...) |
+| `ml_risk/orman.py` | Saf Python Isolation Forest (numpy/sklearn yok), JSON'a yazılır, SHA-256 mührü taşır |
+| `ml_risk/aciklama.py` | Skoru hangi özelliklerin yükselttiğini söyler (medyan/MAD ile sağlam z-skoru) |
+| `ml_risk/sentetik.py` | Sentetik müşteri akışı ve etiketli saldırı senaryoları (tohumla tekrarlanabilir) |
+| `ml_risk/degerlendir.py` | Kural tabanıyla karşılaştırma: ROC AUC, aynı yanlış alarm oranında yakalama |
+
+**Isolation Forest nasıl çalışır?** Rastgele bir özellik ve rastgele bir kesim noktasıyla veriyi bölmeyi tekrarlarsın.
+Aykırı bir nokta az adımda tek başına kalır, sıradan bir nokta çok adım ister. 100 ağacın ortalama derinliği `E[h]` alınır ve
+`s = 2^(-E[h] / c(ψ))` ile 0–1 arasına çevrilir. `c(n) = 2(ln(n-1) + 0,5772) - 2(n-1)/n`, n örnekli bir ağacın beklenen derinliğidir
+(ψ = 256 için 10,24). Örnek: ortalama derinlik 10,24 ise `s = 0,5` (sıradan), 3 ise `s = 0,82` (kolay ayrıştı), 14 ise `s = 0,39`.
+Ham skor eğitim skorlarının yüzdeliğine çevrilir; yani "0–100 puan" bu işlemin eğitimdeki normal işlemlerin yüzde kaçından
+daha tuhaf olduğunu söyler.
+
+**Ölçüm** (`python manage.py ml_risk_degerlendir --tohumlar 5 --ornek`, 200 müşteri, 60 gün eğitim, 15 gün test, 60 saldırı, 5 tohum):
+
+| 5 tohumun ortalaması (aralık) | Kural tabanı | Isolation Forest |
+|---|---|---|
+| ROC AUC | 0,786 (0,777–0,805) | 0,972 (0,956–0,981) |
+| Yakalanan saldırı, kural eşiği 40 (yanlış alarm %0) | %30 (%26,7–%33,3) | |
+| Yakalanan saldırı, ML yanlış alarm %1 | | %77 (%75–%78) |
+| Yakalanan saldırı, ML yanlış alarm %5 | | %84 (%83–%87) |
+| Kural **veya** ML, yanlış alarm %1 / %5 | | %80 / %85 |
+
+Saldırı türüne göre (tohum 1, saldırı düzeyinde, yani bir saldırı olaylarından biri yakalanınca sayılır):
+
+| Tür | Kural | ML (%1) | ML (%5) |
+|---|---|---|---|
+| `klon_hizli` (yabancı terminalde hızlı çekimler) | %0 | %100 | %100 |
+| `gece_buyuk_havale` (yeni alıcıya gece büyük havale) | %33 | %100 | %100 |
+| `bosaltma` (bakiyenin çoğunu çekme) | %0 | %100 | %100 |
+| `pin_deneme` (art arda yanlış PIN) | %100 | %83 | %100 |
+| `yavas_kucuk` (alışılmış tutarın hemen üstü, zor vaka) | %0 | %0 | %25 |
+
+**Doğrulama:** kendi uygulamamız scikit-learn `IsolationForest` ile aynı veride karşılaştırıldı (tek seferlik; scikit-learn
+repoya bağımlılık olarak eklenmedi): AUC farkı en çok 0,008, sıralama korelasyonu (Spearman) 0,976–0,983.
+Testler (`test_ml_risk.py`) `c(256)`, deterministik tohum, JSON gidiş-dönüş, mühür değişimi, özellik uç durumları, AUC'nin bilinen
+değerleri ve kural sabitlerinin `risk.py` ile eşitliğini içerir.
+
+**Dürüst sınırlar:**
+
+- Veri **sentetiktir**; gerçek dolandırıcılık verimiz yok. Saldırıları özelliklerin yakalayacağı biçimde ben yazdım, bu yüzden
+  yüksek AUC iyimserdir. Gerçek saldırganlar bu varsayımlara uymaz.
+- Kural tabanı basitleştirilmiş bir eşdeğerdir (imkânsız seyahat ve kart imzası yok, `farkli_terminal` bağlamı sınırlı); gerçek
+  motoru olduğundan zayıf gösterir. Doğru karşılaştırma, gölge modda gerçek `risk.py` skoruyla yan yana toplanan verilerle yapılır.
+- Zor vaka `yavas_kucuk` neredeyse hiç yakalanmıyor; sessiz, alışılmış tutarın hemen üstündeki saldırılar bu özelliklerle ayırt edilemez.
+- Geçmişi 3 işlemden az hesaplarda alışılmış değerler bilinmediği için tarafsız özellik değerleri kullanılır (yeni hesabı
+  "anormal" saymaz, ama yakalamaz da).
+- Model müşteri başına değil, tüm müşteriler üzerinde tek eğitilir; müşteriye özgü alışkanlık özelliklerle (medyan tutar, tipik saat) girer.
+- `model.json` mührü bozulmayı (zehirleme, el değişimi) yakalar, modelin doğru olduğunu garanti etmez.
 
 ## HTTPS (PIN trafiği)
 
@@ -1321,5 +1380,5 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 2. Elle ters kayıt (dört göz ile).
 3. İmzalı kartın gerçek donanımda çalışması: PN532 okuyucu + NTAG 424 DNA ve Arduino tarafında SDM okuma.
 4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir (tasarım taslağı "Çevrimdışı davranış" bölümünde).
-5. Risk motoruna ML sinyali (RandomForest / Isolation Forest, simülatörden üretilen sentetik veriyle) ve geçmiş davranış tabanlı eşikler.
+5. ML risk katmanını gölge modda bağlamak (skoru işlemle birlikte kaydet, Command Center'da kural ve ML'yi yan yana göster) ve gerçek `risk.py` skoruyla karşılaştırmak.
 6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).

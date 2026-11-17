@@ -35,13 +35,14 @@ yapılmaz, yalnızca denetim günlüğü biriktirilir ve bağlantı gelince yük
 | Denetim | HMAC'li hash zinciri; kayıt değişirse ya da silinirse fark edilir. Zincirin son hash'i dışarı yazılarak kuyruğun silinmesi de yakalanır. |
 | Yetki | N-of-M onay, görev ayrımı (RBAC), hassas yönetim işlemlerinde maker-checker (dört göz), onaysız veri değişikliğini yakalayan bütünlük mühürleri. |
 | Anomali | Kural tabanlı tarama: PIN yağmuru, imkânsız seyahat, çok terminal, dağıtıcı arızası, düşük banknot stoğu vb. |
+| ML risk | Saf Python Isolation Forest (11 özellik, açıklamalı skor, SHA-256 mühürlü model); sentetik veride kural tabanını geçer (AUC 0,97 / 0,79) ama henüz karar vermez ve gölgede bağlı değildir; scikit-learn ile AUC farkı ≤ 0,008. |
 | Banknot stoğu | En az banknotlu plan, rezervasyon, sıkışmada tam iade + dağıtıcı kapanır, eksik vermede yalnız fark iade, belirsiz sonuçta otomatik iade **yok** (operatör sayımı). |
 | Eşzamanlılık | PostgreSQL; zincir danışma kilidi, hesap ve kaset satır kilitleri, sabit kilit sırası, deadlock'ta yeniden deneme, PIN deneme sayacı kilitli satırdan. |
 | PIN gizliliği | PIN yalnızca SMS sağlayıcıya verilir; log, veritabanı, panel ve e-postada görünmez. |
 
 ## Nasıl doğrulandı
 
-- **443 Python testi** (52'si operasyon simülasyonu) (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
+- **528 Python testi** (52'si operasyon simülasyonu) (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
   banknot stoğu, idempotency ve 3 yanlış PIN sınırı aşılamıyor, zincir bozulmuyor).
 - **27 JavaScript akış testi** (simülatörün ekran akışı, sahte sunucuya karşı, Windows zamanlayıcısı taklit edilerek de).
 - Banknot bölme algoritması, rastgele stok ve tutarlarda kaba kuvvet çözümüyle karşılaştırıldı.
@@ -53,6 +54,7 @@ yapılmaz, yalnızca denetim günlüğü biriktirilir ve bağlantı gelince yük
   bunu kaset sayımına (mutabakat) bırakır.
 - Hash zinciri tek sıralı olduğu için yazan işlemler sıraya girer: doğruluk için bilinçli bir takas, yatay ölçeklemeyi sınırlar.
 - Simülatörün operatör düğmeleri ve `nakit_coz --dogrudan` tek kişilik geliştirme yoludur; gerçek yol dört gözlü `NAKIT_COZ` talebidir.
+- ML katmanı sentetik veriyle ölçüldü; saldırılar özelliklere göre yazıldığı için yüksek AUC iyimserdir, gerçek veriyle doğrulanmadı.
 - Yük testi yapılmadı; eşzamanlılık testleri küçük ölçekli yarış testleridir.
 
 ## Çalıştırma
