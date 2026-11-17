@@ -193,6 +193,10 @@ class Islem(models.Model):
     ters_neden = models.CharField(max_length=20, blank=True, default="")
     risk_skoru = models.PositiveSmallIntegerField("Risk skoru", default=0, help_text="Satır içi risk motoru (risk.py)")
     risk_notu = models.CharField("Risk gerekçesi", max_length=200, blank=True, default="")
+    ml_puan = models.PositiveSmallIntegerField(
+        "ML risk puanı (gölge)", null=True, blank=True,
+        help_text="0-100; ml_golge.py. Karara girmez, yalnızca kural skoruyla karşılaştırmak için saklanır (boşsa hesaplanmadı)")
+    ml_gerekce = models.CharField("ML gerekçesi", max_length=200, blank=True, default="")
     dagitim_plani = models.CharField(
         "Dağıtım planı", max_length=80, blank=True, default="",
         help_text="Nakit çekmede planlanan banknotlar, örn. 200x8+100x2",

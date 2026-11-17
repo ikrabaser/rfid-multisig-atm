@@ -14,7 +14,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 
-from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, nakit, personel_butunlugu, risk,
+from . import (baglam, bildirim, bloke_butunlugu, kart_butunlugu, kart_imzasi, kilit, ledger, ml_golge, nakit, personel_butunlugu, risk,
                politika_degisikligi, rbac)
 from .hashlog import kayit_ekle
 from .models import (Hesap, HesapHareketi, Islem, Kart, Onay, OnayTalebi, Personel, Politika,
@@ -440,18 +440,22 @@ def islem_baslat(token, tur, tutar, hedef_hesap_no=None, anahtar=None):
             if hata is None and tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE):
                 hata, gereken, en_az, risk_sonucu = risk.kontrol(kart, hesap, tur, tutar, gereken, en_az)
             if hata is None:
+                ml = ml_golge.skorla(kart, hesap, tur, tutar, hedef) if tur in (Islem.Tur.CEKME, Islem.Tur.HAVALE) else None
                 try:
                     with transaction.atomic():
                         islem = Islem.objects.create(
                             hesap=hesap, hedef_hesap=hedef, tur=tur, tutar=tutar,
                             baslatan_uid=kart.uid, anahtar=anahtar, terminal=baglam.terminal(),
                             risk_skoru=(risk_sonucu or {}).get("skor", 0), risk_notu=(risk_sonucu or {}).get("not", ""),
+                            ml_puan=ml["puan"] if ml else None, ml_gerekce=ml_golge.gerekce_metni(ml),
                         )
                 except IntegrityError:
                     tekrar = Islem.objects.select_related("hedef_hesap").filter(hesap=hesap, anahtar=anahtar).first()
                     if tekrar is None:
                         raise
                 if tekrar is None:
+                    if ml:
+                        ml_golge.kayit_yaz(islem, ml, risk_sonucu)
                     if gereken == 0:
                         _uygula(islem)
                         hesap.refresh_from_db()

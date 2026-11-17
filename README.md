@@ -409,7 +409,7 @@ sonradan bloke edilse de (ya da bloke alanı veritabanında sıfırlansa da) iş
   bu yüzden önce ek onay basamağı vardır ve bloke yalnızca birkaç güçlü sinyal birleşince olur (ör. imkânsız seyahat + imza ihlali + hatalı PIN).
 - Eşikler Politika tablosunda değil ayarlardadır; yani maker-checker ile değişmezler (kod/ortam değişikliği gerektirir).
 - Testlerde varsayılan olarak kapalıdır (`RISK_MOTORU_AKTIF`); risk testleri açıkça açar. Üretimde açık olmalıdır.
-- ML katmanı (sıfırdan Isolation Forest, aşağıdaki "ML risk katmanı") henüz gölgede bile bağlı değildir; bağlandığında kural skorunu değiştirmez, yanına bir sinyal olarak girer.
+- ML katmanı (sıfırdan Isolation Forest, aşağıdaki "ML risk katmanı") yalnızca isteğe bağlı gölge modda çalışır; kural skorunu ve kararı değiştirmez, yanına bir sinyal olarak kaydedilir.
 
 **Simülatörde deneme:** (şeritte "Risk motoru: açık" rozeti görünür)
 
@@ -420,8 +420,8 @@ sonradan bloke edilse de (ya da bloke alanı veritabanında sıfırlansa da) iş
 ## ML risk katmanı (sıfırdan Isolation Forest)
 
 Kural motoru yalnızca bilinen kalıpları yakalar. ML katmanı "bu müşteri için bu işlem alışılmadık mı?" sorusunu sorar ve
-kuralların tasarlanmadığı sapmaları işaretler. **Şu an karar vermez**: `risk.py` skorunu değiştirmez, veritabanına
-dokunmaz, yalnızca ayrı bir paket (`backend/banka/ml_risk/`) ve bir ölçüm komutudur. Gölge modda bağlanması sıradaki adımdır.
+kuralların tasarlanmadığı sapmaları işaretler. **Karar vermez**: `risk.py` skorunu değiştirmez. Model saf Python bir paket
+(`backend/banka/ml_risk/`) olarak durur; sunucuya yalnızca isteğe bağlı **gölge modla** bağlanır (aşağıda).
 
 | Dosya | İş |
 |---|---|
@@ -462,6 +462,30 @@ Saldırı türüne göre (tohum 1, saldırı düzeyinde, yani bir saldırı olay
 repoya bağımlılık olarak eklenmedi): AUC farkı en çok 0,008, sıralama korelasyonu (Spearman) 0,976–0,983.
 Testler (`test_ml_risk.py`) `c(256)`, deterministik tohum, JSON gidiş-dönüş, mühür değişimi, özellik uç durumları, AUC'nin bilinen
 değerleri ve kural sabitlerinin `risk.py` ile eşitliğini içerir.
+
+### Gölge mod (`ML_RISK_MODU=golge`)
+
+Gölge modda her para çekme ve havalede ML skoru hesaplanır, `Islem.ml_puan` / `ml_gerekce` alanlarına yazılır ve kural skoruyla
+birlikte hash zincirine `ml_risk_golge` olarak kaydedilir. **İşlemin kararı değişmez**: yüksek ML puanı hiçbir işlemi durdurmaz.
+Varsayılan `kapali`dır; hiçbir şey hesaplanmaz.
+
+```powershell
+cd backend
+python manage.py ml_risk_egit              # sentetik veriyle eğitir, ml_risk_model.json yazar, mührü zincire kaydeder
+python manage.py ml_risk_egit --dogrula    # dosya mührü + zincirdeki son eğitim kaydı eşleşiyor mu?
+$env:ML_RISK_MODU = "golge"; python manage.py runserver
+```
+
+- **Arıza işlemi bozmaz:** model yok, mühür tutmuyor, özellik listesi uyumsuz ya da hesap hata verirse skor boş (`NULL`) kalır, işlem
+  eskisi gibi sürer, sebep bir kez günlüğe yazılır. Veritabanı sorguları savepoint içindedir.
+- **Model bütünlüğü iki katlı:** dosya kendi SHA-256 mührünü taşır; ayrıca eğitimde mühür hash zincirine yazılır ve yüklenirken
+  zincirdeki SON eğitim kaydıyla eşleşmesi aranır. Dosya mührüyle birlikte değiştirilse ya da eski bir model geri konsa bile
+  zincir bunu yakalar (yeniden eğitim zincire yeni kayıt açar).
+- **Kapsam:** yalnızca çekme ve havale skorlanır. Kural motoru işlemi reddederse (RED/BLOKE) işlem satırı oluşmadığı için ML skoru
+  da kaydedilmez; karşılaştırma uygulanan ve ek onaya giden işlemler üzerindendir.
+- **Soğuk başlangıç:** model sentetik müşterilerle eğitildiği ve geçmişi olmayan hesap için "son işlemden bu yana" uzun bir süre
+  sayıldığı için, yeni açılmış demo hesabın ilk işlemleri yüksek ML puanı alabilir (denemede ilk çekme 69). Bu yüzden ML puanı
+  şimdilik yalnızca kural skoruyla yan yana **bakmak** içindir. Gerçek müşteri verisiyle yeniden eğitim ayrı bir adımdır.
 
 **Dürüst sınırlar:**
 
@@ -1380,5 +1404,5 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 2. Elle ters kayıt (dört göz ile).
 3. İmzalı kartın gerçek donanımda çalışması: PN532 okuyucu + NTAG 424 DNA ve Arduino tarafında SDM okuma.
 4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir (tasarım taslağı "Çevrimdışı davranış" bölümünde).
-5. ML risk katmanını gölge modda bağlamak (skoru işlemle birlikte kaydet, Command Center'da kural ve ML'yi yan yana göster) ve gerçek `risk.py` skoruyla karşılaştırmak.
+5. ML gölge skorunu Command Center'da kural skoruyla yan yana göstermek ve gerçek veriyle yeniden eğitmek.
 6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).

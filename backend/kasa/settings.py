@@ -157,6 +157,12 @@ RISK_BLOKE_ESIGI = _env_int("RISK_BLOKE_ESIGI", 120, 1, 1000)
 RISK_EK_ONAY_SAYISI = _env_int("RISK_EK_ONAY_SAYISI", 1, 1, 5)
 RISK_YENI_HESAP_TUTAR = Decimal(os.environ.get("RISK_YENI_HESAP_TUTAR", "5000"))
 
+# ML risk katmani (banka/ml_golge.py). "kapali" (varsayilan) ya da "golge": skor hesaplanip islemle birlikte kaydedilir, KARARI DEGISTIRMEZ.
+ML_RISK_MODU = os.environ.get("ML_RISK_MODU", "kapali").strip().lower()
+if ML_RISK_MODU not in ("kapali", "golge"):
+    ML_RISK_MODU = "kapali"
+ML_RISK_MODEL_YOLU = os.environ.get("ML_RISK_MODEL_YOLU") or str(BASE_DIR / "ml_risk_model.json")
+
 # E-posta: varsayilan konsola yazar. Gercek SMTP icin DJANGO_EMAIL_BACKEND ve EMAIL_* ayarlarini ver.
 EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "banka@banka.example")
