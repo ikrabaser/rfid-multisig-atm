@@ -35,14 +35,14 @@ yapılmaz, yalnızca denetim günlüğü biriktirilir ve bağlantı gelince yük
 | Denetim | HMAC'li hash zinciri; kayıt değişirse ya da silinirse fark edilir. Zincirin son hash'i dışarı yazılarak kuyruğun silinmesi de yakalanır. |
 | Yetki | N-of-M onay, görev ayrımı (RBAC), hassas yönetim işlemlerinde maker-checker (dört göz), onaysız veri değişikliğini yakalayan bütünlük mühürleri. |
 | Anomali | Kural tabanlı tarama: PIN yağmuru, imkânsız seyahat, çok terminal, dağıtıcı arızası, düşük banknot stoğu vb. |
-| ML risk | Saf Python Isolation Forest (11 özellik, açıklamalı skor, SHA-256 mühürlü model); sentetik veride kural tabanını geçer (AUC 0,97 / 0,79) ama karar vermez: isteğe bağlı gölge modda skor işlemle ve hash zincirine kaydedilir, model mührü zincirle doğrulanır; scikit-learn ile AUC farkı ≤ 0,008. |
+| ML risk | Saf Python Isolation Forest (11 özellik, açıklamalı skor, SHA-256 mühürlü model); sentetik veride kural tabanını geçer (AUC 0,97 / 0,79) ama karar vermez: isteğe bağlı gölge modda skor işlemle ve hash zincirine kaydedilir, model mührü zincirle doğrulanır, Command Center kural ve ML'yi yan yana gösterir; scikit-learn ile AUC farkı ≤ 0,008. |
 | Banknot stoğu | En az banknotlu plan, rezervasyon, sıkışmada tam iade + dağıtıcı kapanır, eksik vermede yalnız fark iade, belirsiz sonuçta otomatik iade **yok** (operatör sayımı). |
 | Eşzamanlılık | PostgreSQL; zincir danışma kilidi, hesap ve kaset satır kilitleri, sabit kilit sırası, deadlock'ta yeniden deneme, PIN deneme sayacı kilitli satırdan. |
 | PIN gizliliği | PIN yalnızca SMS sağlayıcıya verilir; log, veritabanı, panel ve e-postada görünmez. |
 
 ## Nasıl doğrulandı
 
-- **545 Python testi** (52'si operasyon simülasyonu) (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
+- **565 Python testi** (52'si operasyon simülasyonu) (PostgreSQL'de çalışan 8 gerçek-thread eşzamanlılık testi dahil: paralel çekimde bakiye, günlük limit,
   banknot stoğu, idempotency ve 3 yanlış PIN sınırı aşılamıyor, zincir bozulmuyor).
 - **27 JavaScript akış testi** (simülatörün ekran akışı, sahte sunucuya karşı, Windows zamanlayıcısı taklit edilerek de).
 - Banknot bölme algoritması, rastgele stok ve tutarlarda kaba kuvvet çözümüyle karşılaştırıldı.

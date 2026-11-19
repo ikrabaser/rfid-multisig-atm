@@ -485,6 +485,19 @@ $env:ML_RISK_MODU = "golge"; python manage.py runserver
   zincir bunu yakalar (yeniden eğitim zincire yeni kayıt açar).
 - **Kapsam:** yalnızca çekme ve havale skorlanır. Kural motoru işlemi reddederse (RED/BLOKE) işlem satırı oluşmadığı için ML skoru
   da kaydedilmez; karşılaştırma uygulanan ve ek onaya giden işlemler üzerindendir.
+**Command Center'da kural ve ML.** Panelin "Kural ve ML risk skoru" bölümü (menüde "Risk (ML)") son 7 günün skorlanan çekme ve
+havalelerini 2×2 sayar: ikisi de işaretledi, yalnız ML, yalnız kural, hiçbiri. Aşağıda "kuralın geçirdiği, ML'nin işaretlediği"
+işlemler gerekçesiyle ve son skorlanan işlemler listelenir; fare ile gerekçenin tamamı görünür. "İşaretledi" eşikleri: kural için
+`RISK_EK_ONAY_ESIGI` (40), ML için `ML_RISK_ISARET_PUANI` (varsayılan 99; puan eğitimdeki normal işlemlerin yüzdeliği olduğundan
+99 = en uç %1). "Güvenlik durumu" kutusundaki "ML model mührü" satırı, model dosyasının zincirdeki son eğitim kaydıyla eşleştiğini
+gösterir; model yoksa ya da eşleşmiyorsa uyarı verir. Bölüm ML kapalıyken de görünür ve nasıl açılacağını söyler.
+
+![Command Center: kural ve ML risk skoru](docs/command-center-ml.png)
+
+*Demo verisi, gölge mod. #3-#5: kuralın geçirdiği ama ML'nin işaretlediği art arda hızlı çekimler (kural puanı 0-20, ML 99-100); #6: ikisinin de
+işaretlediği 5.000 TL'lik çekim. Demo hesabın birkaç dakikada 5 çekimi sentetik eğitim dağılımına göre sıra dışı olduğu için "yalnız ML" sayısı
+yüksektir; bu bir başarı ölçüsü değil, panelin nasıl okunacağının örneğidir.*
+
 - **Soğuk başlangıç:** geçmişi 3 işlemden az hesapta "olağan tutar/saat/terminal" bilinmediği için o özellikler tarafsız değer alır;
   hiç işlemi olmayan hesapta "son işlemden bu yana" da tipik bir süre (1 gün, eğitim medyanına yakın) sayılır. İlk denemede bu süre
   30 gün sayıldığı için yeni demo hesabın ilk çekmesi 69 puan almıştı; düzeltmeden sonra aynı çekme 27 alıyor. Yine de model sentetik
@@ -1407,5 +1420,5 @@ aynı idempotency anahtarıyla en fazla 2 kez yeniden dener. Tutar kuruş içere
 2. Elle ters kayıt (dört göz ile).
 3. İmzalı kartın gerçek donanımda çalışması: PN532 okuyucu + NTAG 424 DNA ve Arduino tarafında SDM okuma.
 4. Çevrimdışı "stand-in" mod: sunucu, terminale kısa ömürlü ve imzalı küçük bir limit verir (tasarım taslağı "Çevrimdışı davranış" bölümünde).
-5. ML gölge skorunu Command Center'da kural skoruyla yan yana göstermek ve gerçek veriyle yeniden eğitmek.
+5. Yeterli gölge veri birikince ML'yi gerçek müşteri verisiyle yeniden eğitmek, eşiği ayarlamak ve ancak ondan sonra (ayrı, onaylı bir adımla) ML'yi karara katmayı değerlendirmek.
 6. Müşteriye işlem bildirimi (SMS) ve ön provizyon (hold).
