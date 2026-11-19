@@ -7,12 +7,66 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from . import izleme
+from . import izleme, ml_golge
 from .models import ArizaVakasi, Hesap, Islem, Kaset, OnayTalebi, Terminal
+
+
+ML_PENCERE_GUN = 7
+ML_LISTE_SAYISI = 8
+
+
+def _ml_etiket(kural, ml):
+    if kural and ml:
+        return "ikisi"
+    if ml:
+        return "yalniz_ml"
+    if kural:
+        return "yalniz_kural"
+    return "hicbiri"
+
+
+def ml_karsilastirma():
+    """Gölge modda kaydedilen ML puanını kural skoruyla yan yana koyar. Karar vermez, yalnızca okur.
+
+    "İşaretledi": kural için `RISK_EK_ONAY_ESIGI` ve üstü (işlem ek onaya düşer), ML için `ML_RISK_ISARET_PUANI` ve üstü (eğitimdeki
+    normal işlemlerin en uç yüzdesi). Reddedilen işlemlerin satırı olmadığı için karşılaştırma uygulanan ve onaya giden işlemler üzerindedir.
+    """
+    kural_esik = settings.RISK_EK_ONAY_ESIGI
+    ml_esik = settings.ML_RISK_ISARET_PUANI
+    sonuc = {"mod": settings.ML_RISK_MODU, "durum": "kapali", "sebep": "", "kural_esik": kural_esik, "ml_esik": ml_esik,
+             "kural_aktif": settings.RISK_MOTORU_AKTIF, "pencere_gun": ML_PENCERE_GUN,
+             "sayim": None, "yalniz_ml": [], "son": []}
+    if not ml_golge.aktif():
+        return sonuc
+    try:
+        model, sebep = ml_golge.modeli_yukle()
+    except Exception as hata:                     # panel hiçbir koşulda ML yüzünden açılmaz olmasın
+        model, sebep = None, f"model denetlenemedi: {hata}"
+    if model is None:
+        sonuc.update(durum="model_yok", sebep=sebep)
+        return sonuc
+    sonuc.update(durum="hazir", muhur=model.muhur()[:16])
+
+    pencere = timezone.now() - timedelta(days=ML_PENCERE_GUN)
+    uygun = Islem.objects.filter(olusturma__gte=pencere, tur__in=[Islem.Tur.CEKME, Islem.Tur.HAVALE])
+    skorlu = uygun.filter(ml_puan__isnull=False)
+    k, m = Q(risk_skoru__gte=kural_esik), Q(ml_puan__gte=ml_esik)
+    sayim = skorlu.aggregate(
+        toplam=Count("id"), ikisi=Count("id", filter=k & m),
+        yalniz_ml=Count("id", filter=m & ~k), yalniz_kural=Count("id", filter=k & ~m))
+    sayim["hicbiri"] = sayim["toplam"] - sayim["ikisi"] - sayim["yalniz_ml"] - sayim["yalniz_kural"]
+    sayim["uygun"] = uygun.count()
+    sonuc["sayim"] = sayim
+
+    secim = skorlu.select_related("hesap").order_by("-id")
+    sonuc["yalniz_ml"] = [{"islem": i, "etiket": "yalniz_ml"} for i in secim.filter(m & ~k)[:ML_LISTE_SAYISI]]
+    sonuc["son"] = [{"islem": i, "etiket": _ml_etiket(i.risk_skoru >= kural_esik, i.ml_puan >= ml_esik)}
+                    for i in secim[:ML_LISTE_SAYISI]]
+    return sonuc
 
 
 def panel_ozeti(anomaliler):
@@ -85,4 +139,5 @@ def panel_ozeti(anomaliler):
         "belirsiz_islemler_ozet": son_belirsizler,
         "son_guncelleme": timezone.now(),
         "simulator_erisimi": settings.SIMULATOR_AKTIF,
+        "ml": ml_karsilastirma(),
     }

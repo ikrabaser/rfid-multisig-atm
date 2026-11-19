@@ -162,6 +162,8 @@ ML_RISK_MODU = os.environ.get("ML_RISK_MODU", "kapali").strip().lower()
 if ML_RISK_MODU not in ("kapali", "golge"):
     ML_RISK_MODU = "kapali"
 ML_RISK_MODEL_YOLU = os.environ.get("ML_RISK_MODEL_YOLU") or str(BASE_DIR / "ml_risk_model.json")
+# Panelde "ML isaretledi" sayilan puan. Puan, egitimdeki normal islemlerin yuzdeligidir: 99 = en uc %1.
+ML_RISK_ISARET_PUANI = _env_int("ML_RISK_ISARET_PUANI", 99, 1, 100)
 
 # E-posta: varsayilan konsola yazar. Gercek SMTP icin DJANGO_EMAIL_BACKEND ve EMAIL_* ayarlarini ver.
 EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
