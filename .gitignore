@@ -12,6 +12,7 @@ backend/sms_kutusu.jsonl
 backend/db_sim.sqlite3*
 backend/ml_risk_model.json*
 backend/*.log
+*.bak-*
 
 # gomulu test/benzetim ciktilari (derlenmis ikili dosyalar commitlenmez)
 arduino/test/test_calistir
