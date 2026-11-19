@@ -1,0 +1,39 @@
+<div class="table-scroll">
+  <table class="ledger-table ml-table">
+    <thead>
+      <tr>
+        <th>İŞLEM</th>
+        <th>HESAP / ATM</th>
+        <th>TUTAR</th>
+        <th>KURAL</th>
+        <th>ML</th>
+        <th>SONUÇ</th>
+        <th>ML GEREKÇESİ</th>
+        <th>ZAMAN</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for satir in satirlar %}
+      {% with i=satir.islem %}
+      <tr class="ml-row" data-sonuc="{{ satir.etiket }}">
+        <td><strong>#{{ i.id }}</strong><span>{{ i.get_tur_display }}</span></td>
+        <td><strong>{{ i.hesap.hesap_no }}</strong><span>{{ i.terminal|default:'Terminal yok' }}</span></td>
+        <td class="amount">{{ i.tutar|floatformat:2 }} TL</td>
+        <td class="ml-score{% if i.risk_skoru >= ml.kural_esik %} hot{% endif %}">{{ i.risk_skoru }}</td>
+        <td class="ml-score{% if i.ml_puan >= ml.ml_esik %} hot{% endif %}">{{ i.ml_puan }}</td>
+        <td>
+          {% if satir.etiket == 'ikisi' %}<span class="state state-warn">İkisi de</span>
+          {% elif satir.etiket == 'yalniz_ml' %}<span class="state state-warn">Yalnız ML</span>
+          {% elif satir.etiket == 'yalniz_kural' %}<span class="state state-warn">Yalnız kural</span>
+          {% else %}<span class="state state-off">Normal</span>{% endif %}
+        </td>
+        <td class="ml-reason" title="{{ i.ml_gerekce }}">{{ i.ml_gerekce|default:"—"|truncatechars:130 }}</td>
+        <td class="timestamp">{{ i.olusturma|date:'d.m H:i' }}</td>
+      </tr>
+      {% endwith %}
+    {% empty %}
+      <tr><td colspan="8" class="table-empty">{{ bos }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

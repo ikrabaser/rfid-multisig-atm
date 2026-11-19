@@ -672,3 +672,57 @@ input:focus-visible, summary:focus-visible {
   *, *::before, *::after { scroll-behavior: auto !important; }
 }
 .brand-logo { width: 36px; height: 36px; border-radius: 9px; display: block; flex: none; box-shadow: 0 0 0 1px #71669a55; }
+
+/* ML risk karsilastirmasi (golge mod) */
+.ml-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  min-width: 0;
+  overflow: hidden;
+  scroll-margin-top: 86px;
+  margin: 18px 0;
+}
+.ml-panel .section-heading .state { flex: none; }
+.ml-note, .ml-meta {
+  margin: 0;
+  padding: 13px 22px;
+  border-top: 1px solid var(--softline);
+  color: var(--muted);
+  font-size: 12px;
+}
+.ml-note code, .ml-meta code {
+  font: 11px Consolas, monospace;
+  background: #141b25;
+  border: 1px solid var(--softline);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #cfd6e1;
+}
+.ml-warn { color: #f2c58e; background: #2a2018; }
+.ml-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--softline);
+  border-top: 1px solid var(--softline);
+}
+.ml-tile { background: var(--surface); padding: 16px 22px; }
+.ml-tile strong { display: block; font-size: 24px; line-height: 1.2; }
+.ml-tile span { color: var(--muted); font-size: 11px; }
+.ml-tile.ml-only strong { color: var(--amber); }
+.ml-subhead {
+  padding: 13px 22px 11px;
+  border-top: 1px solid var(--softline);
+  font: 10px Consolas, monospace;
+  color: var(--subtle);
+  letter-spacing: .04em;
+}
+.ml-table { min-width: 860px; }
+.ml-table td.ml-score { font-weight: 650; font-variant-numeric: tabular-nums; }
+.ml-table td.ml-score.hot { color: var(--amber); }
+.ml-table td.ml-reason { color: var(--muted); font-size: 11px; max-width: 380px; }
+@media(max-width: 700px) {
+  .ml-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ml-note, .ml-meta { padding: 13px 17px; }
+}

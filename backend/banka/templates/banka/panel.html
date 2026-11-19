@@ -32,6 +32,7 @@
       <a href="#terminaller">ATM ağı</a>
       <a href="#onaylar">İnceleme</a>
       <a href="#islemler">İşlemler</a>
+      <a href="#ml-risk">Risk (ML)</a>
       <a href="#guvenlik">Güvenlik</a>
       <a href="#denetim">Denetim</a>
       {% if operasyon_erisimi %}<a href="{% url 'operasyon' %}">Operasyon simülasyonu</a>{% endif %}
@@ -427,6 +428,16 @@
             {% if kart_durumu.0 == 'ok' %}Uygun{% else %}Uyarı{% endif %}
           </strong>
         </div>
+        <div class="integrity-row" id="ml-muhur">
+          <span>ML model mührü</span>
+          {% if ml.durum == 'hazir' %}
+          <strong class="good-text" title="Dosya mührü, zincirdeki son eğitim kaydıyla eşleşiyor">Zincirle eşleşiyor ({{ ml.muhur|slice:":8" }})</strong>
+          {% elif ml.durum == 'model_yok' %}
+          <strong class="danger-text" title="{{ ml.sebep }}">Uyarı · {{ ml.sebep|truncatechars:34 }}</strong>
+          {% else %}
+          <strong>Kapalı</strong>
+          {% endif %}
+        </div>
 
         <a href="#denetim" class="integrity-link">
           Denetim ayrıntıları <span>↗</span>
@@ -455,6 +466,52 @@
 
     </aside>
   </div>
+
+  <section class="ml-panel" id="ml-risk" aria-label="Kural ve ML risk karşılaştırması">
+    <div class="section-heading">
+      <div>
+        <span class="section-index">07 / RİSK KARŞILAŞTIRMASI</span>
+        <h2>Kural ve ML risk skoru</h2>
+        <p>Gölge mod: ML puanı yalnızca kaydedilir ve işlemin kararına girmez</p>
+      </div>
+      <span class="state {% if ml.durum == 'hazir' %}state-on{% elif ml.durum == 'model_yok' %}state-warn{% else %}state-off{% endif %}">
+        {% if ml.durum == 'hazir' %}Gölge açık{% elif ml.durum == 'model_yok' %}Model yok{% else %}Kapalı{% endif %}
+      </span>
+    </div>
+
+    {% if ml.durum == 'kapali' %}
+    <p class="ml-note" id="ml-kapali">
+      ML gölge modu kapalı; hiçbir skor hesaplanmıyor. Açmak için <code>python manage.py ml_risk_egit</code> ile modeli eğitip
+      sunucuyu <code>ML_RISK_MODU=golge</code> ile başlat.
+    </p>
+    {% elif ml.durum == 'model_yok' %}
+    <p class="ml-note ml-warn" id="ml-model-yok">
+      Model yüklenemedi: {{ ml.sebep }}. Skor kaydedilmiyor, işlemler etkilenmiyor.
+      Düzeltmek için <code>python manage.py ml_risk_egit</code>, doğrulamak için <code>--dogrula</code>.
+    </p>
+    {% else %}
+    {% if not ml.kural_aktif %}
+    <p class="ml-note ml-warn" id="ml-kural-kapali">Kural motoru kapalı (<code>RISK_MOTORU_AKTIF=0</code>): kural puanları 0 kaydedilir, karşılaştırma anlamsızdır.</p>
+    {% endif %}
+    <div class="ml-grid" id="ml-ozet">
+      <div class="ml-tile"><strong>{{ ml.sayim.ikisi }}</strong><span>İkisi de işaretledi</span></div>
+      <div class="ml-tile ml-only"><strong>{{ ml.sayim.yalniz_ml }}</strong><span>Yalnız ML işaretledi</span></div>
+      <div class="ml-tile"><strong>{{ ml.sayim.yalniz_kural }}</strong><span>Yalnız kural işaretledi</span></div>
+      <div class="ml-tile"><strong>{{ ml.sayim.hicbiri }}</strong><span>İkisi de normal gördü</span></div>
+    </div>
+    <p class="ml-meta">
+      Son {{ ml.pencere_gun }} gün · {{ ml.sayim.toplam }} skorlanan / {{ ml.sayim.uygun }} çekme-havale ·
+      işaret eşiği: kural ≥ {{ ml.kural_esik }}, ML ≥ {{ ml.ml_esik }} (eğitimdeki normal işlemlerin en uç yüzdesi) ·
+      model mührü <code>{{ ml.muhur }}</code>
+    </p>
+
+    <div class="ml-subhead">KURALIN GEÇİRDİĞİ, ML'NİN İŞARETLEDİĞİ İŞLEMLER</div>
+    {% include "banka/_ml_tablo.html" with satirlar=ml.yalniz_ml bos="Bu pencerede kuralın geçirip ML'nin işaretlediği işlem yok." %}
+
+    <div class="ml-subhead">SON SKORLANAN İŞLEMLER</div>
+    {% include "banka/_ml_tablo.html" with satirlar=ml.son bos="Henüz skorlanan işlem yok: gölge modda bir çekme ya da havale yapılınca burada görünür." %}
+    {% endif %}
+  </section>
 
   <section class="details-hub" id="denetim"><div class="section-bar"><div><span class="micro-label">Kayıtlar ve denetim</span><h2>Denetim arşivi</h2><p>Operasyon detayları ve kayıtların tam görünümü.</p></div><span class="subtle-hint">GEREKTİĞİNDE GENİŞLET</span></div>
       <details class="audit-fold"><summary>Hesaplar ve güncel bakiyeler <span>Genişlet +</span></summary><div class="table-wrap"><table><thead><tr><th>Hesap</th><th>Tür</th><th>Müşteri</th><th>Bakiye</th><th>Günlük limit</th></tr></thead><tbody>{% for h in hesaplar %}<tr><td>{{ h.hesap_no }}</td><td>{{ h.get_tur_display }}</td><td>{{ h.musteri.ad }}</td><td>{{ h.bakiye|floatformat:2 }} TL</td><td>{{ h.gunluk_limit|floatformat:2 }} TL</td></tr>{% empty %}<tr><td colspan="5" class="table-empty">Hesap kaydı yok.</td></tr>{% endfor %}</tbody></table></div></details>
